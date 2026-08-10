@@ -1,5 +1,8 @@
+using System;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using XiaopacaiParent.Services;
 using XiaopacaiParent.Views;
 
 namespace XiaopacaiParent;
@@ -9,15 +12,51 @@ namespace XiaopacaiParent;
 ///
 /// 左侧导航栏 + 右侧内容区布局。
 /// 子页面通过 Frame 导航加载，保持页面状态。
+/// 管理所有服务实例的生命周期。
 /// </summary>
 public partial class MainWindow : Window
 {
+    /// <summary>数据库服务（全局单例）</summary>
+    private readonly DatabaseService _databaseService;
+
+    /// <summary>报告服务</summary>
+    private readonly ReportService _reportService;
+
+    /// <summary>P2P 监听服务</summary>
+    private P2PListenerService? _p2pService;
+
     public MainWindow()
     {
+        // [TASK-D3-01] 初始化全局服务
+        var appDataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "XiaopacaiParent");
+        _databaseService = new DatabaseService(appDataDir, "xiaopacai_parent_2026");
+        _reportService = new ReportService(_databaseService);
+
         InitializeComponent();
 
+        // 启动 P2P 监听
+        StartP2PListener();
+
         // 启动后默认显示仪表盘
-        ContentFrame.Navigate(new DashboardView());
+        ContentFrame.Navigate(new DashboardView(_databaseService, _reportService));
+    }
+
+    /// <summary>
+    /// 启动 P2P 监听服务（后台）
+    /// </summary>
+    private void StartP2PListener()
+    {
+        try
+        {
+            _p2pService = new P2PListenerService(_databaseService, 9527);
+            _p2pService.Start();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"P2P 监听启动失败: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -25,7 +64,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnDashboardClick(object sender, RoutedEventArgs e)
     {
-        ContentFrame.Navigate(new DashboardView());
+        ContentFrame.Navigate(new DashboardView(_databaseService, _reportService));
     }
 
     /// <summary>
@@ -33,8 +72,8 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnDevicesClick(object sender, RoutedEventArgs e)
     {
-        // TODO: [TASK-D1-03] 实现设备管理页面
-        ContentFrame.Navigate(new DashboardView()); // 临时占位
+        // TODO: [TASK-D3-03] 实现设备管理页面
+        ContentFrame.Navigate(new DashboardView(_databaseService, _reportService)); // 临时占位
     }
 
     /// <summary>
@@ -56,12 +95,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 导航到使用报告页面
+    /// 导航到使用报告页面 [TASK-D3-01]
     /// </summary>
     private void OnReportsClick(object sender, RoutedEventArgs e)
     {
-        // TODO: [TASK-D3-01] 实现使用报告页面
-        ContentFrame.Navigate(new DashboardView()); // 临时占位
+        ContentFrame.Navigate(new ReportView(_reportService));
     }
 
     /// <summary>
@@ -70,5 +108,15 @@ public partial class MainWindow : Window
     private void OnSettingsClick(object sender, RoutedEventArgs e)
     {
         ContentFrame.Navigate(new SettingsView());
+    }
+
+    /// <summary>
+    /// 释放资源
+    /// </summary>
+    protected override void OnClosed(EventArgs e)
+    {
+        _p2pService?.Dispose();
+        _databaseService?.Dispose();
+        base.OnClosed(e);
     }
 }
