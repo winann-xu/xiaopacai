@@ -1,0 +1,160 @@
+package com.xiaopacai.child.data.database
+
+import android.content.Context
+import net.sqlcipher.database.SQLiteDatabase
+import net.sqlcipher.database.SQLiteOpenHelper
+
+/**
+ * [TASK-D1-02] 小趴菜本地加密数据库
+ *
+ * 使用 SQLCipher（BSD 社区版）提供 AES-256 加密存储。
+ * 所有儿童端数据（使用记录、策略配置、公告缓存）均加密落盘。
+ *
+ * 数据库版本管理：
+ * - Version 1：初始表结构（时长记录、策略缓存、公告缓存、配对信息）
+ * - 升级时通过 onUpgrade() 执行迁移 SQL
+ */
+class AppDatabase private constructor(
+    context: Context,
+    name: String,
+    passphrase: ByteArray
+) : SQLiteOpenHelper(context, name, null, DATABASE_VERSION) {
+
+    // SQLCipher 初始化（必须在使用任何数据库操作前调用）
+    init {
+        SQLiteDatabase.loadLibs(context)
+    }
+
+    override fun onCreate(db: SQLiteDatabase?) {
+        db ?: return
+
+        // === 表1：应用使用时长记录 ===
+        // 记录每个应用每天的累计使用时长（精确到分钟）
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS usage_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                package_name TEXT NOT NULL,           -- 应用包名
+                app_name TEXT NOT NULL DEFAULT '',    -- 应用名称（便于展示）
+                date TEXT NOT NULL,                   -- 日期（yyyy-MM-dd）
+                total_minutes INTEGER NOT NULL DEFAULT 0,  -- 累计使用分钟数
+                last_used_at INTEGER NOT NULL DEFAULT 0,   -- 最后一次使用时间戳
+                category TEXT NOT NULL DEFAULT 'other',     -- 分类：game/social/video/study/other
+                sync_status INTEGER NOT NULL DEFAULT 0,     -- 同步状态：0=未同步 1=已同步
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                UNIQUE(package_name, date)
+            )
+        """.trimIndent())
+
+        // === 表2：策略配置缓存 ===
+        // 从家长端同步下来的策略本地缓存（断网时使用缓存的策略）
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS policy_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                policy_type TEXT NOT NULL,              -- 策略类型：daily_limit/sleep_time/whitelist/blacklist
+                policy_data TEXT NOT NULL,              -- JSON 格式的策略数据
+                version INTEGER NOT NULL DEFAULT 1,    -- 策略版本号（用于增量同步）
+                applied_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                UNIQUE(policy_type)
+            )
+        """.trimIndent())
+
+        // === 表3：公告缓存 ===
+        // 从家长端同步的公告本地缓存
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS announcements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                announcement_id TEXT NOT NULL UNIQUE,   -- 公告唯一 ID（家长端生成）
+                title TEXT NOT NULL DEFAULT '',         -- 公告标题
+                content TEXT NOT NULL DEFAULT '',       -- 公告正文
+                priority INTEGER NOT NULL DEFAULT 0,   -- 优先级：0=普通 1=重要 2=紧急
+                is_read INTEGER NOT NULL DEFAULT 0,     -- 是否已读：0=未读 1=已读
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                expires_at INTEGER NOT NULL DEFAULT 0   -- 过期时间戳（0=永不过期）
+            )
+        """.trimIndent())
+
+        // === 表4：配对信息 ===
+        // 记录与家长端的 P2P 配对信息（证书指纹、IP 等）
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS pairing_info (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_id TEXT NOT NULL UNIQUE,          -- 家长端唯一标识
+                parent_name TEXT NOT NULL DEFAULT '',    -- 家长端设备名称
+                cert_fingerprint TEXT NOT NULL DEFAULT '',-- 证书指纹（防中间人）
+                last_ip TEXT NOT NULL DEFAULT '',        -- 最后已知 IP 地址
+                last_connected_at INTEGER NOT NULL DEFAULT 0,  -- 最后连接时间
+                is_active INTEGER NOT NULL DEFAULT 1     -- 是否活跃配对
+            )
+        """.trimIndent())
+
+        // === 表5：每日使用汇总 ===
+        // 每日总使用时长快照（便于快速查询与报告生成）
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS daily_summary (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL UNIQUE,               -- 日期（yyyy-MM-dd）
+                total_minutes INTEGER NOT NULL DEFAULT 0,-- 当日总使用分钟数
+                game_minutes INTEGER NOT NULL DEFAULT 0, -- 游戏类分钟数
+                study_minutes INTEGER NOT NULL DEFAULT 0,-- 学习类分钟数
+                limit_minutes INTEGER NOT NULL DEFAULT 0,-- 当日限额（从策略获取）
+                limit_exceeded INTEGER NOT NULL DEFAULT 0,-- 是否超限：0=否 1=是
+                stop_mode TEXT NOT NULL DEFAULT 'none'   -- 停用模式：none/partial/full
+            )
+        """.trimIndent())
+
+        // === 索引（加速查询） ===
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_usage_date ON usage_records(date)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_usage_pkg_date ON usage_records(package_name, date)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_announcements_read ON announcements(is_read)")
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase?, oldVersion: Int, newVersion: Int) {
+        db ?: return
+        // 后续版本升级时的迁移逻辑在此添加
+        // 示例：
+        // if (oldVersion < 2) {
+        //     db.execSQL("ALTER TABLE usage_records ADD COLUMN new_field TEXT DEFAULT ''")
+        // }
+    }
+
+    /**
+     * 获取可写的加密数据库实例
+     * 使用传入的 passphrase 打开数据库
+     */
+    fun getWritable(passphrase: ByteArray): SQLiteDatabase {
+        return getWritableDatabase(passphrase.toString(Charsets.UTF_8))
+    }
+
+    /**
+     * 获取只读的加密数据库实例
+     */
+    fun getReadable(passphrase: ByteArray): SQLiteDatabase {
+        return getReadableDatabase(passphrase.toString(Charsets.UTF_8))
+    }
+
+    companion object {
+        private const val DATABASE_NAME = "xiaopacai_guardian.db"
+        private const val DATABASE_VERSION = 1
+
+        @Volatile
+        private var INSTANCE: AppDatabase? = null
+
+        /**
+         * 获取数据库单例
+         * 使用双重检查锁定保证线程安全
+         *
+         * @param context 应用上下文
+         * @param passphrase 数据库加密密钥
+         */
+        fun getInstance(context: Context, passphrase: ByteArray): AppDatabase {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: AppDatabase(
+                    context.applicationContext,
+                    DATABASE_NAME,
+                    passphrase
+                ).also { INSTANCE = it }
+            }
+        }
+    }
+}

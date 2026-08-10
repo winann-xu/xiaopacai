@@ -80,9 +80,9 @@ public class P2PBroadcastService : IDisposable
             try
             {
                 var packet = BuildBroadcastPacket();
+                // [BUG-0810-04] 使用 ReadOnlyMemory<byte> 重载以支持 CancellationToken
                 await _udpClient!.SendAsync(
-                    packet,
-                    packet.Length,
+                    new ReadOnlyMemory<byte>(packet),
                     new IPEndPoint(IPAddress.Broadcast, _broadcastPort),
                     ct);
 
