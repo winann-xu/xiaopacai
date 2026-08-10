@@ -249,7 +249,7 @@ fun RemainingTimeCard(
 
             // 进度条
             LinearProgressIndicator(
-                progress = { if (isTimeoutActive) 1f else usagePercent.coerceIn(0f, 1f) },
+                progress = if (isTimeoutActive) 1f else usagePercent.coerceIn(0f, 1f),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(8.dp)

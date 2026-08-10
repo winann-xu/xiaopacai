@@ -1,0 +1,33 @@
+#!/bin/sh
+# [TASK-D1-02] Gradle Wrapper 启动脚本
+# 小趴菜儿童端 — Unix/Linux 构建入口
+
+##############################################################################
+# 尝试查找 Java 安装路径
+##############################################################################
+
+# 检测 JAVA_HOME
+if [ -n "$JAVA_HOME" ] ; then
+    JAVACMD="$JAVA_HOME/bin/java"
+else
+    JAVACMD="java"
+fi
+
+# 使用 GRADLE_OPTS 传递 JVM 参数
+DEFAULT_JVM_OPTS="-Xmx2048m -Dfile.encoding=UTF-8"
+
+# 项目目录
+APP_HOME=$( cd "${0%/*}" && pwd -P ) || exit
+
+# 查找 Gradle Wrapper JAR
+CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
+
+# 执行 Gradle
+exec "$JAVACMD" \
+    $DEFAULT_JVM_OPTS \
+    $JAVA_OPTS \
+    $GRADLE_OPTS \
+    "-Dorg.gradle.appname=gradlew" \
+    -classpath "$CLASSPATH" \
+    org.gradle.wrapper.GradleWrapperMain \
+    "$@"

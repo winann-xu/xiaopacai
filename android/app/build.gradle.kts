@@ -94,7 +94,7 @@ dependencies {
 
     // === SQLCipher 加密数据库（BSD 社区版） ===
     // 使用 net.zetetic:android-database-sqlcipher 提供 SQLCipher 加密
-    implementation("net.zetetic:android-database-sqlcipher:4.5.6")
+    implementation("net.zetetic:android-database-sqlcipher:4.5.4")
     // Room 运行时（配合 SQLCipher 使用）
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

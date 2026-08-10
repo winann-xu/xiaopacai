@@ -2,6 +2,7 @@ package com.xiaopacai.child.p2p
 
 import android.util.Log
 import kotlinx.coroutines.*
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import okhttp3.*
@@ -260,7 +261,7 @@ class P2PConnectionService {
 
     /** 接收消息循环（阻塞当前协程） */
     private suspend fun receiveLoop() {
-        while (isActive && _connectionState.value == P2PConnectionState.CONNECTED) {
+        while (currentCoroutineContext().isActive && _connectionState.value == P2PConnectionState.CONNECTED) {
             try {
                 val message = readMessage() ?: continue
 
