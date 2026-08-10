@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>XiaopacaiParent</RootNamespace>
+    <AssemblyName>XiaopacaiParent</AssemblyName>
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+    <Version>0.1.0</Version>
+    <Authors>小趴菜开源社区</Authors>
+    <Description>小趴菜家长端 — 儿童守护管理控制台</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SQLCipher 加密数据库（BSD 社区版 .NET 封装） -->
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="8.0.0" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.8" />
+
+    <!-- 二维码生成（配对用） -->
+    <PackageReference Include="QRCoder" Version="1.4.3" />
+
+    <!-- mDNS 局域网发现 -->
+    <PackageReference Include="Zeroconf" Version="3.6.11" />
+
+    <!-- JSON 序列化 -->
+    <PackageReference Include="System.Text.Json" Version="8.0.0" />
+
+    <!-- Material Design 主题（WPF 现代化 UI） -->
+    <PackageReference Include="MaterialDesignThemes" Version="4.9.0" />
+    <PackageReference Include="MaterialDesignColors" Version="2.1.4" />
+
+    <!-- Community Toolkit MVVM -->
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
+  </ItemGroup>
+
+</Project>
