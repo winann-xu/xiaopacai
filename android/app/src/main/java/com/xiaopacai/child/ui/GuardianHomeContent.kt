@@ -1,0 +1,405 @@
+package com.xiaopacai.child.ui
+
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.xiaopacai.child.p2p.P2PConnectionState
+import com.xiaopacai.child.service.GuardianForegroundService
+
+/**
+ * [TASK-D1-05] 小趴菜儿童端守护主页
+ *
+ * 展示守护状态的核心页面，包含：
+ * - 剩余使用时长（今日）
+ * - 超时倒计时（动态）
+ * - 家长公告区
+ * - P2P 连接状态
+ * - 设置入口
+ */
+
+/**
+ * 模拟公告数据（后续从 P2P 同步获取）
+ */
+data class Announcement(
+    val id: String,
+    val title: String,
+    val content: String,
+    val time: String,
+    val priority: Int  // 0=普通 1=重要 2=紧急
+)
+
+@Composable
+fun GuardianHomeContent(
+    onOpenSettings: () -> Unit = {},
+    onOpenPermissionGuide: () -> Unit = {}
+) {
+    val context = LocalContext.current
+
+    // === 状态（后续从数据库/服务实时获取） ===
+    var todayUsedMinutes by remember { mutableStateOf(0) }
+    var dailyLimitMinutes by remember { mutableStateOf(120) }
+    var stopMode by remember { mutableStateOf("partial") } // full / partial
+    var connectionState by remember { mutableStateOf(P2PConnectionState.DISCONNECTED) }
+    var isTimeoutActive by remember { mutableStateOf(false) }
+
+    // 计算剩余时长
+    val remainingMinutes = maxOf(0, dailyLimitMinutes - todayUsedMinutes)
+    val usagePercent = if (dailyLimitMinutes > 0)
+        (todayUsedMinutes.toFloat() / dailyLimitMinutes) else 0f
+    val isNearLimit = remainingMinutes <= 15 && remainingMinutes > 0
+
+    // 模拟公告数据
+    val announcements = remember {
+        listOf(
+            Announcement("1", "今日作业提醒", "记得完成数学与英语作业后再玩游戏哦～", "09:00", 1),
+            Announcement("2", "屏幕使用建议", "每用30分钟记得休息5分钟，保护眼睛", "08:30", 0)
+        )
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // === 1. P2P 连接状态栏 ===
+        item {
+            ConnectionStatusBar(connectionState)
+        }
+
+        // === 2. 剩余时长卡片（核心） ===
+        item {
+            RemainingTimeCard(
+                usedMinutes = todayUsedMinutes,
+                limitMinutes = dailyLimitMinutes,
+                remainingMinutes = remainingMinutes,
+                usagePercent = usagePercent,
+                isNearLimit = isNearLimit,
+                isTimeoutActive = isTimeoutActive,
+                stopMode = stopMode
+            )
+        }
+
+        // === 3. 超时停用状态横幅（仅超时时显示） ===
+        if (isTimeoutActive) {
+            item {
+                TimeoutBanner(stopMode = stopMode)
+            }
+        }
+
+        // === 4. 家长公告区 ===
+        item {
+            Text(
+                text = "📢 家长公告",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+        items(announcements) { announcement ->
+            AnnouncementCard(announcement)
+        }
+
+        // === 5. 快捷入口 ===
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 设置按钮
+                QuickActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.Settings,
+                    label = "设置",
+                    onClick = onOpenSettings
+                )
+                // 权限管理按钮
+                QuickActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.Security,
+                    label = "权限管理",
+                    onClick = onOpenPermissionGuide
+                )
+                // 关于按钮
+                QuickActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.Info,
+                    label = "关于",
+                    onClick = {
+                        // TODO: 显示关于对话框
+                    }
+                )
+            }
+        }
+
+        // 底部间距
+        item { Spacer(modifier = Modifier.height(16.dp)) }
+    }
+}
+
+// ==================== 子组件 ====================
+
+/**
+ * P2P 连接状态栏
+ * 绿色已连接 / 黄色连接中 / 灰色未连接
+ */
+@Composable
+fun ConnectionStatusBar(state: P2PConnectionState) {
+    val (text, color) = when (state) {
+        P2PConnectionState.CONNECTED -> "● 已连接到家长端" to Color(0xFF4CAF50)
+        P2PConnectionState.CONNECTING,
+        P2PConnectionState.HANDSHAKING -> "◉ 连接中..." to Color(0xFFFF9800)
+        P2PConnectionState.RECONNECTING -> "◉ 重连中..." to Color(0xFFFF9800)
+        P2PConnectionState.DISCONNECTED -> "○ 未连接" to Color(0xFF9E9E9E)
+    }
+    Text(
+        text = text,
+        color = color,
+        fontSize = 12.sp,
+        modifier = Modifier.padding(bottom = 4.dp)
+    )
+}
+
+/**
+ * 剩余时长卡片
+ * 显示今日使用进度、剩余分钟数、限额信息
+ */
+@Composable
+fun RemainingTimeCard(
+    usedMinutes: Int,
+    limitMinutes: Int,
+    remainingMinutes: Int,
+    usagePercent: Float,
+    isNearLimit: Boolean,
+    isTimeoutActive: Boolean,
+    stopMode: String
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isTimeoutActive)
+                Color(0xFFE53935)  // 超时红色
+            else if (isNearLimit)
+                Color(0xFFFF9800)  // 警告橙色
+            else
+                MaterialTheme.colorScheme.primaryContainer
+        ),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // 状态标题
+            val titleText = when {
+                isTimeoutActive && stopMode == "full" -> "🔒 设备已停用"
+                isTimeoutActive && stopMode == "partial" -> "⚠️ 娱乐应用已停用"
+                isNearLimit -> "⏰ 即将超时"
+                else -> "🥬 今日使用时长"
+            }
+            Text(
+                text = titleText,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isTimeoutActive) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 剩余时长数字
+            Text(
+                text = if (isTimeoutActive) "00:00" else formatMinutes(remainingMinutes),
+                fontSize = 56.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isTimeoutActive) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Text(
+                text = if (isTimeoutActive) "已超时" else "剩余分钟",
+                fontSize = 14.sp,
+                color = if (isTimeoutActive)
+                    Color.White.copy(alpha = 0.8f)
+                else
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 进度条
+            LinearProgressIndicator(
+                progress = { if (isTimeoutActive) 1f else usagePercent.coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+                color = when {
+                    isTimeoutActive -> Color.White
+                    isNearLimit -> Color.White
+                    else -> MaterialTheme.colorScheme.primary
+                },
+                trackColor = if (isTimeoutActive || isNearLimit)
+                    Color.White.copy(alpha = 0.3f)
+                else
+                    MaterialTheme.colorScheme.primaryContainer,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 限额信息
+            Text(
+                text = "今日限额 $limitMinutes 分钟 · 已用 $usedMinutes 分钟",
+                fontSize = 12.sp,
+                color = if (isTimeoutActive)
+                    Color.White.copy(alpha = 0.7f)
+                else
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+            )
+        }
+    }
+}
+
+/**
+ * 超时停用横幅
+ * 显示停用状态与能力边界提醒
+ */
+@Composable
+fun TimeoutBanner(stopMode: String) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFFFFF3E0)
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = Color(0xFFE65100),
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+                Text(
+                    text = if (stopMode == "full") "整机停用模式" else "部分应用停用模式",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    color = Color(0xFFE65100)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "学习类应用可继续使用。如需恢复，请联系家长。紧急电话始终可用。",
+                    fontSize = 12.sp,
+                    color = Color(0xFF795548)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 公告卡片
+ * 显示家长推送的公告信息
+ */
+@Composable
+fun AnnouncementCard(announcement: Announcement) {
+    val priorityColor = when (announcement.priority) {
+        2 -> Color(0xFFE53935)  // 紧急红
+        1 -> Color(0xFFFF9800)  // 重要橙
+        else -> Color(0xFF2196F3) // 普通蓝
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // 优先级指示器
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(priorityColor)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = announcement.title,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = announcement.time,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = announcement.content,
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3
+            )
+        }
+    }
+}
+
+/**
+ * 快捷操作按钮
+ */
+@Composable
+fun QuickActionButton(
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.height(72.dp),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(label, fontSize = 12.sp)
+        }
+    }
+}
+
+// ==================== 工具函数 ====================
+
+/** 格式化分钟数为 mm:ss */
+private fun formatMinutes(minutes: Int): String {
+    val m = minutes.coerceAtLeast(0)
+    return "%02d:%02d".format(m, 0)
+}

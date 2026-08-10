@@ -80,41 +80,20 @@ fun MainScreen() {
 }
 
 /**
- * 守护主页（骨架占位）
- * 实际内容在 D1-05 实现，此处显示基础结构
+ * [TASK-D1-05] 守护主页
+ * 展示剩余时长、超时停用状态、公告、P2P 连接状态
  */
 @Composable
 fun GuardianHomeScreen() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = Icons.Default.Security,
-            contentDescription = "守护中",
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "小趴菜守护中 🥬",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "剩余使用时长、超时停用、公告等将在 D1-05 实现",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-    }
+    GuardianHomeContent(
+        onOpenSettings = {
+            // TODO: [TASK-D1-05] 打开设置页面
+        },
+        onOpenPermissionGuide = {
+            // TODO: [TASK-D1-05] 打开权限引导
+        }
+    )
 }
-
-// TODO: D1-05 将以下内容替换为完整版 GuardianHomeScreen
 
 /**
  * 检查所有必要权限是否已授予
