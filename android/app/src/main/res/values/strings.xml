@@ -28,4 +28,9 @@
     <string name="btn_back">返回</string>
     <string name="status_granted">已授权</string>
     <string name="status_not_granted">未授权</string>
+
+    <!-- [TASK-D3-03] 设备管理器 -->
+    <string name="device_admin_description">小趴菜设备管理器用于防止应用被卸载，保护儿童使用安全。激活后可防止未经授权的卸载操作。</string>
+    <string name="device_admin_activate">激活设备保护</string>
+    <string name="device_admin_deactivate">关闭设备保护</string>
 </resources>

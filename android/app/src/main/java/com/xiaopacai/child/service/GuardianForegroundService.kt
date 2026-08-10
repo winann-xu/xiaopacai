@@ -78,6 +78,9 @@ class GuardianForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "守护前台服务创建")
+
+        // [TASK-D3-03] 启动防绕过监控
+        AntiBypassService.startMonitoring(this, serviceScope)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -176,6 +179,7 @@ class GuardianForegroundService : Service() {
         // 停止采集、同步与协程
         collector?.stop()
         syncManager?.stop()
+        AntiBypassService.stopMonitoring()  // [TASK-D3-03]
         serviceScope.cancel()
         Log.i(TAG, "守护前台服务销毁")
     }
