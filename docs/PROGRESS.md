@@ -6,7 +6,7 @@
 - 提示词包：V2.1（主任务书 + 分日任务单 + Token 机制 + 中断续接协议）
 
 ## Day1 骨架与连接
-- [ ] D1-01 仓库初始化收尾（README/LICENSE/CONTRIBUTING/ADR/COLLAB_RULES）
+- [x] D1-01 仓库初始化收尾（README/LICENSE/CONTRIBUTING/ADR/COLLAB_RULES）
 - [ ] D1-02 Android 工程骨架
 - [ ] D1-03 Windows 家长端骨架
 - [ ] D1-04 P2P 连接 PoC

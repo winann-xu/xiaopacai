@@ -5,7 +5,7 @@
   "branch": "main",
   "token_usage": {"session_input": 0, "session_output": 0, "total": 0},
   "tasks": {
-    "D1-01": {"status": "pending", "blocked_reason": null, "note": "由 Claude 完成 README/LICENSE/CONTRIBUTING/ADR 模板等初始化收尾"},
+    "D1-01": {"status": "done", "blocked_reason": null, "note": "已完成 README/LICENSE/CONTRIBUTING/ADR模板/.gitignore/目录结构"},
     "D1-02": {"status": "pending", "blocked_reason": null, "note": ""},
     "D1-03": {"status": "pending", "blocked_reason": null, "note": ""},
     "D1-04": {"status": "pending", "blocked_reason": null, "note": ""},
