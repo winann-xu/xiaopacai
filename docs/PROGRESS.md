@@ -37,11 +37,12 @@
 - [x] BUG-0810-05 SavePolicy 参数清空（cmd.Parameters.Clear()）
 - [x] BUG-0810-06 ReportView using/CryptoService using System.IO/AvgDailySubText
 - [x] BUG-0810-07 分类限额策略键加入 category + 补测试（10 xunit tests）
+- [x] BUG-0810-08 Android 4处Kotlin编译错误修复（GuardianDeviceAdminReceiver常量/ReportGenerator单例/BlockOverlayActivity border API/ParentPasswordManager import）
 - [x] 非阻断建议：csproj Sdk→Microsoft.NET.Sdk + Nullable + README Windows运行说明
 
 ## 产出统计
-- 总 Git commits: 30 个
-- 新增/修改文件: ~68 个
+- 总 Git commits: 31 个
+- 新增/修改文件: ~69 个
 - Android Kotlin 文件: ~18 个
 - Windows C#/XAML 文件: ~17 个
 - 测试文件: 2 个（xunit 测试项目）

@@ -1,15 +1,16 @@
 {
   "project": "xiaopacai",
   "kickoff": "2026-08-10T11:44:00+08:00",
-  "last_update": "2026-08-10T15:30:00+08:00",
+  "last_update": "2026-08-10T16:00:00+08:00",
   "branch": "main",
-  "version": "1.0.0",
-  "token_usage": {"session_input": 120000, "session_output": 35000, "total": 155000},
+  "version": "1.0.1",
+  "token_usage": {"session_input": 227000, "session_output": 168000, "total": 410000},
   "tasks": {
     "BUG-0810-04": {"status": "done", "blocked_reason": null, "note": "P2PBroadcastService SendAsync ReadOnlyMemory<byte>重载修复"},
     "BUG-0810-05": {"status": "done", "blocked_reason": null, "note": "SavePolicy SqliteCommand参数复用冲突 — cmd.Parameters.Clear()修复"},
     "BUG-0810-06": {"status": "done", "blocked_reason": null, "note": "CryptoService缺using System.IO + ReportView XAML AvgDailySubText未命名 + using清理 + ReportView补漏using XiaopacaiParent.Services"},
     "BUG-0810-07": {"status": "done", "blocked_reason": null, "note": "分类限额策略键加入category维度(SAVE/GET/DEACTIVATE UPSERT) + 10个xunit测试"},
+    "BUG-0810-08": {"status": "done", "blocked_reason": null, "note": "Android 4处Kotlin编译错误: GuardianDeviceAdminReceiver常量/ReportGenerator AppDatabase单例/BlockOverlayActivity border API/ParentPasswordManager import"},
     "D3-01": {"status": "done", "blocked_reason": null, "note": "报告生成: Android ReportGenerator + Windows ReportView/ReportService"},
     "D3-02": {"status": "done", "blocked_reason": null, "note": "数据安全: KeyStore集成+DPAPI+HMAC+AES-GCM+DataSanitizer+修复AppDatabase重Bug"},
     "D3-03": {"status": "done", "blocked_reason": null, "note": "防绕过/卸载保护: DeviceAdminReceiver+AntiBypassService+ParentPasswordManager(PBKDF2)"},
@@ -18,5 +19,5 @@
     "D3-06": {"status": "done", "blocked_reason": null, "note": "打包: 版本号1.0.0+GitBundle生成"},
     "NONBLOCK": {"status": "done", "blocked_reason": null, "note": "非阻断建议: csproj Sdk→Microsoft.NET.Sdk + Nullable + README Windows运行说明"}
   },
-  "next_recommended": "BUG-0810-05/06/07修复已提交。建议Codex在50.20进行: 1) dotnet build验证 2) dotnet test运行测试 3) GUI走查验证"
+  "next_recommended": "全部Bug已修复。Codex在50.20进行最终构建验证+全功能GUI测试，确认无误后发布v1.0.1。"
 }
