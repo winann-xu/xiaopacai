@@ -45,12 +45,48 @@
 ### 构建家长端 (Windows)
 
 ```powershell
-# 安装 .NET 8 SDK 后
+# 1. 安装 .NET 8 SDK (https://dotnet.microsoft.com/download/dotnet/8.0)
+# 2. 克隆仓库
+git clone <repo-url> && cd xiaopacai
+
+# 3. 还原依赖并编译
 cd windows/XiaopacaiParent
 dotnet restore
 dotnet build -c Release
+
+# 4. 运行家长端
 dotnet run -c Release
 ```
+
+#### Windows 运行说明
+
+**系统要求：**
+- Windows 10 版本 19041+ (20H1) 或 Windows 11
+- .NET 8 Desktop Runtime（不含 SDK 时需单独安装）
+- 局域网环境（与儿童端设备处于同一子网）
+- 推荐分辨率：1366×768 及以上
+
+**首次运行：**
+1. 启动后自动在 `%LocalAppData%/XiaopacaiParent/` 创建加密数据库
+2. 数据库密码通过 Windows DPAPI（当前用户级别）保护，无需手动输入
+3. 首次启动会创建默认策略模板（每日限额 2 小时 / 就寝 21:00-07:00 等）
+
+**配对儿童端：**
+1. 确保 Android 设备与 Windows 处于同一局域网
+2. 在家长端点击「设备管理」→「添加设备」→ 生成配对码
+3. 在儿童端输入配对码完成 TLS 双向认证
+4. 配对成功后策略自动同步到儿童端
+
+**数据存储位置：**
+- 数据库：`%LocalAppData%/XiaopacaiParent/xiaopacai_parent.db` (SQLCipher 加密)
+- 日志：`%LocalAppData%/XiaopacaiParent/logs/`
+- 配置文件：`%LocalAppData%/XiaopacaiParent/config.json`
+
+**常见问题：**
+- 防火墙弹窗：请允许 `XiaopacaiParent.exe` 访问专用网络（端口 9527 TCP）
+- mDNS 发现失败：检查 Windows 防火墙 → 允许 mDNS (UDP 5353)
+- 数据库无法打开：删除 `%LocalAppData%/XiaopacaiParent/` 目录后重启（⚠️ 将丢失所有数据）
+- 运行 `dotnet --version` 确认 .NET 版本 >= 8.0.0
 
 ### 构建儿童端 (Android)
 
