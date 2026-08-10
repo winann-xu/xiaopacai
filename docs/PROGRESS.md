@@ -2,6 +2,7 @@
 
 - 冲刺开始：2026-08-10 11:44 (+08:00)
 - 冲刺完成：2026-08-10 14:30 (+08:00)
+- 终验修复：2026-08-10 15:15 (+08:00)
 - 角色：Claude@50.53 主开发；Codex@50.20 主测试
 - 提示词包：V2.1（主任务书 + 分日任务单 + Token 机制 + 中断续接协议）
 - **版本：1.0.0 首版正式发布**
@@ -32,12 +33,19 @@
 - [x] D3-05 质量收尾（统一密码管理 + 6文件批量修复 + 代码规范化）
 - [x] D3-06 打包（版本号 1.0.0 + Git Bundle）
 
+## Codex 终验修复 ✅ 全部完成 (2026-08-10 15:15)
+- [x] BUG-0810-05 SavePolicy 参数清空（cmd.Parameters.Clear()）
+- [x] BUG-0810-06 ReportView using/CryptoService using System.IO/AvgDailySubText
+- [x] BUG-0810-07 分类限额策略键加入 category + 补测试（10 xunit tests）
+- [x] 非阻断建议：csproj Sdk→Microsoft.NET.Sdk + Nullable + README Windows运行说明
+
 ## 产出统计
-- 总 Git commits: ~35 个
-- 新增/修改文件: ~65 个
+- 总 Git commits: 30 个
+- 新增/修改文件: ~68 个
 - Android Kotlin 文件: ~18 个
 - Windows C#/XAML 文件: ~17 个
-- 总代码量: ~5,500 行
+- 测试文件: 2 个（xunit 测试项目）
+- 总代码量: ~5,800 行
 - Git bundle: /home/winann/xiaopacai.bundle
 - APK: android/app/build/outputs/apk/debug/app-debug.apk (28MB)
-- Token 用量（估算）: ~154K
+- Token 用量（估算）: ~155K（本会话）

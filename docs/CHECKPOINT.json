@@ -1,18 +1,22 @@
 {
   "project": "xiaopacai",
   "kickoff": "2026-08-10T11:44:00+08:00",
-  "last_update": "2026-08-10T14:30:00+08:00",
+  "last_update": "2026-08-10T15:15:00+08:00",
   "branch": "main",
   "version": "1.0.0",
-  "token_usage": {"session_input": 95000, "session_output": 59000, "total": 154000},
+  "token_usage": {"session_input": 120000, "session_output": 35000, "total": 155000},
   "tasks": {
     "BUG-0810-04": {"status": "done", "blocked_reason": null, "note": "P2PBroadcastService SendAsync ReadOnlyMemory<byte>重载修复"},
+    "BUG-0810-05": {"status": "done", "blocked_reason": null, "note": "SavePolicy SqliteCommand参数复用冲突 — cmd.Parameters.Clear()修复"},
+    "BUG-0810-06": {"status": "done", "blocked_reason": null, "note": "CryptoService缺using System.IO + ReportView XAML AvgDailySubText未命名 + using清理"},
+    "BUG-0810-07": {"status": "done", "blocked_reason": null, "note": "分类限额策略键加入category维度(SAVE/GET/DEACTIVATE UPSERT) + 10个xunit测试"},
     "D3-01": {"status": "done", "blocked_reason": null, "note": "报告生成: Android ReportGenerator + Windows ReportView/ReportService"},
     "D3-02": {"status": "done", "blocked_reason": null, "note": "数据安全: KeyStore集成+DPAPI+HMAC+AES-GCM+DataSanitizer+修复AppDatabase重Bug"},
     "D3-03": {"status": "done", "blocked_reason": null, "note": "防绕过/卸载保护: DeviceAdminReceiver+AntiBypassService+ParentPasswordManager(PBKDF2)"},
     "D3-04": {"status": "done", "blocked_reason": null, "note": "UI打磨: 完整Material3品牌色系+动画+深色主题+Windows品牌样式"},
     "D3-05": {"status": "done", "blocked_reason": null, "note": "质量收尾: DbPassphraseProvider统一密码管理+6文件批量修复"},
-    "D3-06": {"status": "done", "blocked_reason": null, "note": "打包: 版本号1.0.0+GitBundle生成"}
+    "D3-06": {"status": "done", "blocked_reason": null, "note": "打包: 版本号1.0.0+GitBundle生成"},
+    "NONBLOCK": {"status": "done", "blocked_reason": null, "note": "非阻断建议: csproj Sdk→Microsoft.NET.Sdk + Nullable + README Windows运行说明"}
   },
-  "next_recommended": "全部任务完成。建议Codex在50.20进行端到端验证并生成签名APK。"
+  "next_recommended": "BUG-0810-05/06/07修复已提交。建议Codex在50.20进行: 1) dotnet build验证 2) dotnet test运行测试 3) GUI走查验证"
 }
