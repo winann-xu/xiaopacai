@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import java.security.MessageDigest
 import java.security.SecureRandom
+import com.xiaopacai.child.service.AntiBypassService
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 

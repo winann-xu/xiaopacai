@@ -3,6 +3,7 @@ package com.xiaopacai.child.service
 import android.content.Context
 import com.xiaopacai.child.data.database.AppDatabase
 import com.xiaopacai.child.data.database.UsageRecordDao
+import com.xiaopacai.child.util.DbPassphraseProvider
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -26,7 +27,8 @@ class ReportGenerator(private val context: Context) {
         private const val TOP_N = 10  // Top-N 应用排行
     }
 
-    private val dbHelper = AppDatabase(context)
+    private val dbHelper = AppDatabase.getInstance(
+        context, DbPassphraseProvider.getPassphrase(context))
     private val dao = UsageRecordDao(dbHelper)
     private val dateFormat = SimpleDateFormat(DATE_FORMAT, Locale.getDefault())
 

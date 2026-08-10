@@ -96,10 +96,10 @@ class GuardianDeviceAdminReceiver : DeviceAdminReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         when (intent.action) {
-            DevicePolicyManager.ACTION_DEVICE_ADMIN_DISABLED -> {
+            DeviceAdminReceiver.ACTION_DEVICE_ADMIN_DISABLED -> {
                 Log.e(TAG, "设备管理器被外部禁用")
             }
-            DevicePolicyManager.ACTION_DEVICE_ADMIN_DISABLE_REQUESTED -> {
+            DeviceAdminReceiver.ACTION_DEVICE_ADMIN_DISABLE_REQUESTED -> {
                 // 用户尝试禁用设备管理器 — 阻止此操作
                 Log.w(TAG, "用户尝试禁用设备管理器 — 已阻止")
                 Toast.makeText(

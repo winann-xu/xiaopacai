@@ -291,7 +291,6 @@ private fun BlockOverlayScreen(
                         colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = Color.White
                         ),
-                        border = ButtonDefaults.outlinedButtonBorder(true),
                         shape = RoundedCornerShape(14.dp)
                     ) {
                         Text(

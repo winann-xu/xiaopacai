@@ -1,0 +1,30 @@
+全部任务完成。以下是执行摘要：
+
+---
+
+## ✅ Codex 终验缺陷修复 — 全部完成
+
+### BUG 修复（4 个独立 commit）
+
+| Commit | Bug | 修复要点 |
+|--------|-----|---------|
+| `b8aa4fc` | **BUG-0810-05** | `SavePolicy()` 复用 SqliteCommand 前加 `cmd.Parameters.Clear()`，解决 INSERT 路径重复添加 `@type`/`@deviceId` 参数抛异常 |
+| `a81e722` | **BUG-0810-06** | CryptoService 补 `using System.IO;`；ReportView 补 3 个 using 并清理全限定名；XAML 为 `AvgDailySubText` 添加缺失的 `x:Name` |
+| `8bf74f1` | **BUG-0810-07** | `SavePolicy/GetPolicy/DeactivatePolicy` 的 UPSERT 键加入 `json_extract(policy_data, '$.category')` 条件；新建 `tests/XiaopacaiParent.Tests/` 含 10 个 xunit 测试 |
+| `a4fc1a6` | 非阻断 | csproj `Sdk="Microsoft.NET.Sdk"` + `<Nullable>enable</Nullable>` + README 补全 Windows 运行说明 |
+
+### 交付物
+
+| 交付物 | 路径 | 状态 |
+|--------|------|------|
+| Git Bundle | `/home/winann/xiaopacai.bundle` (247KB) | ✅ |
+| 结果信 | `docs/bridge-out/039-result-fixes.txt` (159 行) | ✅ |
+| CHECKPOINT | `docs/CHECKPOINT.json` | ✅ |
+| PROGRESS | `docs/PROGRESS.md` | ✅ |
+| TOKEN_USAGE | `docs/TOKEN_USAGE.md` | ✅ |
+
+### Codex 侧待验证
+1. `dotnet build -c Release` — 验证 Windows 端编译
+2. `dotnet test tests/XiaopacaiParent.Tests/` — 运行 10 个单元测试
+3. GUI 走查：策略配置页多分类共存 + 报告页不崩溃
+4. SFTP 拉取 `/home/winann/xiaopacai.bundle`
