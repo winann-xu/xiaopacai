@@ -20,13 +20,16 @@ import kotlinx.coroutines.launch
  * 通过 adb 以 intent extra 驱动测试场景：
  *   action=start_service  拉起守护前台服务（真实用户路径为开机广播，此处为测试捷径）
  *   action=seed           注入策略缓存（daily_limit=1 分钟、黑白名单、分类限额）与测试公告
+ *   action=seed_highlimit 注入高限额策略（daily_limit=999999），供 IME 豁免验证（采集器不触发超时）
  *   action=collect        立即执行一次时长采集 + 超时判定（触发整机停用 BlockOverlay）
  *   action=partial        反射设置 collector 为超时 partial 模式（受限守护，供拦截演示）
+ *   action=fullstate      反射设置 collector 为超时 full 模式（不触发 TimeoutExecutor 覆盖层，供 IME 豁免验证）
  *   action=reset          恢复 collector 为正常状态
  *   action=overlay        直接展示 BlockOverlay（携带 targetPackage/reason 参数）
  *   action=notify         触发一条安全告警通知（防绕过告警演示）
  *   action=pair           直接以 P2PConnectionService 连接家长端（默认 10.0.2.2:9527，可用 host/port 参数覆盖）
  *   action=pair_report    连接家长端后发送一条 usage_report 并等待 sync_ack（验证 TLS 上时长上报链路）
+ *   action=pair_shared    使用 GuardianForegroundService 共享连接连接家长端（供 SyncManager 断网重试验证）
  *   action=home           返回桌面（关闭覆盖界面）
  *
  * 该组件不进入 release 构建，仅用于测试环境，不构成产品功能。
@@ -46,13 +49,16 @@ class DebugTriggerActivity : ComponentActivity() {
             when (action) {
                 "start_service" -> startService()
                 "seed" -> seedData()
+                "seed_highlimit" -> seedHighLimit()
                 "collect" -> collectNow()
                 "partial" -> setPartialMode()
+                "fullstate" -> setFullState()
                 "reset" -> resetMode()
                 "overlay" -> showOverlay()
                 "notify" -> sendSecurityNotify()
                 "pair" -> pairWithParent()
                 "pair_report" -> pairAndReport()
+                "pair_shared" -> pairShared()
                 else -> goHome()
             }
             toast("DebugTrigger: $action ok")
@@ -128,6 +134,26 @@ class DebugTriggerActivity : ComponentActivity() {
         dao.upsert("test-ann-3", "紧急通知", "今晚 21:00 前需要完成在线课程签到。", 2, 0, passphrase)
     }
 
+    private fun seedHighLimit() {
+        val passphrase = DbPassphraseProvider.getPassphrase(this)
+        val writable = XiaopacaiApp.instance.database.getWritable(passphrase)
+        val now = (System.currentTimeMillis() / 1000).toString()
+        try {
+            writable.execSQL(
+                """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
+                   VALUES (?, ?, ?, ?)""",
+                arrayOf(
+                    "daily_limit",
+                    """{"policyType":"daily_limit","limitMinutes":999999,"restrictMode":"full"}""",
+                    "1",
+                    now
+                )
+            )
+        } finally {
+            writable.close()
+        }
+    }
+
     private fun collectNow() {
         var collector = GuardianForegroundService.getCollector()
         if (collector == null) {
@@ -150,6 +176,12 @@ class DebugTriggerActivity : ComponentActivity() {
         val collector = requireCollector()
         setField(collector, "_isTimeoutActive", true)
         setField(collector, "_stopMode", "partial")
+    }
+
+    private fun setFullState() {
+        val collector = requireCollector()
+        setField(collector, "_isTimeoutActive", true)
+        setField(collector, "_stopMode", "full")
     }
 
     private fun resetMode() {
@@ -249,6 +281,26 @@ class DebugTriggerActivity : ComponentActivity() {
                         Log.i(TAG, "RECEIVED ${msg.type}: ${msg.payload}")
                     }
             }
+        }
+    }
+
+    private fun pairShared() {
+        val host = intent.getStringExtra("host") ?: "10.0.2.2"
+        val port = intent.getIntExtra("port", 9527)
+        val scope = kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob()
+        )
+        scope.launch {
+            com.xiaopacai.child.service.GuardianForegroundService.getP2PConnection()
+                .connect(
+                    host = host,
+                    port = port,
+                    expectedFingerprint = null,
+                    deviceId = "XP-SHARED",
+                    deviceName = "模拟器测试设备",
+                    scope = scope
+                )
+            Log.i(TAG, "shared connection pair initiated: $host:$port")
         }
     }
 
