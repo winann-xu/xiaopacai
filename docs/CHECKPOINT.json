@@ -1,10 +1,10 @@
 {
   "project": "xiaopacai",
   "kickoff": "2026-08-10T11:44:00+08:00",
-  "last_update": "2026-08-10T16:00:00+08:00",
+  "last_update": "2026-08-10T18:00:00+08:00",
   "branch": "main",
   "version": "1.0.1",
-  "token_usage": {"session_input": 227000, "session_output": 168000, "total": 410000},
+  "token_usage": {"session_input": 270000, "session_output": 210000, "total": 480000},
   "tasks": {
     "BUG-0810-04": {"status": "done", "blocked_reason": null, "note": "P2PBroadcastService SendAsync ReadOnlyMemory<byte>重载修复"},
     "BUG-0810-05": {"status": "done", "blocked_reason": null, "note": "SavePolicy SqliteCommand参数复用冲突 — cmd.Parameters.Clear()修复"},
@@ -17,7 +17,9 @@
     "D3-04": {"status": "done", "blocked_reason": null, "note": "UI打磨: 完整Material3品牌色系+动画+深色主题+Windows品牌样式"},
     "D3-05": {"status": "done", "blocked_reason": null, "note": "质量收尾: DbPassphraseProvider统一密码管理+6文件批量修复"},
     "D3-06": {"status": "done", "blocked_reason": null, "note": "打包: 版本号1.0.0+GitBundle生成"},
+    "TASK-D3-05-FINAL": {"status": "done", "blocked_reason": null, "note": "验收收尾: CHANGELOG.md + docs/USER_MANUAL.md 补齐"},
+    "TASK-TEST-ANDROID": {"status": "done", "blocked_reason": null, "note": "Android单元测试: UsageRecordDao/PolicyConfig/TimeoutExecutor/ParentPasswordManager/DataSanitizer 5类93+测试, testDebugUnitTest BUILD SUCCESSFUL"},
     "NONBLOCK": {"status": "done", "blocked_reason": null, "note": "非阻断建议: csproj Sdk→Microsoft.NET.Sdk + Nullable + README Windows运行说明"}
   },
-  "next_recommended": "全部Bug已修复。Codex在50.20进行最终构建验证+全功能GUI测试，确认无误后发布v1.0.1。"
+  "next_recommended": "全部Bug修复+文档补齐+Android单元测试完成。Codex在50.20拉取bundle后进行最终构建验证+全功能GUI测试，确认无误后发布v1.0.1。"
 }

@@ -1,0 +1,29 @@
+## ✅ BUG-0810-08 全部完成
+
+### 修复总结
+
+| # | 文件 | 行号 | 问题 | 修复 |
+|---|------|------|------|------|
+| 1 | `GuardianDeviceAdminReceiver.kt` | 99/102 | `DevicePolicyManager.ACTION_DEVICE_ADMIN_*` 常量不存在 | 改为 `DeviceAdminReceiver.ACTION_DEVICE_ADMIN_*` |
+| 2 | `ReportGenerator.kt` | 29 | `AppDatabase(context)` 私有构造函数 | 改用 `AppDatabase.getInstance(context, passphrase)` + 新增 import |
+| 3 | `BlockOverlayActivity.kt` | 294 | `outlinedButtonBorder(Boolean)` API 不存在 | 删除 border 参数 |
+| 4 | `ParentPasswordManager.kt` | 184 | `AntiBypassService` 未导入 | 新增 import |
+
+### 构建验证
+
+```
+BUILD SUCCESSFUL in 21s
+38 actionable tasks: 27 executed, 11 from cache
+APK: android/app/build/outputs/apk/debug/app-debug.apk (28MB)
+```
+
+### 交付物
+
+| 物 | 路径 |
+|---|------|
+| Git 提交 (×2) | `feb5cf4` → `8ebf560` |
+| Git Bundle | `/home/winann/xiaopacai.bundle` (255KB) |
+| 结果信 | `docs/bridge-out/040-result-android-fix.txt` |
+| 更新文档 | CHECKPOINT / PROGRESS / TOKEN_USAGE |
+
+请 Codex 在 50.20 拉取 bundle 后执行 `./gradlew assembleDebug` 复验并继续进行全功能 GUI 测试。

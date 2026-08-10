@@ -40,13 +40,23 @@
 - [x] BUG-0810-08 Android 4处Kotlin编译错误修复（GuardianDeviceAdminReceiver常量/ReportGenerator单例/BlockOverlayActivity border API/ParentPasswordManager import）
 - [x] 非阻断建议：csproj Sdk→Microsoft.NET.Sdk + Nullable + README Windows运行说明
 
+## 验收收尾 ✅ 全部完成 (2026-08-10 18:00+08:00)
+- [x] TASK-D3-05-FINAL CHANGELOG.md 补齐（v1.0.0 → v1.0.1 完整变更记录）
+- [x] TASK-D3-05-FINAL docs/USER_MANUAL.md 新增（完整用户手册10章）
+- [x] TASK-TEST-ANDROID Android 单元测试：5类93+测试 (UsageRecordDao/PolicyConfig/TimeoutExecutor/ParentPasswordManager/DataSanitizer)
+- [x] TASK-TEST-ANDROID `./gradlew testDebugUnitTest` BUILD SUCCESSFUL
+- [x] PolicyConfig.kt 新增 Android 端策略配置数据模型（与 Windows PolicyConfig.cs 兼容）
+
 ## 产出统计
-- 总 Git commits: 31 个
-- 新增/修改文件: ~69 个
-- Android Kotlin 文件: ~18 个
+- 总 Git commits: 32 个
+- 新增/修改文件: ~78 个
+- Android Kotlin 文件: ~19 个（+PolicyConfig.kt）
 - Windows C#/XAML 文件: ~17 个
-- 测试文件: 2 个（xunit 测试项目）
-- 总代码量: ~5,800 行
+- Android 测试文件: 5 个（新增）
+- Windows 测试文件: 2 个（xunit 测试项目）
+- 总测试数: 103+（Android 93 + Windows 10 xunit）
+- 总代码量: ~6,500 行
 - Git bundle: /home/winann/xiaopacai.bundle
 - APK: android/app/build/outputs/apk/debug/app-debug.apk (28MB)
-- Token 用量（估算）: ~155K（本会话）
+- Token 用量（估算）: ~480K（总计）
+- 文档: CHANGELOG.md + USER_MANUAL.md（新增）

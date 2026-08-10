@@ -20,5 +20,6 @@
 | **总计** | **08-10** | **Claude** | **三天冲刺全部任务** | **~197K** | **~153K** | **~350K** | 超过软阈值200K但低于硬阈值500K，任务完成度100% |
 | S12  | 08-10 | Claude | Codex终验修复: BUG-0810-05/06/07 + 非阻断建议 | ~30K | ~15K | ~45K | 3个Bug修复+csproj/Nullable/README |
 | S13  | 08-10 | Claude | BUG-0810-08 Android 4处Kotlin编译错误修复 | ~15K | ~10K | ~25K | GuardianDeviceAdminReceiver/ReportGenerator/BlockOverlayActivity/ParentPasswordManager |
-| **总计** | **08-10** | **Claude** | **含终验修复全部任务** | **~227K** | **~168K** | **~395K** | 超过软阈值200K但低于硬阈值500K |
-| **最终总计** | **08-10** | **Claude** | **全部任务(含BUG-0810-08)** | **~242K** | **~178K** | **~420K** | 超过软阈值200K但低于硬阈值500K |
+| S14  | 08-10 | Claude | 验收收尾: 文档补齐+Android单测+PolicyConfig | ~35K | ~30K | ~65K | CHANGELOG/USER_MANUAL+5类93测试+PolicyConfig.kt |
+| **总计** | **08-10** | **Claude** | **含终验修复全部任务** | **~262K** | **~198K** | **~460K** | 超过软阈值200K但低于硬阈值500K |
+| **最终总计** | **08-10** | **Claude** | **全部任务(含验收收尾)** | **~277K** | **~208K** | **~485K** | 接近硬阈值500K，全部任务100%完成 |
