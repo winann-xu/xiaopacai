@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -113,7 +116,7 @@ public partial class ReportView : Page
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"报告加载失败: {ex.Message}");
+            Debug.WriteLine($"报告加载失败: {ex.Message}");
             ShowEmptyState();
         }
     }
@@ -686,14 +689,14 @@ public partial class ReportView : Page
                 if (dialog.FileName.EndsWith(".json"))
                 {
                     // 导出原始 JSON
-                    System.IO.File.WriteAllText(dialog.FileName,
+                    File.WriteAllText(dialog.FileName,
                         _currentReport.RootElement.GetRawText());
                 }
                 else
                 {
                     // 导出格式化文本
                     var text = FormatReportAsText(_currentReport.RootElement);
-                    System.IO.File.WriteAllText(dialog.FileName, text);
+                    File.WriteAllText(dialog.FileName, text);
                 }
 
                 MessageBox.Show($"报告已导出到：\n{dialog.FileName}",
@@ -712,7 +715,7 @@ public partial class ReportView : Page
     /// </summary>
     private static string FormatReportAsText(JsonElement root)
     {
-        var sb = new System.Text.StringBuilder();
+        var sb = new StringBuilder();
         var reportType = root.TryGetProperty("reportType", out var rt)
             ? rt.GetString() ?? "daily" : "daily";
 

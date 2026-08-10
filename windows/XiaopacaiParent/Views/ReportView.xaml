@@ -64,7 +64,7 @@
                             <TextBlock Text=" 小时/天" FontSize="16" Foreground="Gray"
                                        VerticalAlignment="Bottom" Margin="0,0,0,6" />
                         </StackPanel>
-                        <TextBlock Text="统计周期内" Foreground="Gray" FontSize="12" />
+                        <TextBlock x:Name="AvgDailySubText" Text="统计周期内" Foreground="Gray" FontSize="12" />
                     </StackPanel>
                 </Border>
 
