@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -295,7 +296,43 @@ public class P2PListenerService : IDisposable
     /// </summary>
     private X509Certificate2 LoadOrCreateCertificate()
     {
-        return CreateSelfSignedCertificate();
+        // LEGACY-e: 证书持久化，保证重启后指纹稳定（儿童端首次配对后保持不变）
+        var dataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Xiaopacai");
+        Directory.CreateDirectory(dataDir);
+        var certPath = Path.Combine(dataDir, "p2p_cert.pfx");
+        var keyPath = Path.Combine(dataDir, "p2p_cert.key");
+
+        // 已有证书：加载复用
+        if (File.Exists(certPath) && File.Exists(keyPath))
+        {
+            try
+            {
+                var pwd = File.ReadAllText(keyPath).Trim();
+                return new X509Certificate2(certPath, pwd, X509KeyStorageFlags.Exportable);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"加载 P2P 证书失败，重新生成: {ex.Message}");
+            }
+        }
+
+        // 首次：生成并持久化（密码文件与 .dbkey 同目录同风格）
+        var cert = CreateSelfSignedCertificate();
+        var password = Guid.NewGuid().ToString("N");
+        try
+        {
+            var pfxBytes = cert.Export(X509ContentType.Pfx, password);
+            File.WriteAllBytes(certPath, pfxBytes);
+            File.WriteAllText(keyPath, password);
+            try { File.SetAttributes(keyPath, FileAttributes.Hidden); } catch { }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"持久化 P2P 证书失败: {ex.Message}");
+        }
+        return cert;
     }
 
     /// <summary>
