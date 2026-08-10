@@ -5,6 +5,7 @@ import android.content.Intent
 import android.util.Log
 import com.xiaopacai.child.XiaopacaiApp
 import com.xiaopacai.child.ui.BlockOverlayActivity
+import com.xiaopacai.child.util.DbPassphraseProvider
 import net.sqlcipher.database.SQLiteDatabase
 import java.text.SimpleDateFormat
 import java.util.*
@@ -209,11 +210,9 @@ class TimeoutExecutor(private val context: Context) {
     }
 
     /**
-     * 获取数据库密码
+     * 获取数据库密码 [TASK-D3-05]
      */
     private fun getPassphrase(): ByteArray {
-        val prefs = context.getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE)
-        val key = prefs.getString("db_key_seed", "xiaopacai_default_key")!!
-        return key.toByteArray(Charsets.UTF_8)
+        return DbPassphraseProvider.getPassphrase(context)
     }
 }

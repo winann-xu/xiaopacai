@@ -96,9 +96,7 @@ fun GuardianHomeContent(
         while (true) {
             kotlinx.coroutines.delay(30_000L)
             try {
-                val prefs = context.getSharedPreferences("guardian_prefs", android.content.Context.MODE_PRIVATE)
-                val key = prefs.getString("db_key_seed", "xiaopacai_default_key")
-                val passphrase = key!!.toByteArray(Charsets.UTF_8)
+                val passphrase = com.xiaopacai.child.util.DbPassphraseProvider.getPassphrase(context)
                 val db = com.xiaopacai.child.XiaopacaiApp.instance.database.getReadable(passphrase)
                 val cursor = db.rawQuery(
                     """SELECT announcement_id, title, content, priority, created_at

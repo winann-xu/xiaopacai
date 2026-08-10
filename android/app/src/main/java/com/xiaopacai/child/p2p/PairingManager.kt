@@ -3,6 +3,7 @@ package com.xiaopacai.child.p2p
 import android.content.Context
 import android.util.Log
 import com.xiaopacai.child.XiaopacaiApp
+import com.xiaopacai.child.util.DbPassphraseProvider
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -188,9 +189,7 @@ class PairingManager(private val context: Context) {
 
     /** 获取数据库密钥 */
     private fun getDbPassphrase(): ByteArray {
-        val prefs = context.getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE)
-        val key = prefs.getString("db_key_seed", "default-key") ?: "default-key"
-        return key.toByteArray(Charsets.UTF_8)
+        return DbPassphraseProvider.getPassphrase(context)
     }
 
     fun destroy() {

@@ -6,6 +6,7 @@ import android.util.Log
 import com.xiaopacai.child.XiaopacaiApp
 import com.xiaopacai.child.data.database.UsageRecordDao
 import com.xiaopacai.child.data.database.UsageRecordEntry
+import com.xiaopacai.child.util.DbPassphraseProvider
 import com.xiaopacai.child.util.UsageStatsHelper
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
@@ -286,11 +287,9 @@ class UsageStatsCollector(
     }
 
     /**
-     * 获取数据库加密密码
+     * 获取数据库加密密码 [TASK-D3-05]
      */
     private fun getPassphrase(): ByteArray {
-        val prefs = context.getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE)
-        val key = prefs.getString("db_key_seed", "xiaopacai_default_key")!!
-        return key.toByteArray(Charsets.UTF_8)
+        return DbPassphraseProvider.getPassphrase(context)
     }
 }

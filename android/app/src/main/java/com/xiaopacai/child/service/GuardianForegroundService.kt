@@ -185,11 +185,20 @@ class GuardianForegroundService : Service() {
     }
 
     /**
-     * 获取数据库加密密码
+     * [TASK-D3-05] 获取数据库加密密码（通过 KeyStore）
      */
     private fun getPassphrase(): ByteArray {
-        val prefs = getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE)
-        val key = prefs.getString("db_key_seed", "xiaopacai_default_key")!!
-        return key.toByteArray(Charsets.UTF_8)
+        return try {
+            com.xiaopacai.child.util.KeyStoreManager.getOrCreateDbMasterKey()
+        } catch (e: Exception) {
+            // KeyStore 不可用时的安全回退
+            Log.w(TAG, "KeyStore 不可用，使用备用密码方案")
+            val prefs = getSharedPreferences("guardian_secure_prefs", Context.MODE_PRIVATE)
+            val seed = prefs.getString("db_key_seed", null)
+                ?: java.util.UUID.randomUUID().toString().also {
+                    prefs.edit().putString("db_key_seed", it).apply()
+                }
+            seed.toByteArray(Charsets.UTF_8)
+        }
     }
 }
