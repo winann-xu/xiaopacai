@@ -3,6 +3,7 @@ package com.xiaopacai.child.p2p
 import android.content.Context
 import android.util.Log
 import com.xiaopacai.child.XiaopacaiApp
+import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.util.DbPassphraseProvider
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,12 +35,37 @@ class PairingManager(private val context: Context) {
     }
 
     private val discoveryService = P2PDiscoveryService()
-    private val connectionService = P2PConnectionService()
+    // [FIX-LEGACY-a] 使用 GuardianForegroundService 共享的 P2PConnectionService 实例
+    // UI 配对后 usage_report 走同一条 TLS 链路
+    private val connectionService = GuardianForegroundService.getP2PConnection()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     /** 配对状态 */
     private val _pairingState = MutableStateFlow(PairingState.IDLE)
     val pairingState: StateFlow<PairingState> = _pairingState
+
+    init {
+        // [FIX-LEGACY-a] 持续监听共享连接的实时状态，同步到 pairingState
+        // 确保 UI 卡片显示真实的连接状态（跨组件/跨生命周期）
+        scope.launch {
+            connectionService.connectionState.collect { state ->
+                when (state) {
+                    P2PConnectionState.CONNECTED -> {
+                        if (_pairingState.value != PairingState.CONNECTED) {
+                            _pairingState.value = PairingState.CONNECTED
+                        }
+                    }
+                    P2PConnectionState.DISCONNECTED -> {
+                        if (_pairingState.value == PairingState.CONNECTED ||
+                            _pairingState.value == PairingState.PAIRING) {
+                            _pairingState.value = PairingState.IDLE
+                        }
+                    }
+                    else -> { /* CONNECTING / HANDSHAKING / RECONNECTING 不覆盖 UI 状态 */ }
+                }
+            }
+        }
+    }
 
     /** P2P-FIX: 暴露发现的家长端列表供 UI 使用 */
     val discoveredParents: StateFlow<List<DiscoveredParent>> = discoveryService.discoveredParents
@@ -196,7 +222,9 @@ class PairingManager(private val context: Context) {
     }
 
     fun destroy() {
-        disconnect()
+        // [FIX-LEGACY-a] 不再断开共享 P2P 连接（连接由 GuardianForegroundService 管理生命周期）
+        // 仅停止扫描和取消协程作用域
+        stopScanning()
         scope.cancel()
     }
 }

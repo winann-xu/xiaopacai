@@ -44,6 +44,25 @@ class GuardianForegroundService : Service() {
         @Volatile
         private var syncManager: SyncManager? = null
 
+        /** [FIX-LEGACY-a] 共享 P2P 连接实例（PairingManager 与 SyncManager 共用同一链路） */
+        @Volatile
+        private var sharedP2PConnection: P2PConnectionService? = null
+
+        /**
+         * 获取共享的 P2P 连接服务实例
+         * UI 配对后 usage_report 走同一 TLS 链路
+         */
+        fun getP2PConnection(): P2PConnectionService {
+            if (sharedP2PConnection == null) {
+                synchronized(this) {
+                    if (sharedP2PConnection == null) {
+                        sharedP2PConnection = P2PConnectionService()
+                    }
+                }
+            }
+            return sharedP2PConnection!!
+        }
+
         /**
          * 获取时长采集器实例
          */
@@ -115,8 +134,8 @@ class GuardianForegroundService : Service() {
      * 启动 P2P 数据同步管理器
      */
     private fun startSyncManager() {
-        // 创建 P2P 连接服务实例（与 syncManager 共享）
-        val p2pConnection = P2PConnectionService()
+        // [FIX-LEGACY-a] 使用共享 P2P 连接实例（与 UI 配对共用同一链路）
+        val p2pConnection = getP2PConnection()
         syncManager = SyncManager(this, p2pConnection, serviceScope)
         syncManager?.start()
     }

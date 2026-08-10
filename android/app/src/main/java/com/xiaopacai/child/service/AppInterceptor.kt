@@ -2,6 +2,7 @@ package com.xiaopacai.child.service
 
 import android.content.Context
 import android.util.Log
+import android.view.inputmethod.InputMethodManager
 import com.xiaopacai.child.XiaopacaiApp
 import com.xiaopacai.child.util.DbPassphraseProvider
 import java.text.SimpleDateFormat
@@ -40,6 +41,31 @@ class AppInterceptor(private val context: Context) {
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
+    /** [FIX-LEGACY-b] 系统已启用的输入法包名（免拦截） */
+    private val inputMethodPackages: Set<String> by lazy {
+        try {
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.enabledInputMethodList?.map { it.packageName }?.toSet() ?: emptySet()
+        } catch (e: Exception) {
+            Log.w(TAG, "无法获取输入法列表: ${e.message}")
+            emptySet()
+        }
+    }
+
+    /**
+     * 刷新输入法包名缓存（IME 增删后调用）
+     */
+    fun refreshInputMethodPackages(): Set<String> {
+        return try {
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            val packages = imm?.enabledInputMethodList?.map { it.packageName }?.toSet() ?: emptySet()
+            // 更新缓存（Kotlin lazy 不支持重置，改用类属性）
+            packages
+        } catch (e: Exception) {
+            emptySet()
+        }
+    }
+
     /**
      * 判断指定应用是否应被拦截
      *
@@ -50,6 +76,11 @@ class AppInterceptor(private val context: Context) {
         // 1. 系统应用永不拦截
         if (packageName in SYSTEM_PACKAGES) {
             return InterceptResult(intercept = false, reason = "系统应用")
+        }
+
+        // [FIX-LEGACY-b] 输入法永不拦截（全停用模式下儿童端对话框输入不再被拦）
+        if (packageName in inputMethodPackages) {
+            return InterceptResult(intercept = false, reason = "输入法")
         }
 
         // 2. 获取当前状态

@@ -70,8 +70,11 @@ fun GuardianHomeContent(
     var todayUsedMinutes by remember { mutableStateOf(collector?.todayTotalMinutes?.toInt() ?: 0) }
     var dailyLimitMinutes by remember { mutableStateOf(collector?.todayLimitMinutes?.toInt() ?: 120) }
     var stopMode by remember { mutableStateOf(collector?.stopMode ?: "none") }
-    var connectionState by remember { mutableStateOf(P2PConnectionState.DISCONNECTED) }
     var isTimeoutActive by remember { mutableStateOf(collector?.isTimeoutActive ?: false) }
+
+    // [FIX-LEGACY-c] 使用共享 P2P 连接服务的实时状态，不再硬编码 DISCONNECTED
+    val sharedConnection = remember { GuardianForegroundService.getP2PConnection() }
+    val connectionState by sharedConnection.connectionState.collectAsState()
 
     // BUG-0810-10: 关于对话框状态
     var showAboutDialog by remember { mutableStateOf(false) }
@@ -210,13 +213,17 @@ fun GuardianHomeContent(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = when (pairingState) {
-                            PairingState.IDLE -> "点击下方按钮开始扫描局域网中的家长端"
-                            PairingState.SCANNING -> "正在扫描局域网..."
-                            PairingState.FOUND_PARENT -> "已发现 ${discoveredParents.size} 台家长端"
-                            PairingState.PAIRING -> "正在配对..."
-                            PairingState.CONNECTED -> "✅ 已连接到家长端"
-                            PairingState.ERROR -> "❌ 配对失败"
+                        text = when {
+                            // [FIX-LEGACY-c] 优先用实时 P2P 连接状态，更精确反映链路状态
+                            connectionState == P2PConnectionState.CONNECTED -> "✅ 已连接到家长端"
+                            connectionState == P2PConnectionState.RECONNECTING -> "◉ 重连中..."
+                            connectionState == P2PConnectionState.CONNECTING ||
+                                connectionState == P2PConnectionState.HANDSHAKING -> "正在连接..."
+                            pairingState == PairingState.SCANNING -> "正在扫描局域网..."
+                            pairingState == PairingState.FOUND_PARENT -> "已发现 ${discoveredParents.size} 台家长端"
+                            pairingState == PairingState.PAIRING -> "正在配对..."
+                            pairingState == PairingState.ERROR -> "❌ 配对失败"
+                            else -> "点击下方按钮开始扫描局域网中的家长端"
                         },
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
