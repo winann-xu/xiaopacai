@@ -37,9 +37,36 @@ class AppInterceptor(private val context: Context) {
             "android",
             "com.google.android.gms"  // Google Play Services
         )
+
+        /** 常见桌面启动器包名（免拦截，避免"返回桌面"后再次被拦截的死循环） */
+        private val LAUNCHER_PACKAGES = setOf(
+            "com.google.android.apps.nexuslauncher",
+            "com.android.launcher",
+            "com.android.launcher3",
+            "com.android.launcher4",
+            "com.miui.home",
+            "com.sec.android.app.launcher",
+            "com.oppo.launcher",
+            "com.huawei.android.launcher",
+            "com.vivo.launcher",
+            "com.bbk.launcher2"
+        )
     }
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
+    /** 系统当前默认桌面（动态解析，兜底覆盖厂商定制启动器） */
+    private val defaultHomePackage: String? by lazy {
+        try {
+            val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+                addCategory(android.content.Intent.CATEGORY_HOME)
+            }
+            val resolveInfo = context.packageManager.resolveActivity(homeIntent, 0)
+            resolveInfo?.activityInfo?.packageName
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     /** [FIX-LEGACY-b] 系统已启用的输入法包名（免拦截） */
     private val inputMethodPackages: Set<String> by lazy {
@@ -76,6 +103,11 @@ class AppInterceptor(private val context: Context) {
         // 1. 系统应用永不拦截
         if (packageName in SYSTEM_PACKAGES) {
             return InterceptResult(intercept = false, reason = "系统应用")
+        }
+
+        // 1.1 桌面启动器永不拦截（含动态默认桌面，防止"返回桌面"后死循环）
+        if (packageName in LAUNCHER_PACKAGES || packageName == defaultHomePackage) {
+            return InterceptResult(intercept = false, reason = "桌面启动器")
         }
 
         // [FIX-LEGACY-b] 输入法永不拦截（全停用模式下儿童端对话框输入不再被拦）
