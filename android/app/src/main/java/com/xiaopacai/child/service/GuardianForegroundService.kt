@@ -136,7 +136,20 @@ class GuardianForegroundService : Service() {
     private fun startSyncManager() {
         // [FIX-LEGACY-a] 使用共享 P2P 连接实例（与 UI 配对共用同一链路）
         val p2pConnection = getP2PConnection()
-        syncManager = SyncManager(this, p2pConnection, serviceScope)
+        // [FIX-DOWNLINK] 下行消息路由：家长端下发的策略/公告等必须接入 SyncManager 处理，
+        // 否则 policy_update/announcement_push 只进连接层缓存、不落库不生效。
+        if (syncManager == null) {
+            syncManager = SyncManager(this, p2pConnection, serviceScope)
+            var processedCount = 0
+            serviceScope.launch {
+                p2pConnection.receivedMessages.collect { messages ->
+                    while (processedCount < messages.size) {
+                        syncManager?.handleReceivedMessage(messages[processedCount])
+                        processedCount++
+                    }
+                }
+            }
+        }
         syncManager?.start()
     }
 
