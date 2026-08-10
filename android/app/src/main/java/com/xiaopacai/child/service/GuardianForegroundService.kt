@@ -9,6 +9,8 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.xiaopacai.child.XiaopacaiApp
+import com.xiaopacai.child.p2p.P2PConnectionService
+import com.xiaopacai.child.p2p.SyncManager
 import kotlinx.coroutines.*
 
 /**
@@ -37,6 +39,10 @@ class GuardianForegroundService : Service() {
         /** 采集器实例（静态，跨服务重启保持） */
         @Volatile
         private var collector: UsageStatsCollector? = null
+
+        /** 同步管理器实例 */
+        @Volatile
+        private var syncManager: SyncManager? = null
 
         /**
          * 获取时长采集器实例
@@ -83,7 +89,10 @@ class GuardianForegroundService : Service() {
         // 2. 启动时长采集器
         startUsageCollector()
 
-        // 3. 启动通知更新定时器（每 2 分钟刷新通知显示）
+        // 3. 启动同步管理器（P2P 数据同步）
+        startSyncManager()
+
+        // 4. 启动通知更新定时器（每 2 分钟刷新通知显示）
         startNotificationUpdater()
 
         return START_STICKY  // 服务被杀后自动重启
@@ -97,6 +106,16 @@ class GuardianForegroundService : Service() {
             collector = UsageStatsCollector(this, serviceScope)
         }
         collector?.start()
+    }
+
+    /**
+     * 启动 P2P 数据同步管理器
+     */
+    private fun startSyncManager() {
+        // 创建 P2P 连接服务实例（与 syncManager 共享）
+        val p2pConnection = P2PConnectionService()
+        syncManager = SyncManager(this, p2pConnection, serviceScope)
+        syncManager?.start()
     }
 
     /**
@@ -154,8 +173,9 @@ class GuardianForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // 停止采集与协程
+        // 停止采集、同步与协程
         collector?.stop()
+        syncManager?.stop()
         serviceScope.cancel()
         Log.i(TAG, "守护前台服务销毁")
     }
