@@ -6,7 +6,7 @@
   "token_usage": {"session_input": 0, "session_output": 0, "total": 0},
   "tasks": {
     "D1-01": {"status": "done", "blocked_reason": null, "note": "已完成 README/LICENSE/CONTRIBUTING/ADR模板/.gitignore/目录结构"},
-    "D1-02": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D1-02": {"status": "done", "blocked_reason": null, "note": "Kotlin+Compose工程/主界面/权限引导/SQLCipher数据库/前台服务/无障碍服务/OEM保活文档"},
     "D1-03": {"status": "pending", "blocked_reason": null, "note": ""},
     "D1-04": {"status": "pending", "blocked_reason": null, "note": ""},
     "D1-05": {"status": "pending", "blocked_reason": null, "note": ""},

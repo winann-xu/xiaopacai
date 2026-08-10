@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [TASK-D1-02] 字符串资源 -->
+<resources>
+    <!-- 应用名称 -->
+    <string name="app_name">小趴菜守护</string>
+
+    <!-- 权限引导页 -->
+    <string name="permission_guide_title">欢迎使用小趴菜</string>
+    <string name="permission_guide_subtitle">需要开启以下权限才能正常使用</string>
+    <string name="permission_usage_stats">使用情况访问</string>
+    <string name="permission_usage_stats_desc">采集各应用使用时长</string>
+    <string name="permission_accessibility">无障碍服务</string>
+    <string name="permission_accessibility_desc">超时停用拦截实现</string>
+    <string name="permission_notification">通知权限</string>
+    <string name="permission_notification_desc">接收家长公告推送</string>
+
+    <!-- 守护主页 -->
+    <string name="guardian_home_title">小趴菜守护中</string>
+    <string name="guardian_remaining_time">剩余时长</string>
+    <string name="guardian_timeout_warning">即将超时</string>
+
+    <!-- 前台服务 -->
+    <string name="foreground_service_title">小趴菜守护运行中</string>
+    <string name="foreground_service_text">正在守护孩子的使用时长</string>
+
+    <!-- 通用 -->
+    <string name="btn_open_setting">去开启</string>
+    <string name="btn_back">返回</string>
+    <string name="status_granted">已授权</string>
+    <string name="status_not_granted">未授权</string>
+</resources>

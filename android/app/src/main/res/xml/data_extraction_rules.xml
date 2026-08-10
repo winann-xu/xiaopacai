@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [TASK-D1-02] 数据提取规则（Android 12+） -->
+<!-- 应用卸载或备份时，指定哪些数据可以迁移 -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="guardian_prefs.xml" />
+        <exclude domain="database" path="xiaopacai_guardian.db" />
+    </cloud-backup>
+    <device-transfer>
+        <!-- 设备迁移时允许本地传输数据库（加密存储） -->
+    </device-transfer>
+</data-extraction-rules>
