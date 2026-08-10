@@ -96,6 +96,7 @@ class UsageStatsCollector(
     }
 
     private val dao = UsageRecordDao(XiaopacaiApp.instance.database)
+    private val timeoutExecutor = TimeoutExecutor(context)
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     private var collectJob: Job? = null
 
@@ -210,6 +211,14 @@ class UsageStatsCollector(
 
         // 5. 检查超时状态
         checkTimeoutStatus(today, limitMinutes, passphrase)
+
+        // 6. 执行超时停用（主动封锁 + 事件记录）
+        timeoutExecutor.checkAndExecute(
+            isTimeout = _isTimeoutActive,
+            stopMode = _stopMode,
+            usedMinutes = _todayTotalMinutes,
+            limitMinutes = limitMinutes
+        )
 
         Log.d(TAG, "今日总时长: ${_todayTotalMinutes}分钟 | " +
                 "游戏: ${gameMinutes}分钟 | 学习: ${studyMinutes}分钟 | " +

@@ -24,6 +24,8 @@ namespace XiaopacaiParent.Services;
 public class P2PListenerService : IDisposable
 {
     private readonly int _port;
+    private readonly DatabaseService _databaseService;
+    private readonly SyncService _syncService;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private bool _isRunning;
@@ -33,9 +35,25 @@ public class P2PListenerService : IDisposable
 
     public bool IsRunning => _isRunning;
 
-    public P2PListenerService(int port = 9527)
+    /// <summary>数据库服务（用于同步数据处理）</summary>
+    public DatabaseService? DatabaseService => _databaseService;
+
+    /// <summary>同步服务</summary>
+    public SyncService SyncService => _syncService;
+
+    public P2PListenerService(DatabaseService databaseService, int port = 9527)
     {
+        _databaseService = databaseService;
+        _syncService = new SyncService(databaseService);
         _port = port;
+    }
+
+    /// <summary>
+    /// 同步启动 P2P 监听（在当前线程启动后台监听）</summary>
+    public void Start()
+    {
+        if (_isRunning) return;
+        _ = StartAsync(CancellationToken.None);
     }
 
     /// <summary>
@@ -100,7 +118,7 @@ public class P2PListenerService : IDisposable
 
     /// <summary>
     /// 处理单个儿童端连接
-    /// TODO: [TASK-D1-04] 实现完整握手与数据交换协议
+    /// [TASK-D2-05] 实现 JSON 协议解析 + 同步数据交换
     /// </summary>
     private async Task HandleConnectionAsync(TcpClient client)
     {
@@ -109,23 +127,75 @@ public class P2PListenerService : IDisposable
             using (client)
             {
                 var stream = client.GetStream();
-
-                // 读取客户端标识（骨架：仅打印日志）
-                var buffer = new byte[1024];
+                var buffer = new byte[4096];
                 var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-                var message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
 
+                if (bytesRead == 0) return;
+
+                var json = Encoding.UTF8.GetString(buffer, 0, bytesRead);
                 System.Diagnostics.Debug.WriteLine(
-                    $"P2P 连接: {client.Client.RemoteEndPoint}, 消息: {message}");
+                    $"P2P 收到: {client.Client.RemoteEndPoint}, 长度: {json.Length}");
 
-                // 回复确认
-                var response = Encoding.UTF8.GetBytes("ACK: xiaopacai-parent v0.1.0");
-                await stream.WriteAsync(response, 0, response.Length);
+                // 解析 JSON 消息
+                var response = HandleSyncMessage(json);
+
+                // 回复响应
+                var responseBytes = Encoding.UTF8.GetBytes(response);
+                await stream.WriteAsync(responseBytes, 0, responseBytes.Length);
             }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"连接处理异常: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// [TASK-D2-05] 处理同步消息并返回响应
+    /// </summary>
+    private string HandleSyncMessage(string json)
+    {
+        try
+        {
+            var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var type = root.TryGetProperty("type", out var typeProp)
+                ? typeProp.GetString() : "unknown";
+
+            var payload = root.TryGetProperty("payload", out var payloadProp)
+                ? payloadProp : default;
+
+            switch (type)
+            {
+                case "usage_report":
+                    // 接收儿童端使用时长报告
+                    var deviceId = payload.TryGetProperty("deviceId", out var did)
+                        ? did.GetString() ?? "unknown" : "unknown";
+                    var recordsJson = payload.TryGetProperty("records", out var rec)
+                        ? rec.GetString() ?? "[]" : "[]";
+                    var count = _syncService.HandleUsageReport(deviceId, recordsJson);
+                    return _syncService.BuildSyncAck(count);
+
+                case "handshake":
+                    // 握手消息：回复策略 + 公告推送
+                    var handshakeDeviceId = payload.TryGetProperty("deviceId", out var hdid)
+                        ? hdid.GetString() ?? "" : "";
+                    return _syncService.BuildPolicyPushMessage(handshakeDeviceId);
+
+                case "heartbeat":
+                    // 心跳：保持连接活跃
+                    return "{\"type\":\"heartbeat_ack\",\"payload\":{}}";
+
+                default:
+                    System.Diagnostics.Debug.WriteLine($"未知消息类型: {type}");
+                    return "{\"type\":\"error\",\"payload\":{\"message\":\"unknown type\"}}";
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"消息处理异常: {ex.Message}");
+            return $"{{\"type\":\"error\",\"payload\":{{\"message\":\"{ex.Message}\"}}}}";
         }
     }
 
