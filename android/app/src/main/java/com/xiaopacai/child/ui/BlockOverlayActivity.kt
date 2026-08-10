@@ -6,12 +6,20 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -19,14 +27,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.ui.theme.XiaopacaiTheme
+import kotlinx.coroutines.delay
 
 /**
- * [TASK-D2-03] 应用拦截全屏覆盖界面
+ * [TASK-D3-04] 应用拦截全屏覆盖界面 — 成品级打磨
  *
  * 当前台应用被拦截时，通过无障碍服务启动此 Activity 覆盖屏幕。
- * 显示拦截原因，提供"返回主页"按钮。
+ * 品牌红色主题 + 渐变背景 + 缩放动画 + 呼吸提示。
  *
- * UI 设计：品牌红色主题 + 图标 + 原因说明 + 可用操作
+ * 动画流程：锁图标从大到小弹入 → 信息卡片滑入 → 按钮依次淡入
  */
 class BlockOverlayActivity : ComponentActivity() {
 
@@ -52,7 +61,7 @@ class BlockOverlayActivity : ComponentActivity() {
         val limitMinutes = collector?.todayLimitMinutes?.toInt() ?: 120
 
         setContent {
-            XiaopacaiTheme {
+            XiaopacaiTheme(darkTheme = false) {
                 BlockOverlayScreen(
                     targetPackage = targetPackage,
                     reason = reason,
@@ -65,45 +74,41 @@ class BlockOverlayActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * 返回桌面并关闭拦截界面
-     */
     private fun finishAndGoHome() {
         val homeIntent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_HOME)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        try {
-            startActivity(homeIntent)
-        } catch (_: Exception) { /* 忽略 */ }
+        try { startActivity(homeIntent) } catch (_: Exception) {}
         finish()
     }
 
-    /**
-     * 拨打紧急电话
-     */
     private fun makeEmergencyCall() {
         try {
-            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+            startActivity(Intent(Intent.ACTION_DIAL).apply {
                 data = Uri.parse("tel:110")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            startActivity(dialIntent)
+            })
         } catch (_: Exception) {
-            // 紧急情况下直接启动拨号盘
-            val dialIntent = Intent(Intent.ACTION_DIAL)
-            dialIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            try { startActivity(dialIntent) } catch (_: Exception) {}
+            try { startActivity(Intent(Intent.ACTION_DIAL).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }) } catch (_: Exception) {}
         }
     }
 
     override fun onBackPressed() {
-        // 拦截返回键：返回桌面而非回到被拦截应用
         finishAndGoHome()
     }
 }
 
-// ==================== Compose UI ====================
+// ==================== Compose UI — 品牌红色锁屏 ====================
+
+/** 品牌红渐变色 */
+private val BlockGradientColors = listOf(
+    Color(0xFFC62828),  // 深红
+    Color(0xFFD32F2F),  // 品牌红
+    Color(0xFFE53935),  // 亮红
+)
 
 @Composable
 private fun BlockOverlayScreen(
@@ -114,9 +119,37 @@ private fun BlockOverlayScreen(
     onGoHome: () -> Unit,
     onEmergencyCall: () -> Unit
 ) {
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = Color(0xFFD32F2F)  // 品牌红色
+    // [TASK-D3-04] 入场动画状态
+    var iconVisible by remember { mutableStateOf(false) }
+    var cardVisible by remember { mutableStateOf(false) }
+    var buttonsVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        iconVisible = true
+        delay(400)
+        cardVisible = true
+        delay(300)
+        buttonsVisible = true
+    }
+
+    // 锁图标的缩放动画（回弹效果）
+    val iconScale by animateFloatAsState(
+        targetValue = if (iconVisible) 1f else 0.3f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "iconScale"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = BlockGradientColors
+                )
+            )
     ) {
         Column(
             modifier = Modifier
@@ -125,115 +158,160 @@ private fun BlockOverlayScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // 大图标
-            Text(
-                text = "🔒",
-                fontSize = 72.sp
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 标题
-            Text(
-                text = "应用已停用",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // 原因说明
-            Text(
-                text = reason,
-                fontSize = 16.sp,
-                color = Color.White.copy(alpha = 0.9f),
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 使用情况
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.White.copy(alpha = 0.15f)
-                ),
-                shape = RoundedCornerShape(12.dp)
+            // === 1. 锁图标（弹入动画） ===
+            Box(
+                modifier = Modifier
+                    .scale(iconScale)
+                    .size(88.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+                Text(text = "🔒", fontSize = 40.sp)
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // === 2. 标题（淡入） ===
+            AnimatedVisibility(
+                visible = iconVisible,
+                enter = fadeIn(animationSpec = tween(500)) +
+                        slideInVertically { it / 4 }
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "今日使用",
-                        fontSize = 13.sp,
-                        color = Color.White.copy(alpha = 0.8f)
-                    )
-                    Text(
-                        text = "$usedMinutes / $limitMinutes 分钟",
-                        fontSize = 24.sp,
+                        text = "应用已停用",
+                        fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = Color.White,
+                        textAlign = TextAlign.Center
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "限额已用完，请休息一下",
-                        fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.7f)
+                        text = reason,
+                        fontSize = 15.sp,
+                        color = Color.White.copy(alpha = 0.85f),
+                        textAlign = TextAlign.Center
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // === 3. 使用情况卡片（滑入） ===
+            AnimatedVisibility(
+                visible = cardVisible,
+                enter = fadeIn(tween(400)) +
+                        slideInVertically(tween(400)) { it / 3 }
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color.White.copy(alpha = 0.18f)
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "今日使用",
+                            fontSize = 13.sp,
+                            color = Color.White.copy(alpha = 0.75f)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "$usedMinutes / $limitMinutes 分钟",
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        // 进度条
+                        LinearProgressIndicator(
+                            progress = (usedMinutes.toFloat() / limitMinutes.coerceAtLeast(1)).coerceIn(0f, 1f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = Color.White,
+                            trackColor = Color.White.copy(alpha = 0.25f),
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "限额已用完，请休息一下",
+                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.65f)
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // 返回主页按钮
-            Button(
-                onClick = onGoHome,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White
-                ),
-                shape = RoundedCornerShape(12.dp)
+            // === 4. 按钮组（依次淡入） ===
+            AnimatedVisibility(
+                visible = buttonsVisible,
+                enter = fadeIn(tween(600)) +
+                        slideInVertically(tween(600)) { it / 2 }
             ) {
-                Text(
-                    text = "🏠 返回桌面",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFFD32F2F)
-                )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // 返回主页按钮
+                    Button(
+                        onClick = onGoHome,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        elevation = ButtonDefaults.buttonElevation(
+                            defaultElevation = 4.dp,
+                            pressedElevation = 8.dp
+                        )
+                    ) {
+                        Text(
+                            text = "🏠 返回桌面",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFC62828)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // 紧急电话按钮
+                    OutlinedButton(
+                        onClick = onEmergencyCall,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color.White
+                        ),
+                        border = ButtonDefaults.outlinedButtonBorder(true),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text(
+                            text = "📞 紧急电话",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
-            // 紧急电话按钮
-            OutlinedButton(
-                onClick = onEmergencyCall,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(
-                    text = "📞 紧急电话",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 底部说明
+            // === 5. 底部品牌标识（始终可见） ===
             Text(
-                text = "小趴菜 · 守护孩子的健康使用习惯\n紧急情况请拨打电话联系家长或警方",
+                text = "🥬 小趴菜 · 守护孩子的健康使用习惯\n紧急情况请拨打电话联系家长或警方",
                 fontSize = 11.sp,
-                color = Color.White.copy(alpha = 0.5f),
-                textAlign = TextAlign.Center
+                color = Color.White.copy(alpha = 0.45f),
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp
             )
         }
     }
