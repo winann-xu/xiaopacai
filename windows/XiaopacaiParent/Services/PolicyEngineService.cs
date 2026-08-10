@@ -67,7 +67,10 @@ public class PolicyEngineService
     /// <summary>
     /// 获取指定类型的策略
     /// </summary>
-    public PolicyConfig? GetPolicy(string policyType, string deviceId = "")
+    /// <param name="policyType">策略类型</param>
+    /// <param name="deviceId">设备 ID（空字符串 = 全局）</param>
+    /// <param name="category">分类（仅 category_limit 类型需要区分）</param>
+    public PolicyConfig? GetPolicy(string policyType, string deviceId = "", string category = "")
     {
         using var conn = _db.GetConnection();
         using var cmd = conn.CreateCommand();
@@ -76,10 +79,12 @@ public class PolicyEngineService
             SELECT policy_data FROM policies
             WHERE policy_type = @type
               AND (device_id = @deviceId OR device_id = '')
+              AND (json_extract(policy_data, '$.category') = @category OR @category = '')
               AND is_active = 1
             ORDER BY device_id DESC LIMIT 1";
         cmd.Parameters.AddWithValue("@type", policyType);
         cmd.Parameters.AddWithValue("@deviceId", deviceId);
+        cmd.Parameters.AddWithValue("@category", category);
 
         var result = cmd.ExecuteScalar() as string;
         return result != null ? PolicyConfig.FromJson(result) : null;
@@ -96,13 +101,15 @@ public class PolicyEngineService
         using var conn = _db.GetConnection();
         using var cmd = conn.CreateCommand();
 
-        // 先检查是否存在
+        // 先检查是否存在（category_limit 类型按 category 区分，防止不同分类互相覆盖）
         cmd.CommandText = @"
             SELECT id FROM policies
             WHERE policy_type = @type
-              AND device_id = @deviceId";
+              AND device_id = @deviceId
+              AND (json_extract(policy_data, '$.category') = @category OR @category = '')";
         cmd.Parameters.AddWithValue("@type", policy.PolicyType);
         cmd.Parameters.AddWithValue("@deviceId", policy.DeviceId);
+        cmd.Parameters.AddWithValue("@category", policy.Category);
 
         var existingId = cmd.ExecuteScalar();
 
@@ -143,7 +150,7 @@ public class PolicyEngineService
     /// <summary>
     /// 停用策略（软删除）
     /// </summary>
-    public bool DeactivatePolicy(string policyType, string deviceId = "")
+    public bool DeactivatePolicy(string policyType, string deviceId = "", string category = "")
     {
         using var conn = _db.GetConnection();
         using var cmd = conn.CreateCommand();
@@ -151,10 +158,13 @@ public class PolicyEngineService
         cmd.CommandText = @"
             UPDATE policies
             SET is_active = 0, updated_at = @updatedAt
-            WHERE policy_type = @type AND device_id = @deviceId";
+            WHERE policy_type = @type
+              AND device_id = @deviceId
+              AND (json_extract(policy_data, '$.category') = @category OR @category = '')";
         cmd.Parameters.AddWithValue("@updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         cmd.Parameters.AddWithValue("@type", policyType);
         cmd.Parameters.AddWithValue("@deviceId", deviceId);
+        cmd.Parameters.AddWithValue("@category", category);
 
         return cmd.ExecuteNonQuery() > 0;
     }
