@@ -349,7 +349,7 @@ fun GuardianHomeContent(
                             Spacer(modifier = Modifier.height(4.dp))
                         }
                         Spacer(modifier = Modifier.height(8.dp))
-                        HorizontalDivider()
+                        Divider()
                         Spacer(modifier = Modifier.height(8.dp))
                     }
 

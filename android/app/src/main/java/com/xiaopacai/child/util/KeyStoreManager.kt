@@ -68,8 +68,8 @@ object KeyStoreManager {
 
         // 首次创建或恢复：生成随机数据库密钥并加密存储
         val newDbKey = generateRandomDbKey()
-        val wrappedKeyBase64 = wrapDbKey(newDbKey)
-        prefs.edit().putString(WRAPPED_DB_KEY_ENTRY, wrappedKeyBase64).apply()
+        val newWrappedKeyBase64 = wrapDbKey(newDbKey)
+        prefs.edit().putString(WRAPPED_DB_KEY_ENTRY, newWrappedKeyBase64).apply()
         return newDbKey
     }
 

@@ -176,10 +176,13 @@ class P2PConnectionService {
             true  // autoClose
         ) as SSLSocket
 
-        // 启用 TLS 1.3 与强密码套件
-        sslSocket.enabledProtocols = arrayOf("TLSv1.3")
+        // 启用 TLS 1.3 优先、TLS 1.2 回退（部分 Windows/Schannel 环境不支持 TLS 1.3）
+        sslSocket.enabledProtocols = arrayOf("TLSv1.3", "TLSv1.2")
         sslSocket.enabledCipherSuites = sslSocket.enabledCipherSuites
-            .filter { it.startsWith("TLS_AES") || it.startsWith("TLS_CHACHA") }
+            .filter {
+                it.startsWith("TLS_AES") || it.startsWith("TLS_CHACHA") ||
+                    (it.startsWith("TLS_ECDHE") && it.contains("AES") && it.contains("GCM"))
+            }
             .toTypedArray()
 
         return sslSocket
