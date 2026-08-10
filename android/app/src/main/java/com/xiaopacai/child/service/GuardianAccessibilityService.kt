@@ -2,25 +2,47 @@ package com.xiaopacai.child.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.Intent
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import com.xiaopacai.child.ui.BlockOverlayActivity
 
 /**
- * [TASK-D1-02] 小趴菜无障碍服务
+ * [TASK-D1-02][TASK-D2-03] 小趴菜无障碍服务
  *
- * 用于实现超时停用的核心拦截机制：
+ * 用于实现应用拦截的核心机制：
  * - 监听前台应用切换事件（TYPE_WINDOW_STATE_CHANGED）
- * - 当检测到超时状态时，展示全屏守护界面
- * - 拦截非白名单应用的启动（通过识别前台包名 + 覆盖守护界面）
+ * - 调用 AppInterceptor 判断是否应拦截
+ * - 拦截时启动全屏覆盖 Activity（BlockOverlayActivity）
  *
  * 能力边界说明：
  * 无障碍服务无法真正"锁定"系统或阻止应用启动，
  * 只能在前台应用切换时检测并覆盖守护界面。
  * 这是 Android 平台限制，非本软件缺陷。
+ * 详见 OEM_KEEPALIVE.md 文档。
  */
 class GuardianAccessibilityService : AccessibilityService() {
 
+    companion object {
+        private const val TAG = "GuardianA11y"
+
+        /** 上次拦截的目标包名（避免重复启动拦截界面） */
+        private var lastBlockedPackage: String? = null
+
+        /** 上次拦截时间（毫秒），用于防抖 */
+        private var lastBlockedTime: Long = 0
+
+        /** 防抖间隔（毫秒） */
+        private const val DEBOUNCE_MS = 3000L
+    }
+
+    private lateinit var interceptor: AppInterceptor
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+
+        // 初始化拦截引擎
+        interceptor = AppInterceptor(this)
 
         // 配置无障碍服务监听的事件类型
         val info = AccessibilityServiceInfo().apply {
@@ -38,6 +60,8 @@ class GuardianAccessibilityService : AccessibilityService() {
                     AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         }
         this.serviceInfo = info
+
+        Log.i(TAG, "无障碍服务已连接")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -49,12 +73,55 @@ class GuardianAccessibilityService : AccessibilityService() {
         // 获取当前前台应用包名
         val packageName = event.packageName?.toString() ?: return
 
-        // TODO: [TASK-D2-03] 检查是否处于超时停用状态
-        // TODO: [TASK-D2-03] 检查当前应用是否在白名单中
-        // TODO: [TASK-D2-03] 若非白名单且超时，启动全屏守护界面覆盖
+        // 忽略空包名和自身包名
+        if (packageName.isEmpty() || packageName == packageName) {
+            // 自身应用切换不拦截
+            return
+        }
+
+        // 防抖：同一包名 3 秒内不重复处理
+        val now = System.currentTimeMillis()
+        if (packageName == lastBlockedPackage &&
+            (now - lastBlockedTime) < DEBOUNCE_MS) {
+            return
+        }
+
+        // 调用拦截引擎判断
+        val result = interceptor.shouldIntercept(packageName)
+
+        if (result.intercept) {
+            Log.i(TAG, "拦截应用: $packageName, 原因: ${result.reason}")
+            lastBlockedPackage = packageName
+            lastBlockedTime = now
+            showBlockOverlay(packageName, result.reason)
+        }
+    }
+
+    /**
+     * 显示全屏拦截覆盖界面
+     *
+     * @param targetPackage 被拦截的应用包名
+     * @param reason 拦截原因
+     */
+    private fun showBlockOverlay(targetPackage: String, reason: String) {
+        try {
+            val intent = Intent(this, BlockOverlayActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                putExtra("target_package", targetPackage)
+                putExtra("reason", reason)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "启动拦截界面失败: ${e.message}", e)
+        }
     }
 
     override fun onInterrupt() {
         // 服务被系统中断时的清理
+        Log.w(TAG, "无障碍服务被中断")
+        lastBlockedPackage = null
+        lastBlockedTime = 0
     }
 }

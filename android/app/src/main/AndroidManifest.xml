@@ -61,6 +61,16 @@
             </intent-filter>
         </activity>
 
+        <!-- 拦截覆盖 Activity（全屏锁屏界面） -->
+        <activity
+            android:name=".ui.BlockOverlayActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/Theme.Xiaopacai" />
+
         <!-- 前台服务（时长采集 + 超时守护） -->
         <service
             android:name=".service.GuardianForegroundService"
