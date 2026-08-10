@@ -1,0 +1,277 @@
+package com.xiaopacai.child.debug
+
+import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import com.xiaopacai.child.XiaopacaiApp
+import com.xiaopacai.child.data.database.AnnouncementDao
+import com.xiaopacai.child.p2p.P2PConnectionService
+import com.xiaopacai.child.service.AntiBypassService
+import com.xiaopacai.child.service.GuardianForegroundService
+import com.xiaopacai.child.service.UsageStatsCollector
+import com.xiaopacai.child.ui.BlockOverlayActivity
+import com.xiaopacai.child.util.DbPassphraseProvider
+import kotlinx.coroutines.launch
+
+/**
+ * [TEST-ONLY] 模拟器 GUI 走查调试触发器（仅 debug 构建存在）
+ *
+ * 通过 adb 以 intent extra 驱动测试场景：
+ *   action=start_service  拉起守护前台服务（真实用户路径为开机广播，此处为测试捷径）
+ *   action=seed           注入策略缓存（daily_limit=1 分钟、黑白名单、分类限额）与测试公告
+ *   action=collect        立即执行一次时长采集 + 超时判定（触发整机停用 BlockOverlay）
+ *   action=partial        反射设置 collector 为超时 partial 模式（受限守护，供拦截演示）
+ *   action=reset          恢复 collector 为正常状态
+ *   action=overlay        直接展示 BlockOverlay（携带 targetPackage/reason 参数）
+ *   action=notify         触发一条安全告警通知（防绕过告警演示）
+ *   action=pair           直接以 P2PConnectionService 连接家长端（默认 10.0.2.2:9527，可用 host/port 参数覆盖）
+ *   action=pair_report    连接家长端后发送一条 usage_report 并等待 sync_ack（验证 TLS 上时长上报链路）
+ *   action=home           返回桌面（关闭覆盖界面）
+ *
+ * 该组件不进入 release 构建，仅用于测试环境，不构成产品功能。
+ */
+class DebugTriggerActivity : ComponentActivity() {
+
+    companion object {
+        private const val TAG = "DebugTrigger"
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val action = intent.getStringExtra("action") ?: "home"
+        Log.i(TAG, "action=$action")
+
+        try {
+            when (action) {
+                "start_service" -> startService()
+                "seed" -> seedData()
+                "collect" -> collectNow()
+                "partial" -> setPartialMode()
+                "reset" -> resetMode()
+                "overlay" -> showOverlay()
+                "notify" -> sendSecurityNotify()
+                "pair" -> pairWithParent()
+                "pair_report" -> pairAndReport()
+                else -> goHome()
+            }
+            toast("DebugTrigger: $action ok")
+        } catch (e: Exception) {
+            Log.e(TAG, "action=$action failed: ${e.message}", e)
+            toast("DebugTrigger: $action failed: ${e.message}")
+        }
+        finish()
+    }
+
+    private fun startService() {
+        GuardianForegroundService.start(this)
+    }
+
+    private fun seedData() {
+        val passphrase = DbPassphraseProvider.getPassphrase(this)
+        val db = XiaopacaiApp.instance.database
+        val writable = db.getWritable(passphrase)
+        val now = (System.currentTimeMillis() / 1000).toString()
+        try {
+            // 1 分钟限额策略（整机停用 full）
+            writable.execSQL(
+                """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
+                   VALUES (?, ?, ?, ?)""",
+                arrayOf(
+                    "daily_limit",
+                    """{"policyType":"daily_limit","limitMinutes":1,"restrictMode":"full"}""",
+                    "1",
+                    now
+                )
+            )
+            // 白名单（超时后仍可用）
+            writable.execSQL(
+                """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
+                   VALUES (?, ?, ?, ?)""",
+                arrayOf(
+                    "whitelist",
+                    """{"policyType":"whitelist","packages":["com.xiaopacai.child"]}""",
+                    "1",
+                    now
+                )
+            )
+            // 黑名单（始终拦截）
+            writable.execSQL(
+                """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
+                   VALUES (?, ?, ?, ?)""",
+                arrayOf(
+                    "blacklist",
+                    """{"policyType":"blacklist","packages":["com.android.calculator2"]}""",
+                    "1",
+                    now
+                )
+            )
+            // 分类限额：娱乐类 1 分钟（partial 拦截演示）
+            writable.execSQL(
+                """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
+                   VALUES (?, ?, ?, ?)""",
+                arrayOf(
+                    "category_limit",
+                    """{"policyType":"category_limit","category":"game","categoryLimitMinutes":1}""",
+                    "1",
+                    now
+                )
+            )
+        } finally {
+            writable.close()
+        }
+
+        // 注入测试公告（普通/重要/紧急三档）
+        val dao = AnnouncementDao(db)
+        dao.upsert("test-ann-1", "周末使用提醒", "记得按时休息，保护眼睛哦。", 0, 0, passphrase)
+        dao.upsert("test-ann-2", "学习任务更新", "本周学习计划已由家长端更新，请查看。", 1, 0, passphrase)
+        dao.upsert("test-ann-3", "紧急通知", "今晚 21:00 前需要完成在线课程签到。", 2, 0, passphrase)
+    }
+
+    private fun collectNow() {
+        var collector = GuardianForegroundService.getCollector()
+        if (collector == null) {
+            // 服务尚未初始化完成，先启动并等待
+            GuardianForegroundService.start(this)
+            var retry = 0
+            while (collector == null && retry < 10) {
+                Thread.sleep(1000)
+                collector = GuardianForegroundService.getCollector()
+                retry++
+            }
+        }
+        if (collector == null) {
+            throw IllegalStateException("collector not ready")
+        }
+        collector.collectAndPersist()
+    }
+
+    private fun setPartialMode() {
+        val collector = requireCollector()
+        setField(collector, "_isTimeoutActive", true)
+        setField(collector, "_stopMode", "partial")
+    }
+
+    private fun resetMode() {
+        val collector = GuardianForegroundService.getCollector() ?: return
+        setField(collector, "_isTimeoutActive", false)
+        setField(collector, "_stopMode", "none")
+    }
+
+    private fun showOverlay() {
+        val intent = android.content.Intent(this, BlockOverlayActivity::class.java).apply {
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+            putExtra("target_package", intent.getStringExtra("targetPackage") ?: "com.android.chrome")
+            putExtra("reason", intent.getStringExtra("reason") ?: "使用时长已超限（测试）")
+        }
+        startActivity(intent)
+    }
+
+    private fun sendSecurityNotify() {
+        AntiBypassService.notifySecurityEvent(
+            this,
+            "防绕过告警（测试）",
+            "检测到无障碍服务被关闭，守护拦截可能失效，请家长尽快检查。"
+        )
+    }
+
+    private fun pairWithParent() {
+        val host = intent.getStringExtra("host") ?: "10.0.2.2"
+        val port = intent.getIntExtra("port", 9527)
+        val scope = kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob()
+        )
+        val service = P2PConnectionService()
+        scope.launch {
+            service.connect(
+                host = host,
+                port = port,
+                expectedFingerprint = null,
+                deviceId = "XP-DEBUG-PROBE",
+                deviceName = "模拟器测试设备",
+                scope = scope
+            )
+        }
+        Log.i(TAG, "pair initiated: $host:$port")
+    }
+
+    private fun pairAndReport() {
+        val host = intent.getStringExtra("host") ?: "10.0.2.2"
+        val port = intent.getIntExtra("port", 9527)
+        val scope = kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob()
+        )
+        val service = P2PConnectionService()
+        scope.launch {
+            service.connect(
+                host = host,
+                port = port,
+                expectedFingerprint = null,
+                deviceId = "XP-DEBUG-REPORT",
+                deviceName = "模拟器测试设备",
+                scope = scope
+            )
+            // 等待连接建立后发送时长上报
+            service.connectionState.collect { state ->
+                if (state == com.xiaopacai.child.p2p.P2PConnectionState.CONNECTED) {
+                    val records = org.json.JSONArray().apply {
+                        put(org.json.JSONObject().apply {
+                            put("packageName", "com.android.chrome")
+                            put("appName", "Chrome")
+                            put("date", "2026-08-10")
+                            put("totalMinutes", 25)
+                            put("category", "other")
+                        })
+                    }
+                    val ok = kotlinx.coroutines.withContext(
+                        kotlinx.coroutines.Dispatchers.IO
+                    ) {
+                        service.sendMessage(
+                            com.xiaopacai.child.p2p.P2PMessage(
+                                type = "usage_report",
+                                payload = mapOf(
+                                    "deviceId" to "XP-DEBUG-REPORT",
+                                    "records" to records.toString(),
+                                    "timestamp" to (System.currentTimeMillis() / 1000)
+                                )
+                            )
+                        )
+                    }
+                    Log.i(TAG, "usage_report sent over TLS: ok=$ok")
+                }
+            }
+            // 记录收到的消息载荷（验证 sync_ack 计数）
+            service.receivedMessages.collect { messages ->
+                messages.filter { it.type == "sync_ack" || it.type == "policy_update" }
+                    .forEach { msg ->
+                        Log.i(TAG, "RECEIVED ${msg.type}: ${msg.payload}")
+                    }
+            }
+        }
+    }
+
+    private fun goHome() {
+        val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+            addCategory(android.content.Intent.CATEGORY_HOME)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(homeIntent)
+    }
+
+    private fun requireCollector(): UsageStatsCollector {
+        return GuardianForegroundService.getCollector()
+            ?: throw IllegalStateException("collector not ready, run action=start_service first")
+    }
+
+    private fun setField(target: Any, fieldName: String, value: Any) {
+        val field = target.javaClass.getDeclaredField(fieldName)
+        field.isAccessible = true
+        field.set(target, value)
+    }
+
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+}

@@ -36,11 +36,25 @@ fun PermissionGuideScreen(
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
-    // 实时刷新各权限状态（每次组合时重新检查，确保从系统设置返回后状态正确）
-    // BUG-0810-09: 不再使用 remember 一次性初始化，改为每次组合时实时查询系统状态
-    val usageStatsGranted = hasUsageStatsPermission(context)
-    val accessibilityGranted = isAccessibilityServiceEnabled(context)
+    // 实时刷新各权限状态（BUG-0810-09 终回归）
+    // 从系统设置返回时（Activity ON_RESUME）重新检查，确保状态及时刷新并自动跳转守护主页
+    var usageStatsGranted by remember { mutableStateOf(hasUsageStatsPermission(context)) }
+    var accessibilityGranted by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
     var batteryOptimizationGranted by remember { mutableStateOf(false) }
+    var notificationGranted by remember { mutableStateOf(hasNotificationPermission(context)) }
+
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                usageStatsGranted = hasUsageStatsPermission(context)
+                accessibilityGranted = isAccessibilityServiceEnabled(context)
+                notificationGranted = hasNotificationPermission(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // 检查是否全部就绪，是则通知跳转
     val allGranted = usageStatsGranted && accessibilityGranted
@@ -135,8 +149,7 @@ fun PermissionGuideScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         // === 权限项 4：通知权限 ===
-        // BUG-0810-12: 不再硬编码 true，实时查询系统通知权限状态
-        val notificationGranted = hasNotificationPermission(context)
+        // BUG-0810-12: 不再硬编码 true，实时查询系统通知权限状态（ON_RESUME 刷新）
         PermissionCard(
             icon = Icons.Default.Notifications,
             title = "通知权限",
