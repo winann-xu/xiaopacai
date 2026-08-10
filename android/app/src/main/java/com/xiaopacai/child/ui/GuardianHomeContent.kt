@@ -27,16 +27,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaopacai.child.p2p.P2PConnectionState
 import com.xiaopacai.child.service.GuardianForegroundService
+import com.xiaopacai.child.service.UsageStatsCollector
 
 /**
- * [TASK-D1-05] 小趴菜儿童端守护主页
+ * [TASK-D1-05][TASK-D2-01] 小趴菜儿童端守护主页
  *
  * 展示守护状态的核心页面，包含：
- * - 剩余使用时长（今日）
+ * - 剩余使用时长（今日，从 UsageStatsCollector 实时获取）
  * - 超时倒计时（动态）
  * - 家长公告区
  * - P2P 连接状态
  * - 设置入口
+ *
+ * 数据来源：UsageStatsCollector（前台服务中的时长采集器）
  */
 
 /**
@@ -57,12 +60,29 @@ fun GuardianHomeContent(
 ) {
     val context = LocalContext.current
 
-    // === 状态（后续从数据库/服务实时获取） ===
-    var todayUsedMinutes by remember { mutableStateOf(0) }
-    var dailyLimitMinutes by remember { mutableStateOf(120) }
-    var stopMode by remember { mutableStateOf("partial") } // full / partial
+    // === 从时长采集器获取实时数据 ===
+    val collector = GuardianForegroundService.getCollector()
+
+    // 状态（从采集器初始化，Compose 重组时自动刷新）
+    var todayUsedMinutes by remember { mutableStateOf(collector?.todayTotalMinutes?.toInt() ?: 0) }
+    var dailyLimitMinutes by remember { mutableStateOf(collector?.todayLimitMinutes?.toInt() ?: 120) }
+    var stopMode by remember { mutableStateOf(collector?.stopMode ?: "none") }
     var connectionState by remember { mutableStateOf(P2PConnectionState.DISCONNECTED) }
-    var isTimeoutActive by remember { mutableStateOf(false) }
+    var isTimeoutActive by remember { mutableStateOf(collector?.isTimeoutActive ?: false) }
+
+    // 定时刷新数据（每 30 秒从采集器同步最新值）
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30_000L)
+            val c = GuardianForegroundService.getCollector()
+            if (c != null) {
+                todayUsedMinutes = c.todayTotalMinutes.toInt()
+                dailyLimitMinutes = c.todayLimitMinutes.toInt().coerceAtLeast(1)
+                stopMode = c.stopMode
+                isTimeoutActive = c.isTimeoutActive
+            }
+        }
+    }
 
     // 计算剩余时长
     val remainingMinutes = maxOf(0, dailyLimitMinutes - todayUsedMinutes)

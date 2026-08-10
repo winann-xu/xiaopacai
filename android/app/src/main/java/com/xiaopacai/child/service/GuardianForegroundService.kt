@@ -6,17 +6,19 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.xiaopacai.child.R
 import com.xiaopacai.child.XiaopacaiApp
+import kotlinx.coroutines.*
 
 /**
- * [TASK-D1-02] 小趴菜守护前台服务
+ * [TASK-D1-02][TASK-D2-01] 小趴菜守护前台服务
  *
  * 后台常驻服务，负责：
- * 1. 持续采集应用使用时长（避免进程被系统杀死后统计中断）
+ * 1. 持续采集应用使用时长（UsageStatsCollector）
  * 2. 维持 P2P 长连接心跳
  * 3. 超时停用守护（前台识别 + 拦截触发）
+ * 4. 定时数据同步到家长端
  *
  * 前台服务必须显示持久通知（Android 8.0+），
  * 此处使用 LOW 优先级通知，避免过多打扰儿童。
@@ -28,54 +30,18 @@ import com.xiaopacai.child.XiaopacaiApp
  */
 class GuardianForegroundService : Service() {
 
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    override fun onCreate() {
-        super.onCreate()
-        // 服务创建时即启动前台通知
-        startForegroundNotification()
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // TODO: [TASK-D1-02] 在此处启动时长采集、P2P 心跳、守护循环
-        // 当前为骨架实现，后续任务中逐步填充
-
-        return START_STICKY  // 服务被杀后自动重启
-    }
-
-    /**
-     * 启动前台通知
-     * 使用 LOW 优先级持续通知，保持服务活跃同时最小化干扰
-     */
-    private fun startForegroundNotification() {
-        val channelId = XiaopacaiApp.CHANNEL_GUARDIAN
-
-        // 构建通知
-        val notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("小趴菜守护运行中")
-            .setContentText("正在守护孩子的使用时长")
-            .setSmallIcon(android.R.drawable.ic_lock_idle_lock)  // TODO: 替换为自定义图标
-            .setOngoing(true)  // 持续通知，不可滑动清除
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-
-        // 启动前台服务
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Android 10+ 需要指定前台服务类型
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        // 服务销毁时的清理工作
-        // TODO: [TASK-D1-02] 停止采集、关闭 P2P 连接
-    }
-
     companion object {
+        private const val TAG = "GuardianService"
         private const val NOTIFICATION_ID = 1001
+
+        /** 采集器实例（静态，跨服务重启保持） */
+        @Volatile
+        private var collector: UsageStatsCollector? = null
+
+        /**
+         * 获取时长采集器实例
+         */
+        fun getCollector(): UsageStatsCollector? = collector
 
         /**
          * 启动守护前台服务
@@ -97,5 +63,109 @@ class GuardianForegroundService : Service() {
             val intent = Intent(context, GuardianForegroundService::class.java)
             context.stopService(intent)
         }
+    }
+
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        Log.i(TAG, "守护前台服务创建")
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(TAG, "守护前台服务启动")
+
+        // 1. 启动前台通知
+        updateNotification("正在守护中...", 0)
+
+        // 2. 启动时长采集器
+        startUsageCollector()
+
+        // 3. 启动通知更新定时器（每 2 分钟刷新通知显示）
+        startNotificationUpdater()
+
+        return START_STICKY  // 服务被杀后自动重启
+    }
+
+    /**
+     * 启动时长采集器
+     */
+    private fun startUsageCollector() {
+        if (collector == null) {
+            collector = UsageStatsCollector(this, serviceScope)
+        }
+        collector?.start()
+    }
+
+    /**
+     * 定时更新前台通知，显示当前使用时长
+     */
+    private fun startNotificationUpdater() {
+        serviceScope.launch {
+            while (isActive) {
+                delay(2 * 60 * 1000L)  // 2 分钟
+                val totalMinutes = collector?.todayTotalMinutes ?: 0
+                val isTimeout = collector?.isTimeoutActive ?: false
+
+                val contentText = when {
+                    isTimeout -> "⚠️ 今日使用时长已超限"
+                    totalMinutes > 0 -> "今日已使用 $totalMinutes 分钟"
+                    else -> "正在守护孩子的使用时长"
+                }
+                updateNotification(contentText, totalMinutes.toInt())
+            }
+        }
+    }
+
+    /**
+     * 更新前台通知内容
+     *
+     * @param contentText 通知正文
+     * @param progressMinutes 进度分钟数（通知进度条）
+     */
+    private fun updateNotification(contentText: String, progressMinutes: Int) {
+        val channelId = XiaopacaiApp.CHANNEL_GUARDIAN
+
+        val builder = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("小趴菜守护运行中")
+            .setContentText(contentText)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+
+        // 显示进度条（限额进度指示）
+        val limitMinutes = collector?.todayLimitMinutes?.toInt() ?: 0
+
+        if (limitMinutes > 0) {
+            builder.setProgress(limitMinutes, progressMinutes.coerceAtMost(limitMinutes), false)
+        }
+
+        val notification = builder.build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // 停止采集与协程
+        collector?.stop()
+        serviceScope.cancel()
+        Log.i(TAG, "守护前台服务销毁")
+    }
+
+    /**
+     * 获取数据库加密密码
+     */
+    private fun getPassphrase(): ByteArray {
+        val prefs = getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE)
+        val key = prefs.getString("db_key_seed", "xiaopacai_default_key")!!
+        return key.toByteArray(Charsets.UTF_8)
     }
 }
