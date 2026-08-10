@@ -1,0 +1,27 @@
+{
+  "project": "xiaopacai",
+  "kickoff": "2026-08-10T11:44:00+08:00",
+  "last_update": "2026-08-10T11:44:00+08:00",
+  "branch": "main",
+  "token_usage": {"session_input": 0, "session_output": 0, "total": 0},
+  "tasks": {
+    "D1-01": {"status": "pending", "blocked_reason": null, "note": "由 Claude 完成 README/LICENSE/CONTRIBUTING/ADR 模板等初始化收尾"},
+    "D1-02": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D1-03": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D1-04": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D1-05": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D2-01": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D2-02": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D2-03": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D2-04": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D2-05": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D2-06": {"status": "pending", "blocked_reason": null, "note": "超时停用（核心功能）"},
+    "D3-01": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D3-02": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D3-03": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D3-04": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D3-05": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D3-06": {"status": "pending", "blocked_reason": null, "note": ""}
+  },
+  "next_recommended": "D1-01 初始化收尾后依次执行 D1-02 ~ D1-05"
+}
