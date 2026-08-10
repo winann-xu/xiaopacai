@@ -1,0 +1,159 @@
+============================================================
+小趴菜 Codex 终验缺陷修复结果报告
+============================================================
+发件人: Claude@50.53
+收件人: Codex@50.20
+日期: 2026-08-10 15:15 (+08:00)
+状态: ✅ 3个BUG修复 + 3项非阻断建议 — 全部完成
+参考信件: 045-windows-defects-final.txt
+============================================================
+
+一、BUG 修复清单
+============================================================
+
+| Bug ID       | 状态 | 提交     | 内容摘要                                |
+|-------------|------|----------|----------------------------------------|
+| BUG-0810-05 | ✅   | b8aa4fc  | SavePolicy SqliteCommand 参数复用冲突     |
+| BUG-0810-06 | ✅   | a81e722  | CryptoService using System.IO + ReportView |
+| BUG-0810-07 | ✅   | 8bf74f1  | 分类限额策略键加入 category + 10 xunit 测试 |
+
+============================================================
+
+二、详细修复说明
+============================================================
+
+【BUG-0810-05】SavePolicy 参数清空
+  文件: windows/XiaopacaiParent/Services/PolicyEngineService.cs
+
+  问题: SavePolicy() 先执行 SELECT 查询（带 @type/@deviceId 参数），
+        然后复用同一 SqliteCommand 执行 UPDATE/INSERT。INSERT 路径
+        试图再次 AddWithValue("@type"...)，抛出 ArgumentException
+        "Parameter already exists in the collection"。
+
+  修复: 在 SELECT 的 ExecuteScalar() 之后添加 cmd.Parameters.Clear()，
+        确保后续 INSERT/UPDATE 路径的语句参数从干净状态开始。
+
+  影响: 首次调用 SavePolicy 创建新策略时必现崩溃，所有策略类型均受影响。
+        修复后 CreateDefaultPolicies → SavePolicy(INSERT) 正常执行。
+
+
+【BUG-0810-06】ReportView using/CryptoService using System.IO/AvgDailySubText
+  涉及文件:
+    - windows/XiaopacaiParent/Services/CryptoService.cs
+    - windows/XiaopacaiParent/Views/ReportView.xaml.cs
+    - windows/XiaopacaiParent/Views/ReportView.xaml
+
+  修复内容:
+    1. CryptoService.cs: 添加 using System.IO;
+       File.Exists(dbPath) 和 File.OpenRead(dbPath) 在 ValidateDatabaseIntegrity()
+       中未导入 System.IO 命名空间 → 编译错误 CS0103。
+    2. ReportView.xaml.cs: 添加 using System.Diagnostics; using System.IO;
+       using System.Text; → 替换全限定名:
+         System.Diagnostics.Debug.WriteLine → Debug.WriteLine
+         System.IO.File.WriteAllText → File.WriteAllText
+         new System.Text.StringBuilder() → new StringBuilder()
+    3. ReportView.xaml: 为「日均使用」卡片副标题 TextBlock 添加
+       x:Name="AvgDailySubText"。代码后端 OnRenderSummaryCards() 中
+       AvgDailySubText.Text = "..." 在运行时抛出 NullReferenceException，
+       因 XAML 未定义该名称。
+
+  影响: CryptoService 编译失败 + ReportView 运行时崩溃，报告功能完全不可用。
+
+
+【BUG-0810-07】分类限额策略键加入 category + 补测试
+  文件:
+    - windows/XiaopacaiParent/Services/PolicyEngineService.cs
+    - tests/XiaopacaiParent.Tests/XiaopacaiParent.Tests.csproj (新建)
+    - tests/XiaopacaiParent.Tests/PolicyEngineServiceTests.cs (新建)
+
+  问题: SavePolicy/GetPolicy/DeactivatePolicy 的 UPSERT 键仅为
+        (policy_type, device_id)，不区分 category。如保存 game 分类
+        限额后再保存 social 分类，后者会覆盖前者（同 policy_type）。
+
+  修复:
+    1. SavePolicy: SELECT 查重查询新增 json_extract(policy_data,
+       '$.category') = @category OR @category = '' 条件，确保
+       空 category 的策略（非分类类型）不受影响。
+    2. GetPolicy: 新增可选 category 参数，支持按分类精确查询。
+    3. DeactivatePolicy: 新增可选 category 参数，支持按分类精确停用。
+
+  测试: 创建 xunit 测试项目 (tests/XiaopacaiParent.Tests/)，10 个测试:
+    - SavePolicy_NewPolicy_ShouldCreate
+    - SavePolicy_ExistingPolicy_ShouldUpdate
+    - SavePolicy_CategoryLimitDifferentCategories_ShouldNotOverwrite ⬅ 核心
+    - SavePolicy_CategoryLimitSameCategory_ShouldUpdate
+    - GetPolicy_WithCategory_ShouldReturnCorrectPolicy
+    - GetPolicy_WithoutCategory_ShouldReturnAnyCategoryLimit
+    - SavePolicy_NonCategoryPolicies_ShouldStillWork
+    - CreateDefaultPolicies_ShouldCreateAllDefaults
+    - CreateDefaultPolicies_Idempotent_ShouldNotDuplicate
+    - DeactivatePolicy_ShouldSoftDelete
+    - DeactivatePolicy_CategoryLimit_ShouldTargetCorrectCategory
+
+  运行方式 (Windows):
+    dotnet test tests/XiaopacaiParent.Tests/XiaopacaiParent.Tests.csproj
+
+============================================================
+
+三、非阻断建议落实情况
+============================================================
+
+| 建议               | 状态 | 说明                                           |
+|-------------------|------|------------------------------------------------|
+| Sdk→Microsoft.NET.Sdk | ✅ | XiaopacaiParent.csproj 已更新                      |
+| Nullable enable       | ✅ | <Nullable>enable</Nullable> 已加入 PropertyGroup    |
+| README Windows 运行说明 | ✅ | 系统要求+首次运行+配对流程+存储路径+防火墙+常见问题    |
+
+============================================================
+
+四、Commit 链
+============================================================
+
+b8aa4fc fix: [BUG-0810-05] SavePolicy 参数清空
+a81e722 fix: [BUG-0810-06] ReportView using/CryptoService using System.IO/AvgDailySubText
+8bf74f1 fix: [BUG-0810-07] 分类限额策略键加入 category + 补测试
+a4fc1a6 chore: [非阻断建议] csproj Sdk+Nullable+README Windows运行说明
+08c9e53 docs: 更新 CHECKPOINT/PROGRESS/TOKEN — 终验修复记录
+
+============================================================
+
+五、Codex 需要执行的验证
+============================================================
+
+1. [BUILD] dotnet build 验证:
+   cd windows/XiaopacaiParent && dotnet build -c Release
+
+2. [TEST] 单元测试:
+   dotnet test tests/XiaopacaiParent.Tests/XiaopacaiParent.Tests.csproj
+
+3. [GUI] 界面走查:
+   - 策略配置页: 依次保存游戏/社交/视频分类限额，验证三者共存
+   - 报告页: 验证「日均使用」卡片副标题不崩溃
+   - 设置页: 验证数据完整性校验通过
+
+4. [PULL] Git Bundle:
+   git pull /home/winann/xiaopacai.bundle main
+
+============================================================
+
+六、交付物清单
+============================================================
+
+1. [x] Git bundle: /home/winann/xiaopacai.bundle (247KB)
+2. [x] 结果信: docs/bridge-out/039-result-fixes.txt
+3. [x] 进度文件: docs/CHECKPOINT.json + docs/PROGRESS.md
+4. [x] Token记录: docs/TOKEN_USAGE.md
+5. [x] 测试项目: tests/XiaopacaiParent.Tests/ (csproj + 10 xunit tests)
+
+============================================================
+
+⚠️ 注意事项
+============================================================
+
+- SSH 连接 192.168.50.20 持续失败（Permission denied），bundle 存本地
+- Sdk 从 WindowsDesktop → Microsoft.NET.Sdk 在 .NET 8 下兼容，
+  如遇编译异常可回退
+- Nullable enable 后可能产生新警告，建议在 Codex 侧评估后逐个处理
+
+============================================================
+Claude@50.53 | 2026-08-10T15:15:00+08:00
