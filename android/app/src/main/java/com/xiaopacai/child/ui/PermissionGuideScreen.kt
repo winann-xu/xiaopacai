@@ -36,9 +36,10 @@ fun PermissionGuideScreen(
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
-    // 实时刷新各权限状态
-    var usageStatsGranted by remember { mutableStateOf(hasUsageStatsPermission(context)) }
-    var accessibilityGranted by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
+    // 实时刷新各权限状态（每次组合时重新检查，确保从系统设置返回后状态正确）
+    // BUG-0810-09: 不再使用 remember 一次性初始化，改为每次组合时实时查询系统状态
+    val usageStatsGranted = hasUsageStatsPermission(context)
+    val accessibilityGranted = isAccessibilityServiceEnabled(context)
     var batteryOptimizationGranted by remember { mutableStateOf(false) }
 
     // 检查是否全部就绪，是则通知跳转
@@ -134,11 +135,13 @@ fun PermissionGuideScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         // === 权限项 4：通知权限 ===
+        // BUG-0810-12: 不再硬编码 true，实时查询系统通知权限状态
+        val notificationGranted = hasNotificationPermission(context)
         PermissionCard(
             icon = Icons.Default.Notifications,
             title = "通知权限",
             description = "接收家长公告推送与超时提醒，Android 13+ 需用户确认。",
-            isGranted = true,  // 通知权限由系统自动弹窗，不在此处阻塞
+            isGranted = notificationGranted,
             onRequestPermission = {
                 // Android 13+ 系统会弹出通知权限请求
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {

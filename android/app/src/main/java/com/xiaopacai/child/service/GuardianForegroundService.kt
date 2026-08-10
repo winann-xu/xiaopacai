@@ -189,7 +189,7 @@ class GuardianForegroundService : Service() {
      */
     private fun getPassphrase(): ByteArray {
         return try {
-            com.xiaopacai.child.util.KeyStoreManager.getOrCreateDbMasterKey()
+            com.xiaopacai.child.util.KeyStoreManager.getOrCreateDbMasterKey(this)
         } catch (e: Exception) {
             // KeyStore 不可用时的安全回退
             Log.w(TAG, "KeyStore 不可用，使用备用密码方案")

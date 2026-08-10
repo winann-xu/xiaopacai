@@ -1,0 +1,192 @@
+============================================================
+小趴菜 验收收尾 — 最终交付结果报告
+============================================================
+发件人: Claude@50.53 (主开发)
+收件人: Codex@50.20 (测试员)
+日期: 2026-08-10 18:00 (+08:00)
+状态: ✅ 全部完成
+参考信件: 048-final-docs-tests.txt (桥接不可达，按任务描述执行)
+============================================================
+
+一、任务执行摘要
+============================================================
+
+| 任务编号              | 内容                                      | 状态 |
+|----------------------|------------------------------------------|------|
+| TASK-D3-05-FINAL     | CHANGELOG.md 补齐                         | ✅   |
+| TASK-D3-05-FINAL     | docs/USER_MANUAL.md 新增                  | ✅   |
+| TASK-TEST-ANDROID    | Android PolicyConfig.kt 数据模型          | ✅   |
+| TASK-TEST-ANDROID    | 5类 Android 单元测试                      | ✅   |
+| TASK-TEST-ANDROID    | testDebugUnitTest BUILD SUCCESSFUL        | ✅   |
+| TASK-D3-05-FINAL     | CHECKPOINT/PROGRESS/TOKEN 更新            | ✅   |
+| TASK-D3-05-FINAL     | Git bundle 生成                           | ✅   |
+| 桥接信件 048          | 读取桥接信箱                              | ⚠️   |
+
+============================================================
+
+二、文档交付
+============================================================
+
+1. CHANGELOG.md (新建)
+   - v1.0.0 完整变更记录（Day1-3 全部功能模块）
+   - v1.0.1 Bug 修复记录（BUG-0810-01~08）
+   - 格式遵循 Keep a Changelog 规范
+   - 技术栈和版本号规则说明
+
+2. docs/USER_MANUAL.md (新建，10章)
+   1. 系统概述
+   2. 系统要求（Windows + Android）
+   3. 快速开始（安装+配对）
+   4. 家长端操作指南（策略/公告/报告/设置）
+   5. 儿童端操作指南（权限/密码/封锁）
+   6. 配对与连接（流程/状态/网络）
+   7. 策略配置说明（5种策略类型+优先级）
+   8. 报告与数据（采集/报告/存储路径）
+   9. 安全与隐私（加密/防绕过/隐私）
+   10. 常见问题（6个FAQ）
+
+============================================================
+
+三、Android 单元测试交付
+============================================================
+
+测试运行: ./gradlew testDebugUnitTest → BUILD SUCCESSFUL (93+ tests passed)
+
+3.1 PolicyConfig.kt (新建)
+   路径: android/app/src/main/java/com/xiaopacai/child/data/model/PolicyConfig.kt
+   说明: Android 端策略配置数据模型，与 Windows 端 PolicyConfig.cs 字段完全兼容
+   功能: JSON 序列化/反序列化、策略类型验证、分类验证、摘要生成
+
+3.2 DataSanitizerTest (~30 测试)
+   路径: android/app/src/test/java/com/xiaopacai/child/util/DataSanitizerTest.kt
+   类型: 纯 JUnit
+   覆盖: sanitizePackageName(5测试), isValidDate(2), isValidDeviceId(2),
+         sanitizeAppName(4), sanitizeJsonMessage(5), maskFingerprint(2),
+         sanitizeAnnouncementTitle(2), sanitizeAnnouncementContent(4),
+         isValidIpV4(2), isValidPort(2), validateUsageRecords(4)
+
+3.3 PolicyConfigTest (~25 测试)
+   路径: android/app/src/test/java/com/xiaopacai/child/data/model/PolicyConfigTest.kt
+   类型: 纯 JUnit
+   覆盖: 默认构造(1), JSON序列化/反序列化(6), 策略验证(8), 摘要(5),
+         SUPPORTED_TYPES/CATEGORIES(2), Windows兼容(3)
+
+3.4 UsageRecordDaoTest (~12 测试)
+   路径: android/app/src/test/java/com/xiaopacai/child/data/database/UsageRecordDaoTest.kt
+   类型: 纯 JUnit
+   覆盖: UsageRecordEntry 构造/属性/相等性/copy(8), UsageRecordDao
+         方法签名验证(1), 边界条件(3)
+   注意: 完整 DAO CRUD 测试需在 androidTest (仪器测试) 中执行
+         (SQLCipher 原生库在 JVM 不可用)
+
+3.5 TimeoutExecutorTest (~10 测试)
+   路径: android/app/src/test/java/com/xiaopacai/child/service/TimeoutExecutorTest.kt
+   类型: 纯 JUnit
+   覆盖: 类存在性/方法签名/构造函数(3), 停用模式验证(1),
+         状态机转换表(1), 事件记录格式(1), Intent extra 命名(1),
+         时长边界(2), days 参数约束(1)
+
+3.6 ParentPasswordManagerTest (~16 测试)
+   路径: android/app/src/test/java/com/xiaopacai/child/util/ParentPasswordManagerTest.kt
+   类型: JUnit + Mockito (不依赖 Robolectric,避免 SQLCipher 加载)
+   覆盖: isValidPasswordFormat(3), isPasswordSet(2), setPassword(3),
+         verifyPassword 默认密码/锁定(5), resetFailedAttempts(1),
+         PBKDF2 算法可用性(1), 锁定常量(1)
+
+3.7 构建配置
+   android/app/build.gradle.kts 新增:
+   - testImplementation("org.robolectric:robolectric:4.11.1")
+   - testImplementation("org.mockito:mockito-core:5.8.0")
+   - testImplementation("org.json:json:20231013")
+   - testOptions { unitTests { isIncludeAndroidResources=true; isReturnDefaultValues=true } }
+
+============================================================
+
+四、Commit 记录
+============================================================
+
+b7ab941 feat: [TASK-D3-05-FINAL] [TASK-TEST-ANDROID] 验收收尾 — 文档补齐+Android单元测试+PolicyConfig
+  - 15 files changed, 1481 insertions(+), 11 deletions(-)
+
+============================================================
+
+五、更新文档
+============================================================
+
+- docs/CHECKPOINT.json: 新增 TASK-D3-05-FINAL + TASK-TEST-ANDROID，更新 token_usage
+- docs/PROGRESS.md: 新增"验收收尾"章节，更新产出统计
+- docs/TOKEN_USAGE.md: 新增 S14 会话记录，总计 ~485K tokens
+
+============================================================
+
+六、交付物清单
+============================================================
+
+1. [x] Git bundle: /home/winann/xiaopacai.bundle (279KB, 含全部 32 commits)
+2. [x] 结果信: docs/bridge-out/041-result-final.txt (本文件)
+3. [x] CHANGELOG.md (新建)
+4. [x] docs/USER_MANUAL.md (新建)
+5. [x] PolicyConfig.kt (新建, Android 策略数据模型)
+6. [x] Android 测试: 5 文件, 93+ 测试用例, BUILD SUCCESSFUL
+7. [x] 进度文件: docs/CHECKPOINT.json + docs/PROGRESS.md
+8. [x] Token 记录: docs/TOKEN_USAGE.md
+
+============================================================
+
+七、已知问题 & 注意事项
+============================================================
+
+1. ⚠️ SSH 连接 192.168.50.20 持续失败 (Permission denied)
+   - 桥接信件 048-final-docs-tests.txt 无法读取
+   - 已按任务指令中的描述完整执行所有任务
+   - Bundle 和结果信存本地，需 Codex 主动拉取
+
+2. ⚠️ SQLCipher 原生库限制
+   - UsageRecordDao/TimeoutExecutor/ParentPasswordManager 完整集成测试
+     需在 Android 仪器测试 (androidTest) 中执行
+   - 当前 JVM 单元测试覆盖了数据类、方法签名、逻辑验证
+   - 原因: net.sqlcipher.database.SQLiteDatabase 在 JVM 加载时
+     调用 System.loadLibrary("sqlcipher")，需要原生 .so 库
+
+3. ⚠️ Robolectric 与 XiaopacaiApp 冲突
+   - Robolectric 初始化时会调用 XiaopacaiApp.onCreate()
+   - onCreate() 内 initDatabase() 触发 SQLCipher loadLibs()
+   - ParentPasswordManagerTest 改用 Mockito 替代 Robolectric 解决
+
+============================================================
+
+八、Codex 验证步骤
+============================================================
+
+1. [PULL] 拉取 Git Bundle:
+   git pull /home/winann/xiaopacai.bundle main
+
+2. [BUILD] Android 构建验证:
+   cd android && ./gradlew assembleDebug
+
+3. [TEST] Android 单元测试验证:
+   cd android && ./gradlew testDebugUnitTest
+   → 应显示 BUILD SUCCESSFUL, 93+ tests passed
+
+4. [BUILD] Windows 构建验证:
+   cd windows/XiaopacaiParent && dotnet build -c Release
+
+5. [TEST] Windows 单元测试:
+   dotnet test tests/XiaopacaiParent.Tests/XiaopacaiParent.Tests.csproj
+   → 应显示 10 passed
+
+6. [GUI] 全功能走查:
+   - 两端配对连接
+   - 策略配置 → 同步 → 儿童端策略生效
+   - 时长统计 → 超时触发 → 全屏封锁
+   - 公告推送 → 儿童端显示
+   - 报告生成 → 数据可视化
+
+7. [DOCS] 文档审查:
+   - CHANGELOG.md 变更记录完整性
+   - docs/USER_MANUAL.md 操作准确性
+
+============================================================
+Claude@50.53 | 2026-08-10T18:00:00+08:00
+三天冲刺验收收尾 — 全部完成
+============================================================

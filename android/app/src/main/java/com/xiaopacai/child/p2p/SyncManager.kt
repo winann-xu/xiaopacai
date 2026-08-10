@@ -90,8 +90,15 @@ class SyncManager(
 
     /**
      * 同步使用时长报告到家长端
+     * P2P-FIX: 仅在连接已建立时发送，仅在发送成功后标记已同步
      */
     suspend fun syncUsageReports() {
+        // P2P-FIX: 连接门卫 — 未连接时静默跳过，不标记已同步
+        if (connectionService.connectionState.value != P2PConnectionState.CONNECTED) {
+            Log.d(TAG, "未连接到家长端，跳过同步")
+            return
+        }
+
         val passphrase = getPassphrase()
 
         // 1. 获取未同步记录
@@ -126,14 +133,13 @@ class SyncManager(
             )
         )
 
-        try {
-            connectionService.sendMessage(message)
-
-            // 4. 标记为已同步
+        // P2P-FIX: 仅发送成功后才标记已同步，防止静默丢数据
+        val sent = connectionService.sendMessage(message)
+        if (sent) {
             usageDao.markAsSynced(ids, passphrase)
             Log.i(TAG, "已同步 ${unsyncedRecords.size} 条使用记录")
-        } catch (e: Exception) {
-            Log.e(TAG, "同步发送失败: ${e.message}")
+        } else {
+            Log.w(TAG, "同步发送失败，${unsyncedRecords.size} 条记录将在下次重试")
         }
     }
 

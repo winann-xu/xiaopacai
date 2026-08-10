@@ -240,9 +240,16 @@ class P2PConnectionService {
         sendMessage(message)
     }
 
-    /** 发送 JSON 消息（长度前缀帧） */
-    fun sendMessage(message: P2PMessage) {
-        try {
+    /** 发送 JSON 消息（长度前缀帧），返回是否成功 */
+    fun sendMessage(message: P2PMessage): Boolean {
+        return try {
+            // P2P-FIX: 检查连接状态，未连接时拒绝发送
+            if (_connectionState.value != P2PConnectionState.CONNECTED &&
+                _connectionState.value != P2PConnectionState.HANDSHAKING) {
+                Log.w(TAG, "未连接，丢弃消息: ${message.type}")
+                return false
+            }
+
             val jsonBytes = message.toJsonBytes()
             // 4 字节大端长度 + JSON 消息体
             val frame = ByteBuffer.allocate(4 + jsonBytes.size)
@@ -254,8 +261,10 @@ class P2PConnectionService {
             outputStream?.flush()
 
             Log.d(TAG, "已发送: ${message.type}")
+            true
         } catch (e: Exception) {
             Log.e(TAG, "发送失败: ${message.type}", e)
+            false
         }
     }
 

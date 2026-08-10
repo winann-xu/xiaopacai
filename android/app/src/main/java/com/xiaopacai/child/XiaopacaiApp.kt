@@ -39,7 +39,7 @@ class XiaopacaiApp : Application() {
     private fun initDatabase() {
         try {
             // 从 AndroidKeyStore 获取或生成 AES-256 数据库主密钥
-            val dbMasterKey = KeyStoreManager.getOrCreateDbMasterKey()
+            val dbMasterKey = KeyStoreManager.getOrCreateDbMasterKey(this)
             database = AppDatabase.getInstance(this, dbMasterKey)
             Log.i(TAG, "加密数据库初始化成功（KeyStore 保护）")
         } catch (e: Exception) {

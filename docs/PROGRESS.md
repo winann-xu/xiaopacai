@@ -3,9 +3,10 @@
 - 冲刺开始：2026-08-10 11:44 (+08:00)
 - 冲刺完成：2026-08-10 14:30 (+08:00)
 - 终验修复：2026-08-10 15:15 (+08:00)
+- 终验修复 Round 2：2026-08-10 20:30 (+08:00)
 - 角色：Claude@50.53 主开发；Codex@50.20 主测试
 - 提示词包：V2.1（主任务书 + 分日任务单 + Token 机制 + 中断续接协议）
-- **版本：1.0.0 首版正式发布**
+- **版本：1.0.2 第二轮修复**
 
 ## Day1 骨架与连接 ✅ 全部完成
 - [x] D1-01 仓库初始化收尾（README/LICENSE/CONTRIBUTING/ADR/COLLAB_RULES）
@@ -55,8 +56,18 @@
 - Android 测试文件: 5 个（新增）
 - Windows 测试文件: 2 个（xunit 测试项目）
 - 总测试数: 103+（Android 93 + Windows 10 xunit）
-- 总代码量: ~6,500 行
+- 总代码量: ~6,800 行
 - Git bundle: /home/winann/xiaopacai.bundle
 - APK: android/app/build/outputs/apk/debug/app-debug.apk (28MB)
-- Token 用量（估算）: ~480K（总计）
+- Token 用量（估算）: ~520K（总计）
 - 文档: CHANGELOG.md + USER_MANUAL.md（新增）
+
+## Codex 终验修复 Round 2 ✅ 全部完成 (2026-08-10 20:30)
+- [x] BUG-0810-09 PermissionGuideScreen 权限状态刷新（remember→实时查询）
+- [x] BUG-0810-10 守护主页快捷按钮（设置/权限管理/关于）TODO实现
+- [x] BUG-0810-11 【严重】无障碍拦截 packageName==packageName 恒真修复
+- [x] BUG-0810-12 通知权限 isGranted=true 改为实时检查 POST_NOTIFICATIONS
+- [x] BUG-0810-13 KeyStore getEncoded() null → wrapped-key方案
+- [x] P2P-FIX-A Windows SslStream TLS服务端+4字节长度前缀JSON帧
+- [x] P2P-FIX-B PairingManager UI集成（扫描/发现/手动连接对话框）
+- [x] P2P-FIX-C sendMessage返回Boolean+SyncManager连接门卫+发送失败不标记已同步

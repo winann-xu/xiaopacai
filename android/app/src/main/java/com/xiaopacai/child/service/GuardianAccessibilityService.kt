@@ -74,7 +74,7 @@ class GuardianAccessibilityService : AccessibilityService() {
         val packageName = event.packageName?.toString() ?: return
 
         // 忽略空包名和自身包名
-        if (packageName.isEmpty() || packageName == packageName) {
+        if (packageName.isEmpty() || packageName == this@GuardianAccessibilityService.packageName) {
             // 自身应用切换不拦截
             return
         }

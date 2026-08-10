@@ -4,10 +4,12 @@ import android.Manifest
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -85,12 +87,21 @@ fun MainScreen() {
  */
 @Composable
 fun GuardianHomeScreen() {
+    val context = LocalContext.current
     GuardianHomeContent(
         onOpenSettings = {
-            // TODO: [TASK-D1-05] 打开设置页面
+            // BUG-0810-10: 打开应用系统设置页
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:${context.packageName}")
+            }
+            context.startActivity(intent)
         },
         onOpenPermissionGuide = {
-            // TODO: [TASK-D1-05] 打开权限引导
+            // BUG-0810-10: 打开权限管理（系统设置页）
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:${context.packageName}")
+            }
+            context.startActivity(intent)
         }
     )
 }
@@ -103,12 +114,7 @@ fun GuardianHomeScreen() {
 private fun checkAllPermissions(context: Context): Boolean {
     val hasUsageStats = hasUsageStatsPermission(context)
     val hasAccessibility = isAccessibilityServiceEnabled(context)
-    val hasNotification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        // Android 13+ 需要运行时通知权限
-        true  // 暂时跳过运行时检查，由系统弹窗处理
-    } else {
-        true
-    }
+    val hasNotification = hasNotificationPermission(context)
     return hasUsageStats && hasAccessibility && hasNotification
 }
 
@@ -146,4 +152,20 @@ fun isAccessibilityServiceEnabled(context: Context): Boolean {
         Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
     ) ?: return false
     return enabledServices.contains(serviceName) || enabledServices.contains("com.xiaopacai.child")
+}
+
+/**
+ * 检查通知权限是否已授予
+ * Android 13+ 需要 POST_NOTIFICATIONS 运行时权限
+ * BUG-0810-12: 不再硬编码 true，实时检查系统权限状态
+ */
+fun hasNotificationPermission(context: Context): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+    } else {
+        true  // Android 12 及以下无需运行时权限
+    }
 }

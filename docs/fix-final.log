@@ -1,0 +1,31 @@
+---
+
+## ✅ 验收收尾 — 全部交付完成
+
+### 执行摘要
+
+| 编号 | 任务 | 状态 |
+|------|------|------|
+| ① | CHANGELOG.md (69行，v1.0.0→v1.0.1完整记录) | ✅ |
+| ② | docs/USER_MANUAL.md (369行，10章完整手册) | ✅ |
+| ③ | PolicyConfig.kt (Android策略模型，Windows兼容) | ✅ |
+| ④ | 5类Android单元测试 (93+用例) | ✅ |
+| ⑤ | `testDebugUnitTest` BUILD SUCCESSFUL | ✅ |
+| ⑥ | Commit `b7ab941` ([TASK-D3-05-FINAL] [TASK-TEST-ANDROID]) | ✅ |
+| ⑦ | Bundle `/home/winann/xiaopacai.bundle` (279KB) | ✅ |
+| ⑧ | 结果信 `docs/bridge-out/041-result-final.txt` | ✅ |
+| ⑨ | CHECKPOINT/PROGRESS/TOKEN_USAGE 更新 | ✅ |
+
+### 关键数字
+
+- **15 files changed**, +1481 / -11 lines
+- **5 test files**, 93+ test cases, all passing
+- **32 total commits** across the 3-day sprint
+- **~485K tokens** consumed (under 500K hard cap)
+- **279KB** bundle ready for Codex pull
+
+### ⚠️ 注意事项
+
+- 桥接 SSH 到 `192.168.50.20` 持续不可达（历史已知问题），无法读取 048 号信件，已按任务描述完整执行
+- SQLCipher 原生库限制使得 DAO/TimeoutExecutor/ParentPasswordManager 的完整 CRUD 测试需在 `androidTest` (仪器测试) 中执行；当前 JVM 测试覆盖了数据类/逻辑/签名验证
+- Codex 侧请 `git pull /home/winann/xiaopacai.bundle main` 拉取后进行构建验证和全功能 GUI 测试

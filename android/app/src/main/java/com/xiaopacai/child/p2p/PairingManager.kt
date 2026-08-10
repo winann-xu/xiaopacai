@@ -41,6 +41,9 @@ class PairingManager(private val context: Context) {
     private val _pairingState = MutableStateFlow(PairingState.IDLE)
     val pairingState: StateFlow<PairingState> = _pairingState
 
+    /** P2P-FIX: 暴露发现的家长端列表供 UI 使用 */
+    val discoveredParents: StateFlow<List<DiscoveredParent>> = discoveryService.discoveredParents
+
     /**
      * 开始扫描家长端设备
      * 并行使用 mDNS 和 UDP 广播发现

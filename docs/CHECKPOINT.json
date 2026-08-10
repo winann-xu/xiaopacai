@@ -1,16 +1,24 @@
 {
   "project": "xiaopacai",
   "kickoff": "2026-08-10T11:44:00+08:00",
-  "last_update": "2026-08-10T18:00:00+08:00",
+  "last_update": "2026-08-10T20:30:00+08:00",
   "branch": "main",
-  "version": "1.0.1",
-  "token_usage": {"session_input": 270000, "session_output": 210000, "total": 480000},
+  "version": "1.0.2",
+  "token_usage": {"session_input": 290000, "session_output": 230000, "total": 520000},
   "tasks": {
     "BUG-0810-04": {"status": "done", "blocked_reason": null, "note": "P2PBroadcastService SendAsync ReadOnlyMemory<byte>重载修复"},
     "BUG-0810-05": {"status": "done", "blocked_reason": null, "note": "SavePolicy SqliteCommand参数复用冲突 — cmd.Parameters.Clear()修复"},
     "BUG-0810-06": {"status": "done", "blocked_reason": null, "note": "CryptoService缺using System.IO + ReportView XAML AvgDailySubText未命名 + using清理 + ReportView补漏using XiaopacaiParent.Services"},
     "BUG-0810-07": {"status": "done", "blocked_reason": null, "note": "分类限额策略键加入category维度(SAVE/GET/DEACTIVATE UPSERT) + 10个xunit测试"},
     "BUG-0810-08": {"status": "done", "blocked_reason": null, "note": "Android 4处Kotlin编译错误: GuardianDeviceAdminReceiver常量/ReportGenerator AppDatabase单例/BlockOverlayActivity border API/ParentPasswordManager import"},
+    "BUG-0810-09": {"status": "done", "blocked_reason": null, "note": "PermissionGuideScreen remember一次性初始化权限状态，改为每次组合时实时查询"},
+    "BUG-0810-10": {"status": "done", "blocked_reason": null, "note": "GuardianHomeScreen/GuardianHomeContent 设置/权限管理/关于按钮TODO实现"},
+    "BUG-0810-11": {"status": "done", "blocked_reason": null, "note": "【严重】GuardianAccessibilityService packageName==packageName恒真，改为与this@GuardianAccessibilityService.packageName比较"},
+    "BUG-0810-12": {"status": "done", "blocked_reason": null, "note": "通知权限isGranted=true写死，改为hasNotificationPermission()实时检查POST_NOTIFICATIONS"},
+    "BUG-0810-13": {"status": "done", "blocked_reason": null, "note": "KeyStore secretKey.encoded null问题，改用wrapped-key方案（随机密钥→KeyStore加密→SharedPreferences存储）"},
+    "P2P-FIX-A": {"status": "done", "blocked_reason": null, "note": "Windows P2PListenerService实现SslStream TLS服务端+4字节长度前缀JSON帧"},
+    "P2P-FIX-B": {"status": "done", "blocked_reason": null, "note": "PairingManager UI集成: GuardianHomeContent添加扫描/发现/手动连接入口"},
+    "P2P-FIX-C": {"status": "done", "blocked_reason": null, "note": "sendMessage返回值Boolean+SyncManager连接门卫(未连接跳过/发送失败不标记已同步)"},
     "D3-01": {"status": "done", "blocked_reason": null, "note": "报告生成: Android ReportGenerator + Windows ReportView/ReportService"},
     "D3-02": {"status": "done", "blocked_reason": null, "note": "数据安全: KeyStore集成+DPAPI+HMAC+AES-GCM+DataSanitizer+修复AppDatabase重Bug"},
     "D3-03": {"status": "done", "blocked_reason": null, "note": "防绕过/卸载保护: DeviceAdminReceiver+AntiBypassService+ParentPasswordManager(PBKDF2)"},
@@ -21,5 +29,5 @@
     "TASK-TEST-ANDROID": {"status": "done", "blocked_reason": null, "note": "Android单元测试: UsageRecordDao/PolicyConfig/TimeoutExecutor/ParentPasswordManager/DataSanitizer 5类93+测试, testDebugUnitTest BUILD SUCCESSFUL"},
     "NONBLOCK": {"status": "done", "blocked_reason": null, "note": "非阻断建议: csproj Sdk→Microsoft.NET.Sdk + Nullable + README Windows运行说明"}
   },
-  "next_recommended": "全部Bug修复+文档补齐+Android单元测试完成。Codex在50.20拉取bundle后进行最终构建验证+全功能GUI测试，确认无误后发布v1.0.1。"
+  "next_recommended": "BUG-0810-09~13 + P2P-FIX-A/B/C 共8项修复已完成。Codex在50.20拉取bundle后: 1) Android assembleDebug验证编译 2) Windows dotnet publish验证编译 3) 模拟器运行时回归测试BUG-0810-09/11/12 4) P2P端到端联调（TLS握手→策略推送→使用报告同步）。确认无误后发布v1.0.2。"
 }

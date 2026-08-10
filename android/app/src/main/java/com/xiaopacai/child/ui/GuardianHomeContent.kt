@@ -25,7 +25,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xiaopacai.child.p2p.DiscoveredParent
 import com.xiaopacai.child.p2p.P2PConnectionState
+import com.xiaopacai.child.p2p.PairingManager
+import com.xiaopacai.child.p2p.PairingState
 import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.service.UsageStatsCollector
 
@@ -69,6 +72,25 @@ fun GuardianHomeContent(
     var stopMode by remember { mutableStateOf(collector?.stopMode ?: "none") }
     var connectionState by remember { mutableStateOf(P2PConnectionState.DISCONNECTED) }
     var isTimeoutActive by remember { mutableStateOf(collector?.isTimeoutActive ?: false) }
+
+    // BUG-0810-10: 关于对话框状态
+    var showAboutDialog by remember { mutableStateOf(false) }
+
+    // P2P-FIX-B: 配对管理器与发现状态
+    val pairingManager = remember { PairingManager(context) }
+    val pairingState by pairingManager.pairingState.collectAsState()
+    val discoveredParents by pairingManager.discoveredParents.collectAsState()
+    var showPairingDialog by remember { mutableStateOf(false) }
+    var manualHost by remember { mutableStateOf("") }
+    var manualPort by remember { mutableStateOf("9527") }
+    var pairingCode by remember { mutableStateOf("") }
+
+    // 清理
+    DisposableEffect(Unit) {
+        onDispose {
+            pairingManager.destroy()
+        }
+    }
 
     // 定时刷新数据（每 30 秒从采集器同步最新值）
     LaunchedEffect(Unit) {
@@ -171,7 +193,63 @@ fun GuardianHomeContent(
             AnnouncementCard(announcement)
         }
 
-        // === 5. 快捷入口 ===
+        // === 5. P2P 配对入口（P2P-FIX-B） ===
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "🔗 连接家长端",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = when (pairingState) {
+                            PairingState.IDLE -> "点击下方按钮开始扫描局域网中的家长端"
+                            PairingState.SCANNING -> "正在扫描局域网..."
+                            PairingState.FOUND_PARENT -> "已发现 ${discoveredParents.size} 台家长端"
+                            PairingState.PAIRING -> "正在配对..."
+                            PairingState.CONNECTED -> "✅ 已连接到家长端"
+                            PairingState.ERROR -> "❌ 配对失败"
+                        },
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                if (pairingState == PairingState.SCANNING) {
+                                    pairingManager.stopScanning()
+                                } else {
+                                    pairingManager.startScanning()
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                if (pairingState == PairingState.SCANNING) "停止扫描" else "扫描家长端",
+                                fontSize = 13.sp
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { showPairingDialog = true },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("手动连接", fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // === 6. 快捷入口 ===
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -196,15 +274,140 @@ fun GuardianHomeContent(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Info,
                     label = "关于",
-                    onClick = {
-                        // TODO: 显示关于对话框
-                    }
+                    onClick = { showAboutDialog = true }
                 )
             }
         }
 
         // 底部间距
         item { Spacer(modifier = Modifier.height(16.dp)) }
+    }
+
+    // BUG-0810-10: 关于对话框
+    if (showAboutDialog) {
+        AlertDialog(
+            onDismissRequest = { showAboutDialog = false },
+            title = {
+                Text("关于小趴菜 🥬", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    "小趴菜儿童守护 v1.0.0\n\n" +
+                    "开源家长监控软件，帮助家长管理儿童设备使用时长，" +
+                    "拦截不适宜内容，守护儿童健康成长。\n\n" +
+                    "© 2024 小趴菜开源社区\n" +
+                    "github.com/xiaopacai"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showAboutDialog = false }) {
+                    Text("知道了")
+                }
+            }
+        )
+    }
+
+    // P2P-FIX-B: 手动连接 / 发现设备对话框
+    if (showPairingDialog) {
+        AlertDialog(
+            onDismissRequest = { showPairingDialog = false },
+            title = {
+                Text("连接家长端", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column {
+                    // 已发现的设备
+                    if (discoveredParents.isNotEmpty()) {
+                        Text(
+                            "已发现的设备：",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        discoveredParents.forEach { parent ->
+                            OutlinedButton(
+                                onClick = {
+                                    pairingManager.connectToParent(parent, pairingCode.ifEmpty { "000000" })
+                                    showPairingDialog = false
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(8.dp)
+                            ) {
+                                Column(horizontalAlignment = Alignment.Start) {
+                                    Text(
+                                        "${parent.serviceName}",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        "${parent.host}:${parent.port} (${parent.discoveryMethod})",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    // 手动输入
+                    Text(
+                        "手动输入 IP 地址：",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = manualHost,
+                        onValueChange = { manualHost = it },
+                        label = { Text("IP 地址") },
+                        placeholder = { Text("例如 192.168.1.100") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = manualPort,
+                        onValueChange = { manualPort = it },
+                        label = { Text("端口") },
+                        placeholder = { Text("9527") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = pairingCode,
+                        onValueChange = { pairingCode = it },
+                        label = { Text("配对码（6 位数字）") },
+                        placeholder = { Text("000000") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val port = manualPort.toIntOrNull() ?: 9527
+                        if (manualHost.isNotBlank()) {
+                            val parent = pairingManager.addManualParent(manualHost, port)
+                            pairingManager.connectToParent(parent, pairingCode.ifEmpty { "000000" })
+                        }
+                        showPairingDialog = false
+                    }
+                ) {
+                    Text("连接")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPairingDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 

@@ -1,6 +1,8 @@
 using System;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
@@ -14,12 +16,12 @@ namespace XiaopacaiParent.Services;
 /// 后台 TCP 监听服务，接受儿童端设备连接。
 /// 负责：
 /// - 监听指定端口等待儿童端连接
-/// - TLS 握手与双向证书认证
+/// - TLS 握手与证书认证（SslStream）
+/// - 4 字节长度前缀 + JSON 消息帧协议
 /// - 接收数据（使用记录、状态上报）并写入数据库
 /// - 主动下发（策略更新、公告推送）
 ///
-/// 当前为骨架实现：启动监听 + 接受连接框架。
-/// 完整 P2P 协议在 D1-04 实现。
+/// P2P-FIX: 实现 TLS 服务端 + 长度前缀帧协议，匹配儿童端 TLS 1.3 客户端。
 /// </summary>
 public class P2PListenerService : IDisposable
 {
@@ -30,7 +32,7 @@ public class P2PListenerService : IDisposable
     private CancellationTokenSource? _cts;
     private bool _isRunning;
 
-    /// <summary>自签名证书（用于 TLS 双向认证）</summary>
+    /// <summary>自签名证书（用于 TLS 认证）</summary>
     private X509Certificate2? _certificate;
 
     public bool IsRunning => _isRunning;
@@ -73,6 +75,8 @@ public class P2PListenerService : IDisposable
         _listener.Start();
         _isRunning = true;
 
+        System.Diagnostics.Debug.WriteLine($"[P2P] TLS 监听已启动，端口: {_port}");
+
         // 后台接受连接
         _ = Task.Run(() => AcceptLoopAsync(_cts.Token), _cts.Token);
 
@@ -91,7 +95,7 @@ public class P2PListenerService : IDisposable
 
     /// <summary>
     /// 后台循环：持续接受儿童端连接
-    /// TODO: [TASK-D1-04] 实现 TLS 握手 + 双向认证 + 协议解析
+    /// P2P-FIX: 每个连接使用 SslStream 进行 TLS 加密
     /// </summary>
     private async Task AcceptLoopAsync(CancellationToken ct)
     {
@@ -102,7 +106,7 @@ public class P2PListenerService : IDisposable
                 var client = await _listener.AcceptTcpClientAsync(ct);
 
                 // 为每个连接启动独立处理任务
-                _ = Task.Run(() => HandleConnectionAsync(client), ct);
+                _ = Task.Run(() => HandleConnectionWithTlsAsync(client), ct);
             }
             catch (OperationCanceledException)
             {
@@ -110,44 +114,129 @@ public class P2PListenerService : IDisposable
             }
             catch (Exception ex)
             {
-                // TODO: [TASK-D1-03] 记录日志
                 System.Diagnostics.Debug.WriteLine($"P2P 监听异常: {ex.Message}");
             }
         }
     }
 
     /// <summary>
-    /// 处理单个儿童端连接
-    /// [TASK-D2-05] 实现 JSON 协议解析 + 同步数据交换
+    /// P2P-FIX: 使用 SslStream 处理 TLS 加密连接
+    /// 协议：4 字节大端长度前缀 + JSON 消息体
     /// </summary>
-    private async Task HandleConnectionAsync(TcpClient client)
+    private async Task HandleConnectionWithTlsAsync(TcpClient client)
     {
         try
         {
             using (client)
+            using (var sslStream = new System.Net.Security.SslStream(
+                client.GetStream(), leaveInnerStreamOpen: false))
             {
-                var stream = client.GetStream();
-                var buffer = new byte[4096];
-                var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                // TLS 服务端认证（使用自签名证书）
+                await sslStream.AuthenticateAsServerAsync(
+                    _certificate!,
+                    clientCertificateRequired: false,  // 儿童端不提供客户端证书
+                    enabledSslProtocols: SslProtocols.Tls13 | SslProtocols.Tls12,
+                    checkCertificateRevocation: false);
 
-                if (bytesRead == 0) return;
-
-                var json = Encoding.UTF8.GetString(buffer, 0, bytesRead);
                 System.Diagnostics.Debug.WriteLine(
-                    $"P2P 收到: {client.Client.RemoteEndPoint}, 长度: {json.Length}");
+                    $"[P2P] TLS 握手完成: {client.Client.RemoteEndPoint}, " +
+                    $"协议: {sslStream.SslProtocol}");
 
-                // 解析 JSON 消息
-                var response = HandleSyncMessage(json);
+                // 循环接收消息帧
+                while (client.Connected)
+                {
+                    var message = await ReadFrameAsync(sslStream);
+                    if (message == null) break;  // 连接关闭
 
-                // 回复响应
-                var responseBytes = Encoding.UTF8.GetBytes(response);
-                await stream.WriteAsync(responseBytes, 0, responseBytes.Length);
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[P2P] 收到消息: {message[..Math.Min(message.Length, 200)]}");
+
+                    // 处理消息并生成响应
+                    var response = HandleSyncMessage(message);
+
+                    // 发送响应帧
+                    if (!string.IsNullOrEmpty(response))
+                    {
+                        await WriteFrameAsync(sslStream, response);
+                    }
+                }
             }
+        }
+        catch (AuthenticationException ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[P2P] TLS 握手失败: {ex.Message}");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"连接处理异常: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[P2P] 连接处理异常: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// P2P-FIX: 读取 4 字节长度前缀 + JSON 消息帧
+    /// 匹配儿童端 P2PConnectionService.sendMessage() 的帧格式
+    /// </summary>
+    private static async Task<string?> ReadFrameAsync(System.Net.Security.SslStream stream)
+    {
+        try
+        {
+            // 读取 4 字节大端长度
+            var lengthBytes = new byte[4];
+            var bytesRead = 0;
+            while (bytesRead < 4)
+            {
+                var n = await stream.ReadAsync(lengthBytes, bytesRead, 4 - bytesRead);
+                if (n == 0) return null;  // 连接关闭
+                bytesRead += n;
+            }
+
+            // 大端字节序转 int
+            if (BitConverter.IsLittleEndian)
+                Array.Reverse(lengthBytes);
+            var length = BitConverter.ToInt32(lengthBytes, 0);
+
+            if (length <= 0 || length > 1_048_576)  // 最大 1MB
+            {
+                System.Diagnostics.Debug.WriteLine($"[P2P] 无效消息长度: {length}");
+                return null;
+            }
+
+            // 读取消息体
+            var bodyBytes = new byte[length];
+            bytesRead = 0;
+            while (bytesRead < length)
+            {
+                var n = await stream.ReadAsync(bodyBytes, bytesRead, length - bytesRead);
+                if (n == 0) return null;
+                bytesRead += n;
+            }
+
+            return Encoding.UTF8.GetString(bodyBytes);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[P2P] 读取帧异常: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// P2P-FIX: 写入 4 字节长度前缀 + JSON 消息帧
+    /// 匹配儿童端 P2PConnectionService 的帧格式
+    /// </summary>
+    private static async Task WriteFrameAsync(System.Net.Security.SslStream stream, string json)
+    {
+        var jsonBytes = Encoding.UTF8.GetBytes(json);
+        var lengthBytes = BitConverter.GetBytes(jsonBytes.Length);
+
+        // 大端字节序
+        if (BitConverter.IsLittleEndian)
+            Array.Reverse(lengthBytes);
+
+        // 发送长度 + 消息体
+        await stream.WriteAsync(lengthBytes, 0, 4);
+        await stream.WriteAsync(jsonBytes, 0, jsonBytes.Length);
+        await stream.FlushAsync();
     }
 
     /// <summary>
@@ -201,22 +290,18 @@ public class P2PListenerService : IDisposable
 
     /// <summary>
     /// 加载或创建 TLS 自签名证书
-    /// TODO: [TASK-D1-04] 实现自签名证书生成（RSA-2048 + SHA-256）
+    /// P2P-FIX: SAN 包含局域网 IP 地址，支持儿童端通过 IP 直连验证
     /// </summary>
     private X509Certificate2 LoadOrCreateCertificate()
     {
-        // 骨架返回：实际应在 D1-04 实现证书生成
-        // 创建一个临时自签名证书用于测试
         return CreateSelfSignedCertificate();
     }
 
     /// <summary>
-    /// 创建临时自签名证书（开发阶段占位）
-    /// TODO: [TASK-D1-04] 替换为正式证书生成逻辑
+    /// P2P-FIX: 创建自签名证书（含局域网 IP SAN）
     /// </summary>
     private static X509Certificate2 CreateSelfSignedCertificate()
     {
-        // 使用 .NET 的 CertificateRequest 创建自签名证书
         using var rsa = System.Security.Cryptography.RSA.Create(2048);
         var request = new CertificateRequest(
             "CN=xiaopacai-parent-local",
@@ -224,23 +309,53 @@ public class P2PListenerService : IDisposable
             System.Security.Cryptography.HashAlgorithmName.SHA256,
             System.Security.Cryptography.RSASignaturePadding.Pkcs1);
 
-        // SAN 扩展：允许 localhost 和局域网 IP
-        var sanBuilder = new System.Security.Cryptography.X509Certificates.SubjectAlternativeNameBuilder();
+        // SAN 扩展：包含 localhost、局域网常用 IP 以及本机实际 IP
+        var sanBuilder = new SubjectAlternativeNameBuilder();
         sanBuilder.AddIpAddress(IPAddress.Loopback);
         sanBuilder.AddIpAddress(IPAddress.Parse("127.0.0.1"));
         sanBuilder.AddDnsName("xiaopacai.local");
+        sanBuilder.AddDnsName("localhost");
+
+        // 添加本机所有 IPv4 地址到 SAN（支持局域网 IP 直连）
+        try
+        {
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus == OperationalStatus.Up)
+                {
+                    foreach (var addr in ni.GetIPProperties().UnicastAddresses)
+                    {
+                        if (addr.Address.AddressFamily == AddressFamily.InterNetwork)
+                        {
+                            sanBuilder.AddIpAddress(addr.Address);
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // SAN 添加失败不影响主流程
+        }
+
         request.CertificateExtensions.Add(sanBuilder.Build());
 
         // 基本信息
         request.CertificateExtensions.Add(
             new X509BasicConstraintsExtension(false, false, 0, true));
 
+        // 增强密钥用法：服务器认证
+        request.CertificateExtensions.Add(
+            new X509EnhancedKeyUsageExtension(
+                new OidCollection { new Oid("1.3.6.1.5.5.7.3.1") },  // serverAuth
+                critical: true));
+
         // 有效期：1 年
         var certificate = request.CreateSelfSigned(
             DateTimeOffset.Now.AddDays(-1),
             DateTimeOffset.Now.AddYears(1));
 
-        // 导出为 PFX 格式（含私钥）
+        // 导出为 PFX 格式（含私钥），供 SslStream 使用
         return new X509Certificate2(
             certificate.Export(X509ContentType.Pfx),
             (string?)null,

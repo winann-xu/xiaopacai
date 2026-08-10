@@ -25,7 +25,7 @@ object DbPassphraseProvider {
      */
     fun getPassphrase(context: Context): ByteArray {
         return try {
-            KeyStoreManager.getOrCreateDbMasterKey()
+            KeyStoreManager.getOrCreateDbMasterKey(context)
         } catch (e: Exception) {
             Log.w(TAG, "KeyStore 不可用，使用备用加密方案: ${e.message}")
             getFallbackPassphrase(context)
