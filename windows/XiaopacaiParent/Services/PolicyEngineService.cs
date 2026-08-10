@@ -106,6 +106,9 @@ public class PolicyEngineService
 
         var existingId = cmd.ExecuteScalar();
 
+        // [BUG-0810-05] 清空参数，防止 INSERT/UPDATE 路径复用时参数冲突
+        cmd.Parameters.Clear();
+
         if (existingId != null)
         {
             // 更新
