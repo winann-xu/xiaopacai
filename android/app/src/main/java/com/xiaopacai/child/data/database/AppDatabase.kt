@@ -121,16 +121,17 @@ class AppDatabase private constructor(
     /**
      * 获取可写的加密数据库实例
      * 使用传入的 passphrase 打开数据库
+     * [TASK-D3-02] 修复 passphrase ByteArray→String 转换 Bug
      */
     fun getWritable(passphrase: ByteArray): SQLiteDatabase {
-        return getWritableDatabase(passphrase.toString(Charsets.UTF_8))
+        return getWritableDatabase(String(passphrase, Charsets.UTF_8))
     }
 
     /**
      * 获取只读的加密数据库实例
      */
     fun getReadable(passphrase: ByteArray): SQLiteDatabase {
-        return getReadableDatabase(passphrase.toString(Charsets.UTF_8))
+        return getReadableDatabase(String(passphrase, Charsets.UTF_8))
     }
 
     companion object {

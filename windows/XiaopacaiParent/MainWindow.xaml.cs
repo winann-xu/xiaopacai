@@ -27,11 +27,13 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        // [TASK-D3-01] 初始化全局服务
+        // [TASK-D3-02] 从加密配置文件加载数据库密码（DPAPI 保护）
         var appDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "XiaopacaiParent");
-        _databaseService = new DatabaseService(appDataDir, "xiaopacai_parent_2026");
+        var dbPassword = GetOrCreateDbPassword(appDataDir);
+
+        _databaseService = new DatabaseService(appDataDir, dbPassword);
         _reportService = new ReportService(_databaseService);
 
         InitializeComponent();
@@ -41,6 +43,45 @@ public partial class MainWindow : Window
 
         // 启动后默认显示仪表盘
         ContentFrame.Navigate(new DashboardView(_databaseService, _reportService));
+    }
+
+    /// <summary>
+    /// [TASK-D3-02] 获取或创建受 DPAPI 保护的数据库密码
+    ///
+    /// 密码以 DPAPI 加密形式存储，仅当前 Windows 用户可解密。
+    /// 首次运行时自动生成随机强密码。
+    /// </summary>
+    private static string GetOrCreateDbPassword(string appDataDir)
+    {
+        Directory.CreateDirectory(appDataDir);
+        var keyFile = Path.Combine(appDataDir, ".dbkey");
+
+        try
+        {
+            if (File.Exists(keyFile))
+            {
+                // 解密已存储的数据库密码
+                var encryptedKey = File.ReadAllText(keyFile);
+                return CryptoService.UnprotectWithDpapi(encryptedKey);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"读取数据库密钥失败，将重新生成: {ex.Message}");
+        }
+
+        // 首次运行或解密失败：生成新密码并 DPAPI 保护存储
+        var newPassword = CryptoService.GenerateDatabaseKey(32);
+        try
+        {
+            var encrypted = CryptoService.ProtectWithDpapi(newPassword);
+            File.WriteAllText(keyFile, encrypted);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"存储数据库密钥失败: {ex.Message}");
+        }
+        return newPassword;
     }
 
     /// <summary>
