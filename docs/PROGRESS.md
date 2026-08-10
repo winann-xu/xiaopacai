@@ -9,7 +9,7 @@
 - [x] D1-01 仓库初始化收尾（README/LICENSE/CONTRIBUTING/ADR/COLLAB_RULES）
 - [x] D1-02 Android 工程骨架
 - [x] D1-03 Windows 家长端骨架
-- [ ] D1-04 P2P 连接 PoC
+- [x] D1-04 P2P 连接 PoC
 - [ ] D1-05 两端首版 UI
 
 ## Day2 核心闭环

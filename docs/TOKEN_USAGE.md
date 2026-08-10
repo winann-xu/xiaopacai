@@ -6,3 +6,4 @@
 | S1   | 08-10 | Claude | D1-01 仓库初始化收尾 | ~8K | ~3K | ~11K | README/LICENSE/CONTRIBUTING/ADR/.gitignore |
 | S2   | 08-10 | Claude | D1-02 Android工程骨架 | ~10K | ~8K | ~18K | 13个Kotlin/XML文件+OEM_KEEPALIVE.md |
 | S3   | 08-10 | Claude | D1-03 Windows家长端骨架 | ~8K | ~6K | ~14K | 9个C#文件:WPF主窗口/仪表盘/设置/DB/P2P/Crypto |
+| S4   | 08-10 | Claude | D1-04 P2P连接PoC | ~8K | ~7K | ~15K | 协议规范+发现/连接/配对/广播/QR+ADR-0002+演示指南 |

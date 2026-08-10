@@ -8,7 +8,7 @@
     "D1-01": {"status": "done", "blocked_reason": null, "note": "已完成 README/LICENSE/CONTRIBUTING/ADR模板/.gitignore/目录结构"},
     "D1-02": {"status": "done", "blocked_reason": null, "note": "Kotlin+Compose工程/主界面/权限引导/SQLCipher数据库/前台服务/无障碍服务/OEM保活文档"},
     "D1-03": {"status": "done", "blocked_reason": null, "note": "WPF+MaterialDesign主窗口/仪表盘/设置页/加密数据库/P2P监听服务/加密工具/数据模型"},
-    "D1-04": {"status": "pending", "blocked_reason": null, "note": ""},
+    "D1-04": {"status": "done", "blocked_reason": null, "note": "协议规范/PROTOCOL.md/Kotlin发现+连接+配对/C#广播+QR/演示指南/ADR-0002"},
     "D1-05": {"status": "pending", "blocked_reason": null, "note": ""},
     "D2-01": {"status": "pending", "blocked_reason": null, "note": ""},
     "D2-02": {"status": "pending", "blocked_reason": null, "note": ""},
