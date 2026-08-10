@@ -42,8 +42,8 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnPolicyClick(object sender, RoutedEventArgs e)
     {
-        // TODO: [TASK-D1-05] 实现策略配置页面
-        ContentFrame.Navigate(new DashboardView()); // 临时占位
+        // [TASK-D2-02] 导航到策略配置页面
+        ContentFrame.Navigate(new PolicyView());
     }
 
     /// <summary>

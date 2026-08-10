@@ -26,8 +26,8 @@ windows/*/obj/
 *.vs/
 
 # === 运行数据（不提交） ===
-data/
-logs/
+/data/
+/logs/
 *.db
 *.db-journal
 *.db-wal
