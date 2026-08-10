@@ -51,8 +51,8 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnAnnouncementsClick(object sender, RoutedEventArgs e)
     {
-        // TODO: [TASK-D2-04] 实现公告管理页面
-        ContentFrame.Navigate(new DashboardView()); // 临时占位
+        // [TASK-D2-04] 导航到公告管理页面
+        ContentFrame.Navigate(new AnnouncementView());
     }
 
     /// <summary>

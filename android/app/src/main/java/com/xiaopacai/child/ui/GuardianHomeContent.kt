@@ -90,12 +90,42 @@ fun GuardianHomeContent(
         (todayUsedMinutes.toFloat() / dailyLimitMinutes) else 0f
     val isNearLimit = remainingMinutes <= 15 && remainingMinutes > 0
 
-    // 模拟公告数据
-    val announcements = remember {
-        listOf(
-            Announcement("1", "今日作业提醒", "记得完成数学与英语作业后再玩游戏哦～", "09:00", 1),
-            Announcement("2", "屏幕使用建议", "每用30分钟记得休息5分钟，保护眼睛", "08:30", 0)
-        )
+    // 从数据库加载公告（30 秒刷新一次）
+    var announcements by remember { mutableStateOf(emptyList<Announcement>()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30_000L)
+            try {
+                val prefs = context.getSharedPreferences("guardian_prefs", android.content.Context.MODE_PRIVATE)
+                val key = prefs.getString("db_key_seed", "xiaopacai_default_key")
+                val passphrase = key!!.toByteArray(Charsets.UTF_8)
+                val db = com.xiaopacai.child.XiaopacaiApp.instance.database.getReadable(passphrase)
+                val cursor = db.rawQuery(
+                    """SELECT announcement_id, title, content, priority, created_at
+                       FROM announcements WHERE is_read = 0
+                       AND (expires_at = 0 OR expires_at > ?)
+                       ORDER BY priority DESC, created_at DESC LIMIT 10""",
+                    arrayOf((System.currentTimeMillis() / 1000).toString())
+                )
+                val list = mutableListOf<Announcement>()
+                cursor.use {
+                    while (it.moveToNext()) {
+                        list.add(Announcement(
+                            id = it.getString(0),
+                            title = it.getString(1),
+                            content = it.getString(2),
+                            priority = it.getInt(3),
+                            time = java.text.SimpleDateFormat("MM/dd HH:mm", java.util.Locale.getDefault())
+                                .format(java.util.Date(it.getLong(4) * 1000))
+                        ))
+                    }
+                }
+                db.close()
+                announcements = list
+            } catch (_: Exception) {
+                // 数据库未就绪时使用空列表
+            }
+        }
     }
 
     LazyColumn(

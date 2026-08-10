@@ -1,0 +1,99 @@
+<!-- [TASK-D2-04] 小趴菜家长端公告管理页面 -->
+<!-- 创建、查看、管理儿童端公告 -->
+<Page x:Class="XiaopacaiParent.Views.AnnouncementView"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+      Title="公告管理">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MinWidth="450" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="350" />
+        </Grid.ColumnDefinitions>
+
+        <!-- 左侧：公告列表 -->
+        <StackPanel Grid.Column="0" Margin="24">
+            <TextBlock Text="📢 公告管理" FontSize="22" FontWeight="Bold" Margin="0,0,0,4" />
+            <TextBlock Text="向儿童设备发送重要通知、提醒和鼓励信息。"
+                       Foreground="Gray" FontSize="13" Margin="0,0,0,16" />
+
+            <!-- 公告列表 -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="500">
+                <ItemsControl x:Name="AnnouncementList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <materialDesign:Card Margin="0,0,0,8" Padding="16" Cursor="Hand"
+                                                 MouseLeftButtonUp="OnAnnouncementSelected">
+                                <StackPanel>
+                                    <WrapPanel>
+                                        <!-- 优先级标签 -->
+                                        <TextBlock x:Name="PriorityBadge"
+                                                   Text="{Binding PriorityText}" FontSize="11"
+                                                   Foreground="White" Padding="6,2"
+                                                   Margin="0,0,8,0" />
+                                        <TextBlock Text="{Binding Title}" FontSize="15"
+                                                   FontWeight="SemiBold" />
+                                    </WrapPanel>
+                                    <TextBlock Text="{Binding ContentPreview}" FontSize="12"
+                                               Foreground="Gray" Margin="0,4,0,0"
+                                               TextTrimming="CharacterEllipsis" MaxHeight="36" />
+                                    <TextBlock Text="{Binding TimeText}" FontSize="11"
+                                               Foreground="LightGray" Margin="0,4,0,0" />
+                                </StackPanel>
+                            </materialDesign:Card>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- 无公告提示 -->
+            <TextBlock x:Name="EmptyHint" Text="暂无公告。点击右侧新建按钮创建第一条公告。"
+                       Foreground="Gray" TextAlignment="Center" Margin="0,40,0,0"
+                       Visibility="Collapsed" />
+        </StackPanel>
+
+        <!-- 分隔线 -->
+        <GridSplitter Grid.Column="1" Width="2" HorizontalAlignment="Center"
+                       Background="{DynamicResource MaterialDesignDivider}" />
+
+        <!-- 右侧：新建/编辑公告 -->
+        <StackPanel Grid.Column="2" Margin="24">
+            <TextBlock Text="✏️ 编辑公告" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16" />
+
+            <!-- 标题 -->
+            <TextBlock Text="标题" FontSize="13" Margin="0,0,0,4" />
+            <TextBox x:Name="TitleBox" Height="32"
+                     materialDesign:HintAssist.Hint="输入公告标题..." />
+
+            <!-- 内容 -->
+            <TextBlock Text="内容" FontSize="13" Margin="0,12,0,4" />
+            <TextBox x:Name="ContentBox" Height="120" AcceptsReturn="True"
+                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                     materialDesign:HintAssist.Hint="输入公告正文..." />
+
+            <!-- 优先级 -->
+            <TextBlock Text="优先级" FontSize="13" Margin="0,12,0,4" />
+            <ComboBox x:Name="PriorityCombo" SelectedIndex="0">
+                <ComboBoxItem Content="🔵 普通" Tag="0" />
+                <ComboBoxItem Content="🟠 重要" Tag="1" />
+                <ComboBoxItem Content="🔴 紧急" Tag="2" />
+            </ComboBox>
+
+            <!-- 按钮 -->
+            <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
+                <Button Content="📤 发送公告" Style="{StaticResource MaterialDesignRaisedButton}"
+                        Width="110" Click="OnSendAnnouncement"
+                        Background="#4CAF50" Foreground="White" />
+                <Button Content="🗑️ 删除" Style="{StaticResource MaterialDesignOutlinedButton}"
+                        Width="80" Margin="12,0,0,0" Click="OnDeleteAnnouncement" />
+                <Button Content="🔄 清空" Style="{StaticResource MaterialDesignOutlinedButton}"
+                        Width="80" Margin="12,0,0,0" Click="OnClearForm" />
+            </StackPanel>
+
+            <!-- 发送状态 -->
+            <TextBlock x:Name="StatusText" FontSize="12" Foreground="Gray"
+                       Margin="0,12,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+    </Grid>
+</Page>

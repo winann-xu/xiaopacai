@@ -118,10 +118,19 @@ public class DatabaseService : IDisposable
                 target_devices TEXT NOT NULL DEFAULT '[]', -- JSON 数组，[]=全部设备
                 priority INTEGER NOT NULL DEFAULT 0,
                 is_sent INTEGER NOT NULL DEFAULT 0,
+                expires_at INTEGER NOT NULL DEFAULT 0,    -- 过期时间戳（0=永不过期）
                 created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
             );
         ";
         cmd.ExecuteNonQuery();
+
+        // 兼容旧表：尝试添加 expires_at 列（如果不存在）
+        try
+        {
+            cmd.CommandText = "ALTER TABLE announcements ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0;";
+            cmd.ExecuteNonQuery();
+        }
+        catch { /* 列已存在则忽略 */ }
 
         // === 表5：超时停用事件日志 ===
         cmd.CommandText = @"
