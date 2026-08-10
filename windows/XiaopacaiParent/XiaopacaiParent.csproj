@@ -7,7 +7,7 @@
     <RootNamespace>XiaopacaiParent</RootNamespace>
     <AssemblyName>XiaopacaiParent</AssemblyName>
     <ApplicationIcon>Resources\app.ico</ApplicationIcon>
-    <Version>0.1.0</Version>
+    <Version>1.0.0</Version>  <!-- [TASK-D3-06] 首版正式发布 -->
     <Authors>小趴菜开源社区</Authors>
     <Description>小趴菜家长端 — 儿童守护管理控制台</Description>
   </PropertyGroup>

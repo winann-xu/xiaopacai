@@ -16,7 +16,7 @@ android {
         minSdk = 26  // Android 8.0，保证前台服务与通知渠道支持
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"  // [TASK-D3-06] 首版正式发布
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
