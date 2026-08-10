@@ -1,9 +1,9 @@
 {
   "project": "xiaopacai",
   "kickoff": "2026-08-10T11:44:00+08:00",
-  "last_update": "2026-08-10T11:44:00+08:00",
+  "last_update": "2026-08-10T14:00:00+08:00",
   "branch": "main",
-  "token_usage": {"session_input": 0, "session_output": 0, "total": 0},
+  "token_usage": {"session_input": 39000, "session_output": 29000, "total": 68000},
   "tasks": {
     "D1-01": {"status": "done", "blocked_reason": null, "note": "已完成 README/LICENSE/CONTRIBUTING/ADR模板/.gitignore/目录结构"},
     "D1-02": {"status": "done", "blocked_reason": null, "note": "Kotlin+Compose工程/主界面/权限引导/SQLCipher数据库/前台服务/无障碍服务/OEM保活文档"},
@@ -23,5 +23,5 @@
     "D3-05": {"status": "pending", "blocked_reason": null, "note": ""},
     "D3-06": {"status": "pending", "blocked_reason": null, "note": ""}
   },
-  "next_recommended": "D1-01 初始化收尾后依次执行 D1-02 ~ D1-05"
+  "next_recommended": "D2-01 时长统计 — 全部 Day1 任务已完成"
 }
