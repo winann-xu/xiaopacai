@@ -56,6 +56,8 @@ fun ParentHomeScreen(
     var showPairingCode by remember { mutableStateOf(false) }
     var fingerprint by remember { mutableStateOf("未初始化") }
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    // [REQ] 本机 IP 列表：生成配对码时采集，展示在配对码旁边，方便家长告知儿童端手动连接
+    var localIps by remember { mutableStateOf(emptyList<String>()) }
 
     // 定时刷新 P2P 状态
     LaunchedEffect(Unit) {
@@ -136,6 +138,7 @@ fun ParentHomeScreen(
                 showPairingCode = showPairingCode,
                 fingerprint = fingerprint,
                 qrBitmap = qrBitmap,
+                localIps = localIps,
                 onStartStop = {
                     if (isServiceRunning) {
                         ParentP2PListenerService.stop(context)
@@ -153,6 +156,7 @@ fun ParentHomeScreen(
                     val code = ParentP2PListenerService.instance?.generatePairingCode() ?: return@P2pStatusBar
                     pairingCode = code
                     showPairingCode = true
+                    localIps = getLocalIps()
                     val fp = ParentP2PListenerService.instance?.getCertificateFingerprint() ?: ""
                     fingerprint = fp
                     // [TASK-OPT-12-P3] 生成二维码供儿童端扫码配对
@@ -161,7 +165,7 @@ fun ParentHomeScreen(
                         port = 9527,
                         fingerprint = fp,
                         pairingCode = code,
-                        hostIps = getLocalIps()
+                        hostIps = localIps
                     )
                 }
             )
@@ -225,6 +229,7 @@ private fun P2pStatusBar(
     isRunning: Boolean, deviceCount: Int, pairingCode: String?,
     showPairingCode: Boolean, fingerprint: String,
     qrBitmap: Bitmap?,
+    localIps: List<String>,
     onStartStop: () -> Unit, onGeneratePairingCode: () -> Unit
 ) {
     Card(
@@ -278,6 +283,16 @@ private fun P2pStatusBar(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(pairingCode, fontSize = 22.sp, fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary, letterSpacing = 4.sp)
+                    // [REQ] 本机 IP 显示在配对码边上，家长可直观告知儿童端手动连接地址
+                    if (localIps.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            "本机 IP: ${localIps.joinToString(" / ")}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
                 // [TASK-OPT-12-P3] 二维码展示（儿童端扫码配对）
                 if (qrBitmap != null) {
