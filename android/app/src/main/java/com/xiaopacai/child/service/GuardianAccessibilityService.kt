@@ -6,7 +6,7 @@ import android.content.Intent
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.xiaopacai.child.ui.BlockOverlayActivity
-import com.xiaopacai.child.ui.AnnouncementOverlayActivity
+import com.xiaopacai.child.ui.overlay.AnnouncementOverlayActivity
 
 /**
  * [TASK-D1-02][TASK-D2-03] 小趴菜无障碍服务
@@ -52,14 +52,7 @@ class GuardianAccessibilityService : AccessibilityService() {
         ): Boolean {
             val service = instance ?: return false
             return try {
-                val intent = Intent(service, AnnouncementOverlayActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
-                    putExtra("announcement_id", announcementId)
-                    putExtra("title", title)
-                    putExtra("content", content)
-                }
-                service.startActivity(intent)
+                AnnouncementOverlayActivity.launch(service, announcementId, title, content)
                 true
             } catch (e: Exception) {
                 Log.e(TAG, "紧急公告启动失败: ${e.message}")

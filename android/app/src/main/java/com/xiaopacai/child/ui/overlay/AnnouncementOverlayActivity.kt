@@ -99,7 +99,6 @@ class AnnouncementOverlayActivity : ComponentActivity() {
         // 读取公告内容
         val announcementId = intent.getStringExtra("announcement_id")
             ?: pendingAnnouncementId
-            ?: finishAndRemoveTask()
         val title = intent.getStringExtra("title") ?: pendingTitle
         val content = intent.getStringExtra("content") ?: pendingContent
 
@@ -147,7 +146,7 @@ class AnnouncementOverlayActivity : ComponentActivity() {
                 payload = mapOf(
                     "announcementId" to announcementId,
                     "acknowledgedAt" to (System.currentTimeMillis() / 1000),
-                    "deviceId" to getDeviceId()
+                    "deviceId" to getLocalDeviceId()
                 )
             )
             p2p.sendMessage(message)
@@ -159,7 +158,7 @@ class AnnouncementOverlayActivity : ComponentActivity() {
     /**
      * 获取设备 ID（与 SyncManager 同一来源）
      */
-    private fun getDeviceId(): String {
+    private fun getLocalDeviceId(): String {
         val prefs = getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE)
         var deviceId = prefs.getString("device_id", null)
         if (deviceId == null) {

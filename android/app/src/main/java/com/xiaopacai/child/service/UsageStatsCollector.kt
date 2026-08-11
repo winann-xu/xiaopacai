@@ -94,6 +94,9 @@ class UsageStatsCollector(
             "wikipedia" to "study",
             "duolingo" to "study"
         )
+
+        /** 供其他模块复用的分类规则（AppCategoryHelper 等） */
+        fun getCategoryRules(): List<Pair<String, String>> = CATEGORY_RULES
     }
 
     private val dao = UsageRecordDao(XiaopacaiApp.instance.database)

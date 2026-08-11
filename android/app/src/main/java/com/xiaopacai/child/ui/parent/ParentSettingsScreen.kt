@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.xiaopacai.child.ui.parent
 
 import android.widget.Toast
@@ -19,6 +21,8 @@ import com.xiaopacai.child.p2p.ParentP2PListenerService
 import com.xiaopacai.child.role.RoleManager
 import com.xiaopacai.child.XiaopacaiApp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.OutputStreamWriter
@@ -228,9 +232,30 @@ fun ParentSettingsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (ok) Text("密码已修改成功！", color = MaterialTheme.colorScheme.primary)
                     else {
-                        OutlinedTextField(oldPwd, { oldPwd = it; err = null }, label = { Text("当前密码") }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
-                        OutlinedTextField(newPwd, { newPwd = it; err = null }, label = { Text("新密码（6-16位）") }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
-                        OutlinedTextField(confirmPwd, { confirmPwd = it; err = null }, label = { Text("确认新密码") }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
+                        OutlinedTextField(
+                            value = oldPwd,
+                            onValueChange = { oldPwd = it; err = null },
+                            label = { Text("当前密码") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation()
+                        )
+                        OutlinedTextField(
+                            value = newPwd,
+                            onValueChange = { newPwd = it; err = null },
+                            label = { Text("新密码（6-16位）") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation()
+                        )
+                        OutlinedTextField(
+                            value = confirmPwd,
+                            onValueChange = { confirmPwd = it; err = null },
+                            label = { Text("确认新密码") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation()
+                        )
                         if (err != null) Text(err!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                     }
                 }

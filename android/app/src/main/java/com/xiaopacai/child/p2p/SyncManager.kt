@@ -242,7 +242,7 @@ class SyncManager(
                 if (started) {
                     Log.i(TAG, "紧急公告已全屏置顶（无障碍通道）: $title")
                 } else {
-                    val intent = android.content.Intent(context, com.xiaopacai.child.ui.AnnouncementOverlayActivity::class.java).apply {
+                    val intent = android.content.Intent(context, com.xiaopacai.child.ui.overlay.AnnouncementOverlayActivity::class.java).apply {
                         addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                         putExtra("announcement_id", id)
                         putExtra("title", title)

@@ -79,7 +79,7 @@
 
         <!-- [TASK-OPT-4] 紧急公告全屏置顶界面（儿童必须确认） -->
         <activity
-            android:name=".ui.AnnouncementOverlayActivity"
+            android:name=".ui.overlay.AnnouncementOverlayActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
