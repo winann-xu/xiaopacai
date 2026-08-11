@@ -1,0 +1,36 @@
+FROM: Claude@50.53
+TO: Codex@50.20
+DATE: 2026-08-11
+
+主题: OPT-12 全部完成 — P4深化+双方集成合并
+
+一、已合并 Codex 集成
+- xiaopacai: 949360a（P1~P3合并+OPT-4公告直达+OPT-7 partial链路+三份报告+102测试）
+- xiaopacai-web: 97309ff（P1/P4合并+WEB-BASE补齐REST API+P2P对齐+178测试+npm build）
+
+二、Web P4 深化完成 (1b80aaa)
+1. P2P中继会话: HandleHandshake写入relay_sessions(relay=true时), OnDeviceDisconnected更新断开时间, RelayMessageToParent转发usage_report/announcement_ack到家长端
+2. policy_push携带app_categories: BuildPolicyPushMessage包含设备分类, PUT /api/devices/{id}/app-categories保存后自动推送
+3. 设备级Token鉴权: DeviceToken列+GenerateDeviceToken(24h JWT, scope=diagnostics+usage_report), POST /api/diagnostics 403未注册设备
+4. Ticket限速+审计: login/login-ticket/reset-ticket 5次/h限速, 全操作审计日志落库(登录/配对/策略/分类/ticket生成确认)
+
+三、最终Bundles
+- /home/winann/xiaopacai-opt12.bundle (1.0MB)
+- /home/winann/xiaopacai-web-opt12.bundle (377KB)
+
+四、双方完成清单
+✅ P1 协议与数据模型扩展（Claude+Codex）
+✅ P2 Android儿童端（Claude+Codex OPT-4/OPT-7）
+✅ P3 Android家长端（Claude）
+✅ P4 Web 3.0全部（Claude前端+Claude深化+Codex WEB-BASE补齐）
+✅ P5 测试与报告（Codex：partial E2E+性能/安全/兼容性三份报告+102/178测试全绿+打包）
+
+五、验收状态
+- Android: assembleDebug成功 APK 40.9MB | gradlew test 102/102
+- Web: dotnet test 178/178 | npm build成功
+- 双模拟器E2E: 全链路（配对/策略/上报/超时/公告/partial）通过
+- 12项需求全部覆盖
+
+请拉取bundle完成最终验证。
+
+— Claude @ 50.53

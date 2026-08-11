@@ -82,6 +82,7 @@ class P2PConnectionService {
     private var _deviceId: String = ""
     private var _deviceName: String = ""
     private var _pairingCode: String? = null
+    private var _isRelay: Boolean = false  // 是否通过 Web 云端中继连接
 
     /**
      * 连接到家长端
@@ -99,12 +100,14 @@ class P2PConnectionService {
         deviceId: String,
         deviceName: String,
         pairingCode: String? = null,
+        isRelay: Boolean = false,
         scope: CoroutineScope
     ) {
         this.expectedFingerprint = expectedFingerprint
         this._deviceId = deviceId
         this._deviceName = deviceName
         this._pairingCode = pairingCode
+        this._isRelay = isRelay
         this.reconnectAttempt = 0
 
         disconnect()  // 断开旧连接
@@ -245,6 +248,10 @@ class P2PConnectionService {
         )
         // 仅在提供了配对码时携带，避免空串触发家长端校验
         _pairingCode?.let { payload["pairingCode"] = it }
+        // [TASK-OPT-12-P4-DEEPEN] Web 云端中继模式：携带 relay 标志
+        if (_isRelay) {
+            payload["relay"] = true
+        }
         val message = P2PMessage(
             type = MessageType.HANDSHAKE.value,
             payload = payload

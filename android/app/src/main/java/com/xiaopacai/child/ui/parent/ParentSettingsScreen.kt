@@ -30,6 +30,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.SecureRandom
 
+// Web 中继 JWT Token 存储
+private const val WEB_PREFS_NAME = "xiaopacai_web_prefs"
+private const val KEY_WEB_TOKEN = "web_token"
+
 /**
  * [TASK-OPT-12-P3] 家长端设置页（含忘记密码/恢复码/Web中继）
  *
@@ -60,6 +64,17 @@ fun ParentSettingsScreen(
     var relayPort by remember { mutableIntStateOf(5000) }
     var relayEnabled by remember { mutableStateOf(false) }
     var relayConnecting by remember { mutableStateOf(false) }
+
+    // Web 账号登录（用于中继鉴权）
+    var webUsername by remember { mutableStateOf("") }
+    var webPassword by remember { mutableStateOf("") }
+    var webLoggingIn by remember { mutableStateOf(false) }
+    var webTokenSaved by remember {
+        mutableStateOf(
+            context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+                .getString(KEY_WEB_TOKEN, null)?.isNotBlank() == true
+        )
+    }
 
     // P2P
     var isServiceRunning by remember { mutableStateOf(ParentP2PListenerService.isRunning) }
@@ -105,6 +120,86 @@ fun ParentSettingsScreen(
                     recoveryCode = code
                     showRecoveryCode = true
                 })
+
+            // === Web 账号登录（中继鉴权）===
+            SectionTitle("Web 账号")
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("登录 Web 3.0 服务以获取中继鉴权 Token", fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (webTokenSaved) {
+                        Text("Token 已保存 ✓", fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = webUsername,
+                        onValueChange = { webUsername = it },
+                        label = { Text("用户名") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = webPassword,
+                        onValueChange = { webPassword = it },
+                        label = { Text("密码") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                webLoggingIn = true
+                                kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+                                    try {
+                                        val result = loginToWeb(context, relayHost, relayPort, webUsername, webPassword)
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
+                                            if (result.startsWith("登录成功")) {
+                                                webTokenSaved = true
+                                                webPassword = ""  // 清空密码
+                                            }
+                                            webLoggingIn = false
+                                        }
+                                    } catch (e: Exception) {
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "登录失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            webLoggingIn = false
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = webUsername.isNotBlank() && webPassword.isNotBlank() && relayHost.isNotBlank() && !webLoggingIn,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (webLoggingIn) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("登录获取 Token")
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+                                prefs.edit().remove(KEY_WEB_TOKEN).apply()
+                                webTokenSaved = false
+                                Toast.makeText(context, "Token 已清除", Toast.LENGTH_SHORT).show()
+                            },
+                            enabled = webTokenSaved
+                        ) {
+                            Text("清除")
+                        }
+                    }
+                }
+            }
 
             // === Web 云端中继（需求3）===
             SectionTitle("Web 云端中继")
@@ -409,6 +504,13 @@ private fun generateRecoveryCode(): String {
  * 连接 Web 中继服务（需求3）
  */
 private suspend fun connectToWebRelay(context: android.content.Context, host: String, port: Int): String {
+    // 读取已保存的 Web JWT Token
+    val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+    val webToken = prefs.getString(KEY_WEB_TOKEN, null)
+    if (webToken.isNullOrBlank()) {
+        return "请先在「Web 账号」中登录获取 Token"
+    }
+
     // 如果 P2P 服务未启动，先启动
     if (!ParentP2PListenerService.isRunning) {
         ParentP2PListenerService.start(context)
@@ -421,18 +523,22 @@ private suspend fun connectToWebRelay(context: android.content.Context, host: St
     // 生成配对码
     val pairingCode = ParentP2PListenerService.instance?.generatePairingCode() ?: ""
 
-    // 向 Web 服务发起中继注册
-    return try {
-        val url = URL("http://$host:$port/api/pairing/relay-register")
+    val parentDeviceId = "parent-${android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID).take(8)}"
+
+    // 向 Web 服务发起中继注册（使用 /api/relay/register + JWT Authorization）
+    val registerResult: String
+    try {
+        val url = URL("http://$host:$port/api/relay/register")
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/json")
+        conn.setRequestProperty("Authorization", "Bearer $webToken")
         conn.doOutput = true
         conn.connectTimeout = 10000
         conn.readTimeout = 10000
 
         val body = JSONObject().apply {
-            put("deviceId", "parent-${android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID).take(8)}")
+            put("deviceId", parentDeviceId)
             put("role", "parent")
             put("fingerprint", fingerprint)
             put("pairingCode", pairingCode)
@@ -443,11 +549,77 @@ private suspend fun connectToWebRelay(context: android.content.Context, host: St
 
         if (conn.responseCode in 200..299) {
             val response = conn.inputStream.bufferedReader().readText()
-            "中继连接成功: $response"
+            registerResult = "中继注册成功: $response"
         } else {
-            "中继注册失败: HTTP ${conn.responseCode}"
+            val errorBody = try { conn.errorStream?.bufferedReader()?.readText() } catch (_: Exception) { "" }
+            return "中继注册失败: HTTP ${conn.responseCode} ${errorBody ?: ""}"
         }
     } catch (e: Exception) {
-        "连接失败: ${e.message}。检查 Web 服务是否可访问。"
+        return "注册请求失败: ${e.message}。检查 Web 服务是否可访问。"
+    }
+
+    // 注册成功 → 连接 Web P2P 9527 端口（携带 relay=true + parent 设备 ID）
+    try {
+        val p2pConnection = com.xiaopacai.child.service.GuardianForegroundService.getP2PConnection()
+        if (p2pConnection != null) {
+            p2pConnection.connect(
+                host = host,
+                port = 9527,  // Web P2P TLS 监听端口
+                expectedFingerprint = null,  // Web 自签名证书，首次信任
+                deviceId = parentDeviceId,
+                deviceName = "家长端-${android.os.Build.MODEL}",
+                pairingCode = pairingCode,
+                isRelay = true,  // 中继模式
+                scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO)
+            )
+            return "$registerResult\nP2P 中继连接已发起（端口 9527）"
+        } else {
+            return "$registerResult\nP2P 连接服务未就绪"
+        }
+    } catch (e: Exception) {
+        return "$registerResult\nP2P 连接失败: ${e.message}"
+    }
+}
+
+/**
+ * 登录 Web 3.0 服务获取 JWT Token 并保存到 SharedPreferences
+ */
+private suspend fun loginToWeb(context: android.content.Context, host: String, port: Int, username: String, password: String): String {
+    return try {
+        val url = URL("http://$host:$port/api/auth/login")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.doOutput = true
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+
+        val body = JSONObject().apply {
+            put("username", username)
+            put("password", password)
+        }
+
+        OutputStreamWriter(conn.outputStream).use { it.write(body.toString()) }
+
+        if (conn.responseCode in 200..299) {
+            val response = conn.inputStream.bufferedReader().readText()
+            val json = JSONObject(response)
+            val accessToken = json.optString("accessToken", "")
+            if (accessToken.isNotBlank()) {
+                // 保存 Token 到 SharedPreferences
+                val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+                prefs.edit().putString(KEY_WEB_TOKEN, accessToken).apply()
+                "登录成功，Token 已保存"
+            } else {
+                "登录响应缺少 accessToken"
+            }
+        } else if (conn.responseCode == 401) {
+            "登录失败: 用户名或密码错误"
+        } else {
+            val errorBody = try { conn.errorStream?.bufferedReader()?.readText() } catch (_: Exception) { "" }
+            "登录失败: HTTP ${conn.responseCode} ${errorBody ?: ""}"
+        }
+    } catch (e: Exception) {
+        "登录请求失败: ${e.message}"
     }
 }
