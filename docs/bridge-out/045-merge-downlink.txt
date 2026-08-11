@@ -1,0 +1,62 @@
+=== Bridge Out #045 ===
+时间: 2026-08-10 21:45 UTC+8
+主题: FIX-DOWNLINK bundle 合并结果与静态审查
+
+--- 合并操作 ---
+
+xiaopacai-fixes4.bundle (commit 421f23f)
+  git fetch + git merge --no-ff → 成功，无冲突
+  变更文件:
+    - android/app/src/main/java/com/xiaopacai/child/service/GuardianForegroundService.kt (+14, -1)
+
+recursive 策略自动完成，无合并冲突。
+
+--- 静态审查结论 ---
+
+变更概要:
+  startSyncManager() 中新增 receivedMessages 订阅，将家长端下发的
+  policy_update/announcement_push 等下行消息路由到 SyncManager.handleReceivedMessage
+  处理并落库。原有只创建 SyncManager 但不喂消息，下行消息仅停留在连接层缓存。
+
+审查分两项: (A) 订阅去重, (B) SyncManager 生命周期。
+
+(A) receivedMessages 订阅去重 — PASS
+
+  - syncManager 为 @Volatile static 字段，if (syncManager == null) 守卫确保只创建一次
+  - receivedMessages 是 MutableStateFlow<List<P2PMessage>>，只增不删
+  - processedCount 是 startSyncManager() 的局部变量，只在首次创建时初始化为 0
+  - collect 冷流订阅只在 syncManager 首次创建时启动一次
+  - onStartCommand 可被多次调用 (START_STICKY)，但上述守卫 + 单调递增计数
+    确保每条消息只处理一次，不会重复落库
+  - 结论: 无去重问题
+
+(B) SyncManager 生命周期 — PASS
+
+  - syncManager.start() 在 onStartCommand 调用，内部先 stop() 再 launch 防重入
+  - syncManager.stop() 在 onDestroy 调用，serviceScope.cancel() 紧随其后
+  - 调用顺序: stop() → cancel()，stop 取消 syncJob，cancel 取消所有子协程含 collect
+  - receivedMessages 永不 reset，所以 processedCount 跨生命周期单调递增是正确的
+  - 结论: 生命周期正确，无泄漏/空指针风险
+
+--- 潜在改进建议 (非阻塞) ---
+
+1. receivedMessages 无限增长:
+   _receivedMessages 列表从未清理，在长期运行设备上可能 OOM。
+   建议: 定期截断（如超过 1000 条后 drop 前 500），或改用 Channel 替代累加 List。
+
+2. 竞态窗口:
+   processedCount 声明为 var 而非 @Volatile/AtomicInteger，collect 在 Dispatchers.IO
+   上运行。由于只有一个 producer (单协程 collect)，且 onStartCommand 再入被 null 守卫
+   挡住，当前无实际竞态风险，但若将来有"重连重置"逻辑则需改为线程安全计数。
+
+3. handleReceivedMessage 在线程不安全环境:
+   直接在 Dispatchers.IO 协程中操作 SQLite DAO，与定时同步 Job 共用同一数据库连接。
+   建议 DAO 层加 synchronized 或使用单线程 Dispatcher 序列化所有 DB 操作。
+
+以上均为 pre-existing 问题，非本 commit 引入。
+
+--- 综合结论 ---
+
+合并成功，无冲突。
+变更逻辑正确，订阅去重和生命周期均无问题。
+下行消息路由功能完整可用。建议在 50.53 实机上做一轮端到端验证（家长端下发策略→儿童端接收并落库）。

@@ -12,6 +12,7 @@ import net.sqlcipher.database.SQLiteOpenHelper
  *
  * 数据库版本管理：
  * - Version 1：初始表结构（时长记录、策略缓存、公告缓存、配对信息）
+ * - Version 2：[TASK-ROLE-P1] 新增家长端表（device_registry/policies/announcements/parent_usage_summary）
  * - 升级时通过 onUpgrade() 执行迁移 SQL
  */
 class AppDatabase private constructor(
@@ -107,15 +108,99 @@ class AppDatabase private constructor(
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_usage_date ON usage_records(date)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_usage_pkg_date ON usage_records(package_name, date)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_announcements_read ON announcements(is_read)")
+
+        // ============================================================
+        // [TASK-ROLE-P1] 家长端表（V2 新增）
+        // ============================================================
+        createParentTables(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase?, oldVersion: Int, newVersion: Int) {
         db ?: return
-        // 后续版本升级时的迁移逻辑在此添加
-        // 示例：
-        // if (oldVersion < 2) {
-        //     db.execSQL("ALTER TABLE usage_records ADD COLUMN new_field TEXT DEFAULT ''")
-        // }
+        // [TASK-ROLE-P1] V1 → V2：新增家长端表
+        if (oldVersion < 2) {
+            createParentTables(db)
+        }
+    }
+
+    /**
+     * [TASK-ROLE-P1] 创建家长端专用表
+     *
+     * 这些表在 onCreate (V2+) 和 onUpgrade (V1→V2) 中都会被调用。
+     */
+    private fun createParentTables(db: SQLiteDatabase) {
+        // === 表6：设备注册表 ===
+        // 记录已配对的儿童端设备信息
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS device_registry (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT NOT NULL UNIQUE,           -- 儿童端设备唯一标识
+                device_name TEXT NOT NULL DEFAULT '',     -- 设备名称（如型号）
+                cert_fingerprint TEXT NOT NULL DEFAULT '',-- 证书 SHA-256 指纹（防中间人）
+                last_ip TEXT NOT NULL DEFAULT '',         -- 最后已知 IP
+                last_connected_at INTEGER NOT NULL DEFAULT 0, -- 最后连接时间戳
+                is_active INTEGER NOT NULL DEFAULT 1,     -- 是否活跃（0=已解绑）
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            )
+        """.trimIndent())
+
+        // === 表7：家长端策略管理表 ===
+        // 家长端创建和管理的策略（独立于儿童端 policy_cache）
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS parent_policies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                policy_id TEXT NOT NULL UNIQUE,           -- 策略唯一标识（UUID）
+                policy_type TEXT NOT NULL,                -- daily_limit/sleep_time/whitelist/blacklist/category_limit
+                policy_name TEXT NOT NULL DEFAULT '',     -- 策略名称（供 UI 显示）
+                policy_data TEXT NOT NULL,                -- JSON 格式的策略详情
+                target_device_id TEXT NOT NULL DEFAULT '',-- 目标设备 ID（空=全局）
+                is_active INTEGER NOT NULL DEFAULT 1,     -- 是否启用
+                version INTEGER NOT NULL DEFAULT 1,       -- 版本号
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            )
+        """.trimIndent())
+
+        // === 表8：家长端公告管理表 ===
+        // 家长端创建的公告（与儿童端 announcements 表独立）
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS parent_announcements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                announcement_id TEXT NOT NULL UNIQUE,     -- 公告唯一 ID（UUID）
+                title TEXT NOT NULL DEFAULT '',           -- 公告标题
+                content TEXT NOT NULL DEFAULT '',         -- 公告正文
+                priority INTEGER NOT NULL DEFAULT 0,      -- 优先级：0=普通 1=重要 2=紧急
+                status TEXT NOT NULL DEFAULT 'draft',     -- 状态：draft/published/revoked
+                target_device_id TEXT NOT NULL DEFAULT '',-- 目标设备 ID（空=全局）
+                valid_from INTEGER NOT NULL DEFAULT 0,    -- 生效时间戳
+                valid_until INTEGER NOT NULL DEFAULT 0,   -- 过期时间戳（0=永不过期）
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            )
+        """.trimIndent())
+
+        // === 表9：使用时长汇总表（家长端视角） ===
+        // 汇总来自各儿童端的使用时长上报
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS parent_usage_summary (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT NOT NULL,                  -- 儿童端设备 ID
+                package_name TEXT NOT NULL,               -- 应用包名
+                app_name TEXT NOT NULL DEFAULT '',        -- 应用名称
+                date TEXT NOT NULL,                       -- 日期（yyyy-MM-dd）
+                total_minutes INTEGER NOT NULL DEFAULT 0, -- 使用分钟数
+                category TEXT NOT NULL DEFAULT 'other',   -- 分类：game/social/video/study/other
+                sync_status INTEGER NOT NULL DEFAULT 0,   -- 同步状态
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                UNIQUE(device_id, package_name, date)
+            )
+        """.trimIndent())
+
+        // === 索引 ===
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_device_registry_active ON device_registry(is_active)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_parent_policies_type ON parent_policies(policy_type)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_parent_announcements_status ON parent_announcements(status)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_parent_usage_device_date ON parent_usage_summary(device_id, date)")
     }
 
     /**
@@ -136,7 +221,7 @@ class AppDatabase private constructor(
 
     companion object {
         private const val DATABASE_NAME = "xiaopacai_guardian.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2  // [TASK-ROLE-P1] 新增家长端表
 
         @Volatile
         private var INSTANCE: AppDatabase? = null

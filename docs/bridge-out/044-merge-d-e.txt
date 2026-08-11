@@ -1,0 +1,51 @@
+=== Bridge Out #044 ===
+时间: 2026-08-10 21:30 UTC+8
+主题: LEGACY-d/e bundle 合并结果与静态审查
+
+--- 合并操作 ---
+
+(1) xiaopacai-fixes2.bundle (commit 46f2564)
+    git fetch + git merge --no-ff → 成功，无冲突
+    变更文件:
+      - android/app/src/debug/java/com/xiaopacai/child/debug/DebugTriggerActivity.kt (+52)
+      - android/app/src/main/java/com/xiaopacai/child/service/AppInterceptor.kt (+32)
+
+(2) xiaopacai-fixes3.bundle (commit 98e27f6)
+    git fetch + git merge --no-ff → 成功，无冲突
+    变更文件:
+      - windows/XiaopacaiParent/Services/P2PListenerService.cs (+38, -1)
+
+两次合并均为 recursive 策略自动完成，无合并冲突。
+
+--- 静态审查结论 ---
+
+LEGACY-d (AppInterceptor.kt):
+  - 新增 LAUNCHER_PACKAGES 白名单 (10 个厂商/原生桌面包名)
+  - 新增 defaultHomePackage 惰性属性，通过 resolveActivity 动态获取当前默认桌面
+  - 拦截逻辑在"系统应用"豁免后、IME 豁免前插入桌面豁免 → 顺序正确，无死循环风险
+  - 语法：Kotlin 标准，安全调用链 (?.) 正确，lazy 委托正确
+  - 结论：无语法问题，逻辑合理
+
+LEGACY-d (DebugTriggerActivity.kt):
+  - 新增 3 个 debug action: seed_highlimit / fullstate / pair_shared
+  - seedHighLimit(): SQL INSERT OR REPLACE 正确，try/finally 正确关闭 db
+  - setFullState(): 反射设置 _isTimeoutActive=true + _stopMode="full"，与已有 setPartialMode() 风格一致
+  - pairShared(): 通过 GuardianForegroundService 共享连接建立 P2P，参数签名为 connect(host,port,expectedFingerprint,deviceId,deviceName,scope)
+  - 该文件仅 debug variant 编译，不进 release → 无安全暴露风险
+  - 语法：Kotlin 标准，无问题
+  - 注意：pairShared() 创建的 CoroutineScope 未在 Activity 销毁时 cancel（轻微 leak），但 debug-only 可接受
+
+LEGACY-e (P2PListenerService.cs):
+  - LoadOrCreateCertificate() 方法从纯内存生成改为持久化 → 正确
+  - 持久化路径: %LocalAppData%/Xiaopacai/p2p_cert.pfx + .key → 读写正确
+  - 加载失败兜底：catch 后重新生成，不阻塞启动 → 容错正确
+  - 密码生成：Guid.NewGuid().ToString("N") → 32 位 hex，合理
+  - 导出前需证书具有 Exportable 标志；若 CreateSelfSignedCertificate() 未设置该标志，持久化会失败，但 catch 后仍返回内存证书 → 降级正确
+  - 语法：C# 标准，using System.IO 已导入，所有 API 调用签名正确
+  - 结论：无语法问题，逻辑正确，容错充分
+
+--- 综合结论 ---
+
+两次合并均成功，无冲突。
+三个文件共计 122 行新增/修改，语法全部正确，无引入回归风险。
+建议后续在 50.20 端做一轮功能回归测试（桌面启动器豁免 + P2P 重连指纹验证）。

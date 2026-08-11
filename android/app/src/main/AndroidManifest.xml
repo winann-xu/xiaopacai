@@ -102,6 +102,12 @@
             </intent-filter>
         </receiver>
 
+        <!-- [TASK-ROLE-P1] 家长端 P2P 入站监听服务 -->
+        <service
+            android:name=".p2p.ParentP2PListenerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
+
         <!-- [TASK-D3-03] 设备管理器接收器（防卸载保护） -->
         <receiver
             android:name=".service.GuardianDeviceAdminReceiver"

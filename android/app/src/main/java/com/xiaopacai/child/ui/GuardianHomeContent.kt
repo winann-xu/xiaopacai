@@ -59,7 +59,8 @@ data class Announcement(
 @Composable
 fun GuardianHomeContent(
     onOpenSettings: () -> Unit = {},
-    onOpenPermissionGuide: () -> Unit = {}
+    onOpenPermissionGuide: () -> Unit = {},
+    onSwitchToParent: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
 
@@ -283,6 +284,23 @@ fun GuardianHomeContent(
                     label = "关于",
                     onClick = { showAboutDialog = true }
                 )
+            }
+        }
+
+        // [TASK-ROLE-P1] 家长端入口（需密码）
+        if (onSwitchToParent != null) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    QuickActionButton(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.SupervisorAccount,
+                        label = "切换到家长端",
+                        onClick = onSwitchToParent
+                    )
+                }
             }
         }
 

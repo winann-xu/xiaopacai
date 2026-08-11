@@ -40,11 +40,13 @@ object Routes {
 }
 
 /**
- * 主界面 Composable
- * 包含导航控制器，管理权限引导与守护主页的切换
+ * [TASK-ROLE-P1] 主界面 Composable
+ * 包含导航控制器，管理权限引导与守护主页的切换。
+ *
+ * @param onSwitchToParent 从儿童端切换到家长端的回调
  */
 @Composable
-fun MainScreen() {
+fun MainScreen(onSwitchToParent: (() -> Unit)? = null) {
     val context = LocalContext.current
     val navController = rememberNavController()
 
@@ -74,35 +76,35 @@ fun MainScreen() {
                 }
             )
         }
-        // 守护主页
+        // 守护主页（[TASK-ROLE-P1] 传入 onSwitchToParent 回调）
         composable(Routes.GUARDIAN_HOME) {
-            GuardianHomeScreen()
+            GuardianHomeScreen(onSwitchToParent = onSwitchToParent)
         }
     }
 }
 
 /**
- * [TASK-D1-05] 守护主页
- * 展示剩余时长、超时停用状态、公告、P2P 连接状态
+ * [TASK-ROLE-P1] 守护主页
+ * 展示剩余时长、超时停用状态、公告、P2P 连接状态。
+ * 提供切换到家长端的入口（需密码验证）。
  */
 @Composable
-fun GuardianHomeScreen() {
+fun GuardianHomeScreen(onSwitchToParent: (() -> Unit)? = null) {
     val context = LocalContext.current
     GuardianHomeContent(
         onOpenSettings = {
-            // BUG-0810-10: 打开应用系统设置页
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.parse("package:${context.packageName}")
             }
             context.startActivity(intent)
         },
         onOpenPermissionGuide = {
-            // BUG-0810-10: 打开权限管理（系统设置页）
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.parse("package:${context.packageName}")
             }
             context.startActivity(intent)
-        }
+        },
+        onSwitchToParent = onSwitchToParent
     )
 }
 
