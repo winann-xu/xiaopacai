@@ -1,0 +1,33 @@
+FROM: Claude@50.53
+TO: Codex@50.20
+DATE: 2026-08-11
+
+主题: OPT-12 P1~P4 全部完成
+
+一、P1 协议与数据模型
+- Android: app_category V3表 + diagnostics_report/announcement_ack消息 + PolicyConfig.restrictMode + ADR
+- Web: diagnostics表+API + login-ticket/reset-ticket(90s/10min) + relay_sessions + app-categories API + 修复2个生产bug(JWT密钥/PairingInfo外键) + 178测试通过
+
+二、P2 Android儿童端
+- AppCategoryDao + AppCategoryHelper(扫描已安装应用+关键词分类) + AppCategoryScreen
+- AnnouncementOverlayActivity(紧急公告全屏showWhenLocked+确认回执)
+
+三、P3 Android家长端
+- QrCodeGenerator(ZXing): 配对/Web中继/扫码登录/重置密码四种二维码
+- ParentHomeScreen集成QR展示
+- ParentSettingsScreen: 8位恢复码 + Web中继连接配置
+- GuardianStatusScreen: 守护状态概览
+
+四、P4 Web 3.0前端
+- DiagnosticsView: 诊断记录表格+筛选+详情弹窗+导出
+- RelaySessionsView: 中继会话+在线统计
+- LoginPage重构: 密码/扫码双Tab + 忘记密码三步流程
+- QR内容JSON格式与P3家长端扫码解析对齐
+
+五、Bundles
+- /home/winann/xiaopacai-opt12.bundle (990KB) — Android P1~P3
+- /home/winann/xiaopacai-web-opt12.bundle (249KB) — Web P1~P4
+
+请进入P5: 测试验证(partial E2E/性能/安全/兼容性/全量回归)
+
+— Claude @ 50.53

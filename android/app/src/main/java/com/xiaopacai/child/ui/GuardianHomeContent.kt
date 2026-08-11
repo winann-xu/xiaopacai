@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.util.Log
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -31,6 +32,8 @@ import com.xiaopacai.child.p2p.PairingManager
 import com.xiaopacai.child.p2p.PairingState
 import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.service.UsageStatsCollector
+import com.xiaopacai.child.ui.settings.AppCategoryActivity
+import com.xiaopacai.child.ui.settings.GuardianStatusActivity
 
 /**
  * [TASK-D1-05][TASK-D2-01] 小趴菜儿童端守护主页
@@ -118,6 +121,12 @@ fun GuardianHomeContent(
 
     // 从数据库加载公告（30 秒刷新一次）
     var announcements by remember { mutableStateOf(emptyList<Announcement>()) }
+
+    // [TASK-OPT-12-P2] 公告即时弹窗（需求4）：未读普通公告到达后立即弹窗，不再依赖角标+主动查看
+    // 紧急公告（priority>=2）由全屏覆盖层处理，此处跳过
+    var announcementToShow by remember { mutableStateOf<Announcement?>(null) }
+    var shownAnnouncementIds by remember { mutableStateOf(setOf<String>()) }
+
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(30_000L)
@@ -146,10 +155,49 @@ fun GuardianHomeContent(
                 }
                 db.close()
                 announcements = list
+
+                // [TASK-OPT-12-P2] 挑选一条未展示过的普通公告弹窗（紧急公告走全屏覆盖层）
+                if (announcementToShow == null) {
+                    val candidate = list.firstOrNull {
+                        it.priority < 2 && it.id !in shownAnnouncementIds
+                    }
+                    if (candidate != null) {
+                        announcementToShow = candidate
+                        shownAnnouncementIds = shownAnnouncementIds + candidate.id
+                    }
+                }
             } catch (_: Exception) {
                 // 数据库未就绪时使用空列表
             }
         }
+    }
+
+    // [TASK-OPT-12-P2] 普通公告弹窗（关闭即标记已读）
+    announcementToShow?.let { announcement ->
+        AlertDialog(
+            onDismissRequest = {
+                markAnnouncementRead(context, announcement.id)
+                announcementToShow = null
+            },
+            title = {
+                Text(announcement.title, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    text = announcement.content,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    markAnnouncementRead(context, announcement.id)
+                    announcementToShow = null
+                }) {
+                    Text("知道了")
+                }
+            }
+        )
     }
 
     LazyColumn(
@@ -283,6 +331,43 @@ fun GuardianHomeContent(
                     icon = Icons.Default.Info,
                     label = "关于",
                     onClick = { showAboutDialog = true }
+                )
+            }
+        }
+
+        // [TASK-OPT-12-P2] 应用分类设置 + 守护状态 快捷入口（需求1/6）
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                QuickActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.Category,
+                    label = "应用分类",
+                    onClick = {
+                        try {
+                            context.startActivity(
+                                Intent(context, AppCategoryActivity::class.java)
+                            )
+                        } catch (e: Exception) {
+                            Log.e("GuardianHome", "打开应用分类页失败: ${e.message}")
+                        }
+                    }
+                )
+                QuickActionButton(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.FactCheck,
+                    label = "守护状态",
+                    onClick = {
+                        try {
+                            context.startActivity(
+                                Intent(context, GuardianStatusActivity::class.java)
+                            )
+                        } catch (e: Exception) {
+                            Log.e("GuardianHome", "打开守护状态页失败: ${e.message}")
+                        }
+                    }
                 )
             }
         }
@@ -678,4 +763,18 @@ fun QuickActionButton(
 private fun formatMinutes(minutes: Int): String {
     val m = minutes.coerceAtLeast(0)
     return "%02d:%02d".format(m, 0)
+}
+
+/**
+ * [TASK-OPT-12-P2] 将公告标记为已读（弹窗关闭/确认后调用）
+ */
+private fun markAnnouncementRead(context: android.content.Context, announcementId: String) {
+    try {
+        val passphrase = com.xiaopacai.child.util.DbPassphraseProvider.getPassphrase(context)
+        com.xiaopacai.child.data.database.AnnouncementDao(
+            com.xiaopacai.child.XiaopacaiApp.instance.database
+        ).markAsRead(announcementId, passphrase)
+    } catch (_: Exception) {
+        // 标记已读失败不影响主流程
+    }
 }

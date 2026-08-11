@@ -76,6 +76,11 @@ class TimeoutExecutor(private val context: Context) {
 
     /**
      * 超时开始处理
+     *
+     * [TASK-OPT-12-P2] 支持 partial/warn 模式（需求7）：
+     * - full：启动全屏封锁界面（整机停用）
+     * - partial：不启动全屏界面，由无障碍服务按"黑名单 + 非白名单"单应用拦截
+     * - warn：仅发通知提醒，不拦截
      */
     private fun onTimeoutStarted(stopMode: String, usedMinutes: Long, limitMinutes: Long) {
         Log.w(TAG, "=== 超时停用触发 === 模式: $stopMode, 已用: ${usedMinutes}分钟/${limitMinutes}分钟")
@@ -86,9 +91,45 @@ class TimeoutExecutor(private val context: Context) {
             "limitMinutes" to limitMinutes
         ))
 
-        // 2. Full 模式：主动启动全屏封锁界面
-        if (stopMode == "full") {
-            showBlockOverlay("system_timeout", "今日使用时长已达上限（${usedMinutes}/${limitMinutes} 分钟）")
+        when (stopMode) {
+            // 2. Full 模式：主动启动全屏封锁界面
+            "full" -> {
+                showBlockOverlay("system_timeout", "今日使用时长已达上限（${usedMinutes}/${limitMinutes} 分钟）")
+            }
+            // 3. Partial 模式：发通知提示，单应用拦截交给无障碍服务
+            "partial" -> {
+                notifyTimeout("⚠️ 部分应用已停用",
+                    "今日使用时长已达上限，娱乐应用将被拦截，白名单与学习类应用可继续使用")
+            }
+            // 4. Warn 模式：仅警告，不拦截
+            "warn" -> {
+                notifyTimeout("⏰ 使用时长已超限",
+                    "今日使用时长已达上限（${usedMinutes}/${limitMinutes} 分钟），请合理安排休息")
+            }
+        }
+    }
+
+    /**
+     * [TASK-OPT-12-P2] 发送超时提示通知（partial/warn 模式用）
+     */
+    private fun notifyTimeout(title: String, message: String) {
+        try {
+            val notificationManager = context.getSystemService(
+                android.content.Context.NOTIFICATION_SERVICE
+            ) as android.app.NotificationManager
+            val notification = androidx.core.app.NotificationCompat.Builder(
+                context, com.xiaopacai.child.XiaopacaiApp.CHANNEL_ANNOUNCEMENT
+            )
+                .setContentTitle(title)
+                .setContentText(message)
+                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(message))
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .build()
+            notificationManager.notify(3002, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "发送超时提示通知失败: ${e.message}")
         }
     }
 

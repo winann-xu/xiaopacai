@@ -24,6 +24,7 @@ import com.xiaopacai.child.ui.theme.XiaopacaiTheme
 import com.xiaopacai.child.util.AppCategoryHelper
 import com.xiaopacai.child.util.DbPassphraseProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -73,6 +74,7 @@ class AppCategoryActivity : ComponentActivity() {
 /**
  * 应用分类设置页主体
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppCategoryScreen(onBack: () -> Unit) {
     val context = LocalContext.current

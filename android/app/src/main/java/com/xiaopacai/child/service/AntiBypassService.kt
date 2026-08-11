@@ -67,8 +67,9 @@ object AntiBypassService {
 
     /**
      * 检查所有绕过向量
+     * [TASK-OPT-12-P2] 提升为 public：供 WorkManager 自检 Worker / AlarmManager 兜底 Receiver 调用
      */
-    private fun checkAllBypassVectors(context: Context) {
+    fun checkAllBypassVectors(context: Context) {
         val issues = mutableListOf<String>()
 
         // 1. 检查无障碍服务是否启用
@@ -196,6 +197,48 @@ object AntiBypassService {
             .build()
 
         notificationManager.notify(SECURITY_NOTIFY_ID + 1, notification)
+    }
+
+    /**
+     * [TASK-OPT-12-P2] 检测到"应用信息页"被打开（疑似尝试卸载/退出）
+     *
+     * 由无障碍服务在窗口状态变化时调用：
+     * 记录告警日志 + 通知家长（安全频道）。
+     */
+    fun onAppInfoPageOpened(context: Context) {
+        Log.w(TAG, "⚠️ 检测到打开应用信息页（可能尝试卸载/停用守护）")
+        notifySecurityEvent(
+            context,
+            "应用信息页被打开",
+            "检测到系统应用信息页面被打开，可能尝试卸载或停用小趴菜。若为儿童操作请家长及时干预。"
+        )
+    }
+
+    /**
+     * [TASK-OPT-12-P2] 调度双守护自检（需求6）
+     *
+     * - WorkManager 周期任务（15 分钟）：GuardianSelfCheckWorker
+     * - AlarmManager 兜底闹钟（30 分钟）：GuardianAlarmReceiver
+     * 即使前台服务协程被系统冻结，两条独立通道仍可拉起守护。
+     */
+    fun scheduleSelfCheck(context: Context) {
+        // 1. WorkManager 15 分钟周期自检
+        try {
+            val request = androidx.work.PeriodicWorkRequestBuilder<GuardianSelfCheckWorker>(
+                15, java.util.concurrent.TimeUnit.MINUTES
+            ).build()
+            androidx.work.WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                "guardian_self_check",
+                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                request
+            )
+            Log.i(TAG, "WorkManager 周期自检已调度（15 分钟）")
+        } catch (e: Exception) {
+            Log.e(TAG, "调度 WorkManager 自检失败: ${e.message}")
+        }
+
+        // 2. AlarmManager 30 分钟兜底闹钟
+        GuardianAlarmReceiver.schedule(context)
     }
 
     /**

@@ -1,11 +1,19 @@
 package com.xiaopacai.child.p2p
 
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.xiaopacai.child.MainActivity
 import com.xiaopacai.child.XiaopacaiApp
 import com.xiaopacai.child.data.database.AnnouncementDao
-import com.xiaopacai.child.util.DbPassphraseProvider
+import com.xiaopacai.child.data.database.AppCategoryDao
 import com.xiaopacai.child.data.database.UsageRecordDao
+import com.xiaopacai.child.service.DiagnosticsCollector
+import com.xiaopacai.child.ui.overlay.AnnouncementOverlayActivity
+import com.xiaopacai.child.util.DbPassphraseProvider
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -46,6 +54,8 @@ class SyncManager(
 
     /**
      * 启动定时同步循环
+     *
+     * [TASK-OPT-12-P2] 每轮同步同时补传缓存的诊断报告（需求5：重连补传）。
      */
     fun start() {
         stop()
@@ -53,6 +63,8 @@ class SyncManager(
             delay(10_000L)  // 初始延迟 10 秒
             while (isActive) {
                 try {
+                    // [TASK-OPT-12-P2] 补传未上报的诊断报告（未连接时自动跳过）
+                    DiagnosticsCollector.flushPending(context)
                     syncUsageReports()
                     delay(SYNC_INTERVAL_MS)
                 } catch (e: Exception) {
@@ -178,6 +190,27 @@ class SyncManager(
             } finally {
                 db.close()
             }
+
+            // [TASK-OPT-12-P2] 应用分类下发合并（需求1）：manual 覆盖本地默认分类
+            val categoriesArray = message.payload["app_categories"]?.toString()
+                ?.let { JSONArray(it) }
+            if (categoriesArray != null) {
+                val appCategoryDao = AppCategoryDao(XiaopacaiApp.instance.database)
+                var categoryCount = 0
+                for (i in 0 until categoriesArray.length()) {
+                    val obj = categoriesArray.getJSONObject(i)
+                    val packageName = obj.optString("packageName", "")
+                    if (packageName.isBlank()) continue
+                    appCategoryDao.upsertManual(
+                        packageName = packageName,
+                        appName = obj.optString("appName", packageName),
+                        category = obj.optString("category", "other"),
+                        passphrase = passphrase
+                    )
+                    categoryCount++
+                }
+                Log.i(TAG, "已合并 $categoryCount 条应用分类（manual）")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "策略更新处理失败: ${e.message}", e)
         }
@@ -187,6 +220,9 @@ class SyncManager(
      * 处理公告推送消息
      *
      * [TASK-OPT-12-P1] 扩展解析 requires_ack（紧急公告需确认）与 acknowledged_at（确认回执时间）。
+     * [TASK-OPT-12-P2] 公告即时展示（需求4）：
+     * - 紧急公告（priority>=2 且 requires_ack 且未确认）→ 全屏置顶 AnnouncementOverlayActivity
+     * - 普通公告 → 立即发系统通知（不再仅靠角标/主动查看）
      */
     private fun handleAnnouncementPush(message: P2PMessage) {
         try {
@@ -197,21 +233,73 @@ class SyncManager(
             var count = 0
             for (i in 0 until announcementsArray.length()) {
                 val obj = announcementsArray.getJSONObject(i)
+                val announcementId = obj.optString("id", UUID.randomUUID().toString())
+                val title = obj.optString("title", "")
+                val content = obj.optString("content", "")
+                val priority = obj.optInt("priority", 0)
+                val requiresAck = obj.optBoolean("requires_ack", false)
+
+                // 重推场景保留既有确认状态（CONFLICT_REPLACE 会覆盖，先查后写）
+                var acknowledgedAt = obj.optLong("acknowledged_at", 0)
+                if (acknowledgedAt <= 0 && announcementDao.isAcknowledged(announcementId, passphrase)) {
+                    acknowledgedAt = announcementDao.getAcknowledgedAt(announcementId, passphrase)
+                }
+
                 announcementDao.upsert(
-                    announcementId = obj.optString("id", UUID.randomUUID().toString()),
-                    title = obj.optString("title", ""),
-                    content = obj.optString("content", ""),
-                    priority = obj.optInt("priority", 0),
-                    requiresAck = obj.optBoolean("requires_ack", false),
-                    acknowledgedAt = obj.optLong("acknowledged_at", 0),
+                    announcementId = announcementId,
+                    title = title,
+                    content = content,
+                    priority = priority,
+                    requiresAck = requiresAck,
+                    acknowledgedAt = acknowledgedAt,
                     expiresAt = obj.optLong("expires_at", 0),
                     passphrase = passphrase
                 )
                 count++
+
+                // [TASK-OPT-12-P2] 即时展示逻辑
+                if (priority >= 2 && requiresAck && !announcementDao.isAcknowledged(announcementId, passphrase)) {
+                    // 紧急公告：全屏置顶覆盖层（锁屏亮屏 + 需确认 + 防绕过）
+                    AnnouncementOverlayActivity.launch(context, announcementId, title, content)
+                } else {
+                    // 普通公告：立即发系统通知
+                    sendAnnouncementNotification(title, content)
+                }
             }
             Log.i(TAG, "已接收 $count 条公告")
         } catch (e: Exception) {
             Log.e(TAG, "公告推送处理失败: ${e.message}", e)
+        }
+    }
+
+    /**
+     * [TASK-OPT-12-P2] 发送普通公告系统通知（点击打开应用）
+     */
+    private fun sendAnnouncementNotification(title: String, content: String) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(context, XiaopacaiApp.CHANNEL_ANNOUNCEMENT)
+                .setContentTitle(title)
+                .setContentText(content)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(content))
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+
+            notificationManager.notify((System.currentTimeMillis() % 100000).toInt(), notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "发送公告通知失败: ${e.message}")
         }
     }
 

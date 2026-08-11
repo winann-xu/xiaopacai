@@ -132,26 +132,26 @@ class AppInterceptor(private val context: Context) {
         }
 
         // 5. 超时停用检查
-        if (isTimeout && stopMode == "full") {
-            return InterceptResult(intercept = true, reason = "超时停用（整机锁定）")
-        }
-
-        // 6. 分类限额检查（仅超时 partial 模式）
-        if (isTimeout && stopMode == "partial") {
-            val category = getAppCategory(packageName)
-            if (isCategoryExceeded(category, passphrase)) {
-                return InterceptResult(
-                    intercept = true,
-                    reason = "分类限额已用尽（${category}）"
-                )
-            }
-            // 非受限分类允许继续使用
-            if (category == "study") {
-                return InterceptResult(intercept = false, reason = "学习应用（不受限）")
-            }
-            if (category == "other") {
-                // partial 模式下，非指定分类的应用也允许
-                return InterceptResult(intercept = false, reason = "非受限分类")
+        if (isTimeout) {
+            when (stopMode) {
+                // 整机停用：除白名单/系统/桌面/输入法外全部拦截
+                "full" -> {
+                    return InterceptResult(intercept = true, reason = "超时停用（整机锁定）")
+                }
+                // [TASK-OPT-12-P2] 部分停用（需求7）：
+                // 白名单已在上方放行、黑名单已在上方拦截；
+                // 学习类应用放行，其余非白名单应用全部拦截
+                "partial" -> {
+                    val category = getAppCategory(packageName)
+                    if (category == "study") {
+                        return InterceptResult(intercept = false, reason = "学习应用（不受限）")
+                    }
+                    return InterceptResult(intercept = true, reason = "超时停用（娱乐应用已锁定）")
+                }
+                // warn 模式：仅警告不拦截
+                else -> {
+                    return InterceptResult(intercept = false, reason = "正常使用（仅警告模式）")
+                }
             }
         }
 
@@ -211,9 +211,24 @@ class AppInterceptor(private val context: Context) {
     }
 
     /**
-     * 获取应用分类（简化版，从包名推断）
+     * 获取应用分类
+     *
+     * [TASK-OPT-12-P2] 优先查询 app_category 表（家长手工设置优先），
+     * 未收录时按包名关键词推断；V3 learning 映射回内部 study 口径。
      */
     private fun getAppCategory(packageName: String): String {
+        // 1. 查询家长设置的应用分类（manual 覆盖 default）
+        val stored = try {
+            com.xiaopacai.child.data.database.AppCategoryDao(XiaopacaiApp.instance.database)
+                .getCategory(packageName, getPassphrase())
+        } catch (e: Exception) {
+            null
+        }
+        if (stored != null) {
+            return com.xiaopacai.child.util.AppCategoryHelper.toInternalCategory(stored)
+        }
+
+        // 2. 兜底：按包名关键词推断（旧逻辑）
         val lower = packageName.lowercase()
         return when {
             lower.contains("game") || lower.contains("minecraft") || lower.contains("roblox") -> "game"

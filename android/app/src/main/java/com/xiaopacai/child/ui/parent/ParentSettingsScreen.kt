@@ -19,6 +19,7 @@ import com.xiaopacai.child.p2p.ParentP2PListenerService
 import com.xiaopacai.child.role.RoleManager
 import com.xiaopacai.child.XiaopacaiApp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.OutputStreamWriter
@@ -228,9 +229,31 @@ fun ParentSettingsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (ok) Text("密码已修改成功！", color = MaterialTheme.colorScheme.primary)
                     else {
-                        OutlinedTextField(oldPwd, { oldPwd = it; err = null }, label = { Text("当前密码") }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
-                        OutlinedTextField(newPwd, { newPwd = it; err = null }, label = { Text("新密码（6-16位）") }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
-                        OutlinedTextField(confirmPwd, { confirmPwd = it; err = null }, label = { Text("确认新密码") }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
+                        // [BUILD-FIX] 规范命名参数写法，修复命名参数后跟位置参数导致的编译错误
+                        OutlinedTextField(
+                            value = oldPwd,
+                            onValueChange = { oldPwd = it; err = null },
+                            label = { Text("当前密码") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation()
+                        )
+                        OutlinedTextField(
+                            value = newPwd,
+                            onValueChange = { newPwd = it; err = null },
+                            label = { Text("新密码（6-16位）") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation()
+                        )
+                        OutlinedTextField(
+                            value = confirmPwd,
+                            onValueChange = { confirmPwd = it; err = null },
+                            label = { Text("确认新密码") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation()
+                        )
                         if (err != null) Text(err!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                     }
                 }
@@ -330,6 +353,7 @@ private fun SectionTitle(title: String) {
         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,

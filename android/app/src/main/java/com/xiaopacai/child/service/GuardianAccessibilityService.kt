@@ -79,6 +79,22 @@ class GuardianAccessibilityService : AccessibilityService() {
             return
         }
 
+        // [TASK-OPT-12-P2] 紧急公告防绕过（需求4）：未确认前被切走（HOME/返回），重新拉起全屏公告
+        if (com.xiaopacai.child.ui.overlay.AnnouncementOverlayActivity.hasPendingUrgent()) {
+            Log.w(TAG, "紧急公告未确认，检测到前台切换到: $packageName，重新拉起公告")
+            com.xiaopacai.child.ui.overlay.AnnouncementOverlayActivity.relaunchPending(this)
+            return
+        }
+
+        // [TASK-OPT-12-P2] 应用信息页检测（需求6）：打开系统应用详情页疑似尝试卸载/停用
+        val className = event.className?.toString() ?: ""
+        if (packageName == "com.android.settings" &&
+            (className.contains("InstalledAppDetails") ||
+             className.contains("AppInfoBase") ||
+             className.contains("ApplicationDetails"))) {
+            AntiBypassService.onAppInfoPageOpened(this)
+        }
+
         // 防抖：同一包名 3 秒内不重复处理
         val now = System.currentTimeMillis()
         if (packageName == lastBlockedPackage &&

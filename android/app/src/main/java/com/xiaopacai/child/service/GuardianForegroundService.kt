@@ -100,6 +100,12 @@ class GuardianForegroundService : Service() {
 
         // [TASK-D3-03] 启动防绕过监控
         AntiBypassService.startMonitoring(this, serviceScope)
+
+        // [TASK-OPT-12-P2] 双守护自检：WorkManager 15 分钟 + AlarmManager 30 分钟兜底（需求6）
+        AntiBypassService.scheduleSelfCheck(this)
+
+        // [TASK-OPT-12-P2] 诊断采集初始化：崩溃处理器 + 每日上报调度（需求5）
+        DiagnosticsCollector.start(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

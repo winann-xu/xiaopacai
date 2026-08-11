@@ -147,6 +147,68 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
     }
 
     /**
+     * [TASK-OPT-12-P2] 查询公告是否已被家长确认（紧急公告回执状态）
+     */
+    fun isAcknowledged(announcementId: String, passphrase: ByteArray): Boolean {
+        val db = dbHelper.getReadable(passphrase)
+        return try {
+            val cursor = db.rawQuery(
+                "SELECT acknowledged_at FROM announcements WHERE announcement_id = ?",
+                arrayOf(announcementId)
+            )
+            cursor.use { it.moveToFirst() && it.getLong(0) > 0 }
+        } finally {
+            db.close()
+        }
+    }
+
+    /**
+     * [TASK-OPT-12-P2] 查询公告既有确认回执时间戳（重推时保留，防止覆盖已确认状态）
+     */
+    fun getAcknowledgedAt(announcementId: String, passphrase: ByteArray): Long {
+        val db = dbHelper.getReadable(passphrase)
+        return try {
+            val cursor = db.rawQuery(
+                "SELECT acknowledged_at FROM announcements WHERE announcement_id = ?",
+                arrayOf(announcementId)
+            )
+            cursor.use { if (it.moveToFirst()) it.getLong(0) else 0L }
+        } finally {
+            db.close()
+        }
+    }
+
+    /**
+     * [TASK-OPT-12-P2] 查询一条未确认的紧急公告（优先级>=2 且需确认且未回执）
+     *
+     * @return mapOf("id"/"title"/"content")，无则 null
+     */
+    fun getFirstUnacknowledgedUrgent(passphrase: ByteArray): Map<String, String>? {
+        val db = dbHelper.getReadable(passphrase)
+        return try {
+            val nowTimestamp = System.currentTimeMillis() / 1000
+            val cursor = db.rawQuery(
+                """SELECT announcement_id, title, content FROM announcements
+                   WHERE priority >= 2 AND requires_ack = 1 AND acknowledged_at = 0
+                   AND (expires_at = 0 OR expires_at > ?)
+                   ORDER BY priority DESC, created_at DESC LIMIT 1""",
+                arrayOf(nowTimestamp.toString())
+            )
+            cursor.use {
+                if (it.moveToFirst()) {
+                    mapOf(
+                        "id" to it.getString(0),
+                        "title" to it.getString(1),
+                        "content" to it.getString(2)
+                    )
+                } else null
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    /**
      * 清空过期公告
      */
     fun cleanExpired(passphrase: ByteArray): Int {

@@ -96,10 +96,9 @@ class AnnouncementOverlayActivity : ComponentActivity() {
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // 读取公告内容
+        // 读取公告内容（intent 未携带时回退到静态缓存）
         val announcementId = intent.getStringExtra("announcement_id")
             ?: pendingAnnouncementId
-            ?: finishAndRemoveTask()
         val title = intent.getStringExtra("title") ?: pendingTitle
         val content = intent.getStringExtra("content") ?: pendingContent
 
@@ -115,9 +114,10 @@ class AnnouncementOverlayActivity : ComponentActivity() {
                     content = content,
                     onConfirm = {
                         // 确认：记录回执时间 + 上报家长端 + 关闭
+                        // 注意顺序：先清空当前待确认状态，acknowledgeAndReport 可能排队拉起下一条
                         confirmed = true
-                        acknowledgeAndReport(announcementId, title)
                         pendingAnnouncementId = null
+                        acknowledgeAndReport(announcementId, title)
                         finishAndRemoveTask()
                     }
                 )
@@ -127,6 +127,7 @@ class AnnouncementOverlayActivity : ComponentActivity() {
 
     /**
      * 确认处理：落库 acknowledged_at + P2P 上报 announcement_ack
+     * 确认后自动展示下一条未确认的紧急公告（多公告排队场景）
      */
     private fun acknowledgeAndReport(announcementId: String, title: String) {
         try {
@@ -135,6 +136,16 @@ class AnnouncementOverlayActivity : ComponentActivity() {
             val dao = AnnouncementDao(XiaopacaiApp.instance.database)
             dao.markAcknowledged(announcementId, passphrase)
             android.util.Log.i(TAG, "紧急公告已确认: $announcementId（$title）")
+
+            // 确认后若还有未确认的紧急公告，继续全屏展示（排队）
+            dao.getFirstUnacknowledgedUrgent(passphrase)?.let { next ->
+                launch(
+                    context,
+                    next["id"] ?: return@let,
+                    next["title"] ?: "",
+                    next["content"] ?: ""
+                )
+            }
         } catch (e: Exception) {
             android.util.Log.e(TAG, "记录公告回执失败: ${e.message}")
         }
@@ -147,7 +158,7 @@ class AnnouncementOverlayActivity : ComponentActivity() {
                 payload = mapOf(
                     "announcementId" to announcementId,
                     "acknowledgedAt" to (System.currentTimeMillis() / 1000),
-                    "deviceId" to getDeviceId()
+                    "deviceId" to getLocalDeviceId()
                 )
             )
             p2p.sendMessage(message)
@@ -158,8 +169,9 @@ class AnnouncementOverlayActivity : ComponentActivity() {
 
     /**
      * 获取设备 ID（与 SyncManager 同一来源）
+     * 命名避免与 ComponentActivity.getDeviceId() 冲突
      */
-    private fun getDeviceId(): String {
+    private fun getLocalDeviceId(): String {
         val prefs = getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE)
         var deviceId = prefs.getString("device_id", null)
         if (deviceId == null) {

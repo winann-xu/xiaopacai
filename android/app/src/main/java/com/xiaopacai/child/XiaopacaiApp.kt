@@ -29,6 +29,14 @@ class XiaopacaiApp : Application() {
 
         // 2. 创建通知渠道（前台服务必需）
         createNotificationChannels()
+
+        // [TASK-OPT-12-P2] 诊断采集初始化（需求5）：
+        // 应用级提前安装崩溃处理器 + 调度每日上报，不依赖守护服务启动
+        try {
+            com.xiaopacai.child.service.DiagnosticsCollector.start(this)
+        } catch (e: Exception) {
+            Log.e(TAG, "诊断采集初始化失败: ${e.message}")
+        }
     }
 
     /**
