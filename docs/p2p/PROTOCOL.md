@@ -1,6 +1,7 @@
-# 小趴菜 P2P 通信协议规范 v1.0
+# 小趴菜 P2P 通信协议规范 v1.1
 
 > [TASK-D1-04] 本文档定义小趴菜家长端（Windows）与儿童端（Android）之间的 P2P 直连通信协议。
+> v1.1 [TASK-OPT-12-P1]：新增 `diagnostics_report` / `announcement_ack` 消息；daily_limit 策略新增 `restrictMode` 字段；公告 JSON 新增 `requires_ack` / `acknowledged_at` 字段。详见 `docs/adr/0003-opt12-protocol-extensions.md`。
 
 ## 一、协议概览
 
@@ -124,10 +125,47 @@
 | `policy_ack` | 儿童→家长 | 策略接收确认 |
 | `announcement` | 家长→儿童 | 公告推送 |
 | `announcement_ack` | 儿童→家长 | 公告已读确认 |
+| `diagnostics_report` | 儿童→家长 | [TASK-OPT-12-P1] 故障诊断信息上报（需求 5） |
 | `heartbeat` | 儿童→家长 | 心跳（每 30 秒） |
 | `heartbeat_ack` | 家长→儿童 | 心跳响应 |
 | `exemption` | 家长→儿童 | 豁免/恢复指令 |
 | `error` | 双向 | 错误通知 |
+
+### 4.2.1 v1.1 协议扩展（[TASK-OPT-12-P1]）
+
+**`diagnostics_report`（儿童→家长）**：携带故障诊断信息，payload 结构：
+```json
+{
+  "type": "diagnostics_report",
+  "deviceId": "XP-ABCD1234EF56",
+  "diagnostics": {
+    "appVersion": "0.1.0",
+    "androidVersion": "Android 14",
+    "deviceModel": "Pixel 8",
+    "manufacturer": "Google",
+    "permissionStatus": {},
+    "serviceStatus": {},
+    "recentCrashes": [],
+    "p2pHistory": {},
+    "dbSizeBytes": 102400,
+    "networkType": "wifi"
+  }
+}
+```
+
+**`announcement_ack`（儿童→家长）**：紧急公告确认回执，payload 结构：
+```json
+{
+  "type": "announcement_ack",
+  "announcementId": "ann-xxxx",
+  "deviceId": "XP-ABCD1234EF56",
+  "acknowledgedAt": 1723276800
+}
+```
+
+**字段扩展**：
+- `policy_update` / `policy_sync` 中 daily_limit 策略项新增 `restrictMode`（`full`/`partial`/`warn`，缺省 `full`），与 Web 端 `OvertimeAction` 对齐（`full_lock`→`full`、`partial_lock`→`partial`、`warn_only`→`warn`）。
+- `announcement_push` 中公告 JSON 新增 `requires_ack`（布尔，缺省 `false`）与 `acknowledged_at`（Unix 秒，缺省 `0`）。
 
 ### 4.3 消息示例
 

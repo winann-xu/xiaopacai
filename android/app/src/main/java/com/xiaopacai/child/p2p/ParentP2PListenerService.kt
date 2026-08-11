@@ -48,6 +48,7 @@ import javax.security.auth.x500.X500Principal
  * - TLS 1.3/1.2（自签名证书，KeyStore 持久化，指纹稳定）
  * - 4 字节大端长度前缀 + JSON 帧协议（与儿童端 P2PConnectionService 兼容）
  * - 消息处理：handshake / usage_report / heartbeat / announcement_push
+ *   [TASK-OPT-12-P1] + diagnostics_report（诊断上报）/ announcement_ack（公告确认回执）
  * - 6 位配对码生成与校验
  *
  * 对标 Windows 端 P2PListenerService，协议完全兼容。
@@ -455,6 +456,9 @@ class ParentP2PListenerService : Service() {
             "announcement_push" -> handleAnnouncementFromChild(message, deviceId)
             "heartbeat" -> handleHeartbeat()
             "heartbeat_ack" -> null  // 由心跳机制处理
+            // [TASK-OPT-12-P1] 协议扩展：故障诊断上报 / 紧急公告确认回执
+            "diagnostics_report" -> handleDiagnosticsReport(message, deviceId)
+            "announcement_ack" -> handleAnnouncementAck(message, deviceId)
             else -> {
                 Log.d(TAG, "未处理的消息类型: ${message.type}")
                 null
@@ -600,6 +604,50 @@ class ParentP2PListenerService : Service() {
         val announcementId = message.payload["announcementId"]?.toString() ?: return null
         val isRead = (message.payload["isRead"] as? Boolean) ?: true
         Log.d(TAG, "公告确认: $announcementId, device=$deviceId, read=$isRead")
+        return null // 无响应
+    }
+
+    /**
+     * [TASK-OPT-12-P1] 处理儿童端故障诊断信息上报（diagnostics_report）
+     *
+     * 消息格式：{type, deviceId, diagnostics: {appVersion, androidVersion, deviceModel,
+     * manufacturer, permissionStatus, serviceStatus, recentCrashes, p2pHistory,
+     * dbSizeBytes, networkType}}
+     *
+     * P1 仅做协议解析与日志记录（供排障）；完整落库/转发由 P3 家长端、
+     * P4 Web 3.0 诊断模块实现。当前无响应消息（儿童端按连接状态重传）。
+     */
+    private fun handleDiagnosticsReport(message: P2PMessage, deviceId: String): P2PMessage? {
+        val diagnostics = message.payload["diagnostics"]?.toString()
+            ?: return null
+        return try {
+            val obj = org.json.JSONObject(diagnostics)
+            Log.i(TAG, "收到诊断信息: device=$deviceId, " +
+                "appVersion=${obj.optString("appVersion", "?")}, " +
+                "androidVersion=${obj.optString("androidVersion", "?")}, " +
+                "deviceModel=${obj.optString("deviceModel", "?")}, " +
+                "manufacturer=${obj.optString("manufacturer", "?")}, " +
+                "networkType=${obj.optString("networkType", "?")}, " +
+                "dbSizeBytes=${obj.optLong("dbSizeBytes", 0)}, " +
+                "recentCrashes=${obj.optJSONArray("recentCrashes")?.length() ?: 0}")
+            null // 无响应
+        } catch (e: Exception) {
+            Log.e(TAG, "解析诊断信息失败: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * [TASK-OPT-12-P1] 处理儿童端紧急公告确认回执（announcement_ack）
+     *
+     * 消息格式：{type, announcementId, deviceId, acknowledgedAt}
+     * 家长端收到回执后仅记录日志（公告回执状态展示由 P3 家长端 UI 实现）。
+     */
+    private fun handleAnnouncementAck(message: P2PMessage, deviceId: String): P2PMessage? {
+        val announcementId = message.payload["announcementId"]?.toString() ?: return null
+        val acknowledgedAt = (message.payload["acknowledgedAt"] as? Number)?.toLong()
+            ?: (System.currentTimeMillis() / 1000)
+        Log.i(TAG, "公告确认回执: id=$announcementId, device=$deviceId, acknowledgedAt=$acknowledgedAt")
         return null // 无响应
     }
 
@@ -762,6 +810,9 @@ class ParentP2PListenerService : Service() {
 
     /**
      * 向指定设备发送公告（供 UI 层调用）
+     *
+     * [TASK-OPT-12-P1] 新增 requiresAck 参数：紧急公告需儿童确认（全屏置顶），
+     * 儿童端确认后回传 announcement_ack 消息。
      */
     fun sendAnnouncementToDevice(
         deviceId: String,
@@ -769,6 +820,7 @@ class ParentP2PListenerService : Service() {
         title: String,
         content: String,
         priority: Int = 0,
+        requiresAck: Boolean = false,
         expiresAt: Long = 0
     ): Boolean {
         val output = deviceStreams[deviceId] ?: run {
@@ -777,7 +829,8 @@ class ParentP2PListenerService : Service() {
         }
         // 与儿童端 SyncManager.handleAnnouncementPush 兼容的消息格式
         val announcements = "[{\"id\":\"$announcementId\",\"title\":${org.json.JSONObject.quote(title)}," +
-            "\"content\":${org.json.JSONObject.quote(content)},\"priority\":$priority,\"expires_at\":$expiresAt}]"
+            "\"content\":${org.json.JSONObject.quote(content)},\"priority\":$priority," +
+            "\"requires_ack\":$requiresAck,\"expires_at\":$expiresAt}]"
         val ok = sendMessage(
             output,
             P2PMessage(

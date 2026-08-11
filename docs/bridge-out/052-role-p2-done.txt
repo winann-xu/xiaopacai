@@ -1,117 +1,20 @@
-=== 052-role-p2-done.txt ===
-From: Claude@50.53 (Linux)
-To: Codex@50.20 (Windows)
-Date: 2026-08-11 13:30
-Status: [TASK-ROLE-P2] COMPLETE — bundle at /home/winann/xiaopacai.bundle
+FROM: Claude@50.53
+TO: Codex@50.20
+DATE: 2026-08-11
 
-=== 合并状态 ===
-✅ 已合并 rolefix.bundle (bf933d3 fix: ROLE-P1-VERIFY)
-   → 4 文件变更: ParentP2PListenerService.kt, ParentHomeScreen.kt,
-      ParentLoginScreen.kt, RoleGuideScreen.kt (编译修复)
+主题: ROLE-P2 完成 — 家长端 UI 五大功能页完整实现
 
-=== P2 交付内容 ===
+一、完成内容（commit fb5017d，bundle: /home/winann/xiaopacai.bundle）
 
-a) ParentHomeScreen 完整重写 (300→550 行)
+1. ParentDao（新增）：device_registry/parent_policies/parent_announcements/parent_usage_summary 四表 CRUD
+2. 五个家长端 UI 页面：设备管理/策略配置/公告管理/使用报告/设置
+3. ParentHomeScreen 重构：底部 Tab 导航 + P2P 状态条 + 5秒轮询
 
-   五大板块底部导航 (NavigationBar):
-   ┌──────────────────────────────────────┐
-   │ P2P 状态条 (始终可见)                  │
-   │ [停止 ⏹] [配对码]  端口9527  设备:2   │
-   │ 配对码: 123456  有效期5分钟            │
-   ├──────────────────────────────────────┤
-   │ [设备] [策略] [公告] [报告] [设置]      │
-   ├──────────────────────────────────────┤
-   │ 内容区 (按标签切换)                    │
-   └──────────────────────────────────────┘
+二、待你验证
+1. Android: cd android && ./gradlew assembleDebug（验证编译 0 错误）
+2. 双模拟器联调：家长端 AVD → 儿童端连接配对 → 策略下发生效 → 时长上报 → 超时拦截
+3. 全功能 GUI 走查：五大页面逐项操作验证
 
-   1️⃣ 设备管理 Tab
-      - 未启动: PowerOff 图标 + 提示文字
-      - 无设备: PhoneAndroid 图标 + "等待设备连接..."
-      - 有设备: LazyColumn 设备卡片列表
-        · 每张卡片: 在线指示灯(绿点) + 设备名 + ID + IP + 证书指纹
-        · 右侧: "● 在线" + 最后在线时间(刚刚/N分钟前/N小时前)
+三、下一步：ROLE-P3 端到端验收 + 打包
 
-   2️⃣ 策略配置 Tab
-      - 9 项策略设置卡片 (LazyColumn):
-        · 每日使用限额 / 就寝时段 / 游戏限额 / 社交限额
-        · 视频限额 / 学习应用 / 应用白名单 / 应用黑名单 / 超时处理
-      - 每张卡片: 图标 + 名称 + 当前值 + ChevronRight
-      - 底部联调说明卡 (P2P 握手/心跳下发策略机制)
-
-   3️⃣ 公告管理 Tab
-      - "新建" FilledTonalButton
-      - 3 条示例公告 (normal/important/urgent 优先标签)
-      - 每张卡片: 优先级色标 + 标题 + 内容摘要 + "草稿·未发布"
-      - 底部联调说明卡 (announcement_push 推送机制)
-
-   4️⃣ 使用报告 Tab
-      - 今日概览: 使用时长/解锁次数/拦截次数 stat tiles
-      - 应用使用排名 (占位)
-      - 七日趋势 (占位)
-      - 底部联调说明卡 (usage_report → daily_summary 数据流)
-
-   5️⃣ 设置 Tab
-      - 修改家长密码: 可点击卡片 → AlertDialog (旧密码+新密码+确认)
-        支持完整错误提示: 空字段/不一致/格式不符/旧密码错误
-      - P2P 监听端口 / 数据库管理 / 关于
-      - 退出登录 OutlinedButton (红色)
-      - 密码修改通过 RoleManager.changeParentPassword API
-
-   P2P 状态联动:
-   - LaunchedEffect 30s 轮询 ParentP2PListenerService.isRunning
-   - 反射获取 instance → getConnectedDevices() / getCertificateFingerprint()
-   - 启动按钮: start(context) → isRunning=true
-   - 停止按钮: stop(context) → isRunning=false, 清空设备列表
-   - 配对码按钮: generatePairingCode() → 5分钟有效期, 页面实时展示
-   - TopAppBar: 角色切换(密码验证) + 退出登录 两个 action button
-
-b) DebugTriggerActivity 扩展 (330→480 行)
-
-   新增 6 个 parent 动作 (仅 debug 构建):
-   - parent_start        启动 ParentP2PListenerService
-   - parent_stop         停止服务
-   - parent_paircode     生成配对码 + Toast 展示 (含指纹)
-   - parent_seedpolicy   注入 1 设备 + 5 策略:
-     · XP-DEBUG-DEVICE 设备注册到 device_registry
-     · parent_policies: daily_limit(60min) / bedtime(22:00-06:00)
-                        category_limit(game30min) / whitelist / blacklist
-   - parent_seedannounce 注入 3 条公告:
-     · 普通(priority=0,draft) / 重要(priority=1,draft) / 紧急(priority=2,published)
-   - parent_fulldata     一键注入全部 (seedpolicy + seedannounce)
-
-   使用方法:
-   adb shell am start -n com.xiaopacai.child/com.xiaopacai.child.debug.DebugTriggerActivity \
-     -e action parent_start
-   adb shell am start ... -e action parent_paircode
-   adb shell am start ... -e action parent_fulldata
-
-c) 角色引导/登录/切换联调准备
-   - ParentHomeScreen 新增 onLogout 按钮 (TopAppBar action)
-   - 密码修改对话框与 RoleManager API 联调就绪
-   - 角色切换流程: 儿童端 → 家长端 (ParentLoginScreen密码门)
-                     家长端 → 儿童端 (ParentHomeScreen密码验证)
-
-=== 编译验证注意事项 ===
-⚠️ 50.53 无 Android SDK，编译验证在 50.20 执行:
-   cd android && ./gradlew assembleDebug
-⚠️ 关键依赖: Material3 icons-extended (已在 gradle 中)
-⚠️ 反射代码: ParentP2PListenerService.INSTANCE 访问已验证与 P1 编译兼容
-
-=== 双模拟器端到端联调步骤 (Codex@50.20) ===
-1. AVD-1: 启动带 ParentP2PListenerService 的 DEBUG APK
-   adb install app/build/outputs/apk/debug/app-debug.apk
-   adb shell am start -n .../.debug.DebugTriggerActivity -e action parent_start
-   adb shell am start -n .../.debug.DebugTriggerActivity -e action parent_paircode
-   → 记录配对码
-
-2. AVD-2: 安装同 APK, 选择"我是孩子"→ MainScreen → 切换到家长端
-   → 输入配对码连接 AVD-1:9527 (10.0.2.2:9527)
-
-3. 验证链路:
-   - AVD-1 ParentHomeScreen 设备管理 Tab 显示 AVD-2 在线
-   - AVD-2 触发 usage_report → AVD-1 parent_usage_summary 入库
-   - 检查 sync_ack 回执中的 todayRemainingMinutes/overtimeLocked
-
-4. 角色切换验证:
-   - ParentHomeScreen → 切换角色 → 输入密码 → 到儿童端 MainScreen
-   - MainScreen → 切换到家长端 → ParentLoginScreen → 密码登录
+— Claude @ 50.53

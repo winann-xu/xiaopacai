@@ -13,6 +13,7 @@ import net.sqlcipher.database.SQLiteOpenHelper
  * 数据库版本管理：
  * - Version 1：初始表结构（时长记录、策略缓存、公告缓存、配对信息）
  * - Version 2：[TASK-ROLE-P1] 新增家长端表（device_registry/policies/announcements/parent_usage_summary）
+ * - Version 3：[TASK-OPT-12-P1] 新增应用分类表 app_category；announcements 扩展 requires_ack/acknowledged_at 列
  * - 升级时通过 onUpgrade() 执行迁移 SQL
  */
 class AppDatabase private constructor(
@@ -70,6 +71,8 @@ class AppDatabase private constructor(
                 content TEXT NOT NULL DEFAULT '',       -- 公告正文
                 priority INTEGER NOT NULL DEFAULT 0,   -- 优先级：0=普通 1=重要 2=紧急
                 is_read INTEGER NOT NULL DEFAULT 0,     -- 是否已读：0=未读 1=已读
+                requires_ack INTEGER NOT NULL DEFAULT 0,-- [TASK-OPT-12-P1] 是否需要家长确认：0=否 1=是（紧急公告）
+                acknowledged_at INTEGER NOT NULL DEFAULT 0, -- [TASK-OPT-12-P1] 家长确认回执时间戳（0=未确认）
                 created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 expires_at INTEGER NOT NULL DEFAULT 0   -- 过期时间戳（0=永不过期）
             )
@@ -113,6 +116,11 @@ class AppDatabase private constructor(
         // [TASK-ROLE-P1] 家长端表（V2 新增）
         // ============================================================
         createParentTables(db)
+
+        // ============================================================
+        // [TASK-OPT-12-P1] V3 新增表/列（应用分类、公告扩展列）
+        // ============================================================
+        createV3Tables(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase?, oldVersion: Int, newVersion: Int) {
@@ -120,6 +128,10 @@ class AppDatabase private constructor(
         // [TASK-ROLE-P1] V1 → V2：新增家长端表
         if (oldVersion < 2) {
             createParentTables(db)
+        }
+        // [TASK-OPT-12-P1] V2 → V3：新增 app_category 表 + announcements 扩展列
+        if (oldVersion < 3) {
+            createV3Tables(db)
         }
     }
 
@@ -203,6 +215,67 @@ class AppDatabase private constructor(
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_parent_usage_device_date ON parent_usage_summary(device_id, date)")
     }
 
+    // ============================================================
+    // [TASK-OPT-12-P1] V3 表结构（应用分类）
+    // ============================================================
+
+    /**
+     * [TASK-OPT-12-P1] 创建 V3 新增的表与列
+     *
+     * 在 onCreate (V3+) 和 onUpgrade (V2→V3) 中都会被调用：
+     * - app_category：儿童端已安装应用的分类设置（default=关键词规则生成，manual=家长手工覆盖）
+     * - announcements 扩展列：requires_ack（紧急公告需确认）、acknowledged_at（确认回执时间）
+     *
+     * 说明：新建库时 announcements 的 CREATE TABLE 已含扩展列；
+     * 老库迁移时通过 addColumnIfNotExists() 补充（SQLite 不支持 ADD COLUMN IF NOT EXISTS）。
+     */
+    private fun createV3Tables(db: SQLiteDatabase) {
+        // === 表10：应用分类表 ===
+        // 儿童端已安装应用的分类设置（V3 新增）
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS app_category (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                package_name TEXT NOT NULL,
+                app_name TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT 'other',  -- game/social/video/learning/other
+                source TEXT NOT NULL DEFAULT 'default',   -- default/manual
+                updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                UNIQUE(package_name)
+            )
+        """.trimIndent())
+
+        // === 索引 ===
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_app_category_category ON app_category(category)")
+
+        // === announcements 扩展列（迁移专用，新建库已内建于 CREATE TABLE） ===
+        addColumnIfNotExists(db, "announcements", "requires_ack", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfNotExists(db, "announcements", "acknowledged_at", "INTEGER NOT NULL DEFAULT 0")
+    }
+
+    /**
+     * [TASK-OPT-12-P1] 列不存在时才执行 ALTER TABLE ADD COLUMN
+     *
+     * SQLite 不支持 ADD COLUMN IF NOT EXISTS，通过 PRAGMA table_info 判断。
+     *
+     * @param table 目标表名
+     * @param column 列名
+     * @param ddl 列定义（类型 + 默认值等）
+     */
+    private fun addColumnIfNotExists(db: SQLiteDatabase, table: String, column: String, ddl: String) {
+        var exists = false
+        db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                if (cursor.getString(1) == column) {
+                    exists = true
+                    break
+                }
+            }
+        }
+        if (!exists) {
+            db.execSQL("ALTER TABLE $table ADD COLUMN $column $ddl")
+        }
+    }
+
     /**
      * 获取可写的加密数据库实例
      * 使用传入的 passphrase 打开数据库
@@ -221,7 +294,7 @@ class AppDatabase private constructor(
 
     companion object {
         private const val DATABASE_NAME = "xiaopacai_guardian.db"
-        private const val DATABASE_VERSION = 2  // [TASK-ROLE-P1] 新增家长端表
+        private const val DATABASE_VERSION = 3  // [TASK-OPT-12-P1] V3：app_category 表 + announcements 扩展列
 
         @Volatile
         private var INSTANCE: AppDatabase? = null

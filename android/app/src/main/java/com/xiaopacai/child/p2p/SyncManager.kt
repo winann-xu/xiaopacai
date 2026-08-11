@@ -185,6 +185,8 @@ class SyncManager(
 
     /**
      * 处理公告推送消息
+     *
+     * [TASK-OPT-12-P1] 扩展解析 requires_ack（紧急公告需确认）与 acknowledged_at（确认回执时间）。
      */
     private fun handleAnnouncementPush(message: P2PMessage) {
         try {
@@ -200,6 +202,8 @@ class SyncManager(
                     title = obj.optString("title", ""),
                     content = obj.optString("content", ""),
                     priority = obj.optInt("priority", 0),
+                    requiresAck = obj.optBoolean("requires_ack", false),
+                    acknowledgedAt = obj.optLong("acknowledged_at", 0),
                     expiresAt = obj.optLong("expires_at", 0),
                     passphrase = passphrase
                 )

@@ -1,20 +1,22 @@
 {
   "project": "xiaopacai",
   "kickoff": "2026-08-10T11:44:00+08:00",
-  "last_update": "2026-08-11T14:00:00+08:00",
+  "last_update": "2026-08-11T16:00:00+08:00",
   "branch": "main",
-  "version": "2.1.0-p2",
-  "token_usage": {"session_input": 290000, "session_output": 230000, "total": 520000, "note": "上次会话估算值"},
+  "version": "2.2.0-opt12-p1",
   "phases": {
     "2.0-three-day": {"status": "completed", "note": "三天冲刺完成，全链路贯通"},
-    "ROLE-P1": {"status": "completed", "note": "角色框架/家长登录/P2P监听服务。RoleManager/ParentLoginScreen/ParentP2PListenerService/AppDatabase V2"},
-    "ROLE-P2": {"status": "completed", "note": "家长端五大功能页：设备管理/策略配置/公告管理/使用报告/设置。ParentDao + 5个UI页面 + ParentHomeScreen重构"}
+    "ROLE-P1": {"status": "completed", "note": "角色框架/家长登录/P2P监听"},
+    "ROLE-P2": {"status": "completed", "note": "家长端五大功能页 + 双机E2E验证通过"},
+    "OPT-12-P1": {"status": "in_progress", "note": "协议与数据模型扩展：app_category表/diagnostics_report/restrictMode/announcement_ack/login-ticket/中继路由"},
+    "OPT-12-P2": {"status": "pending", "note": "Android儿童端：分类设置页/公告弹窗/DiagnosticsCollector/防卸载增强/partial链路"},
+    "OPT-12-P3": {"status": "pending", "note": "Android家长端：二维码/中继连接/扫码登录/忘记密码/守护状态页"},
+    "OPT-12-P4": {"status": "pending", "note": "Web 3.0：诊断模块/扫码登录/中继API/分类API/管理端页面"},
+    "OPT-12-P5": {"status": "pending", "note": "测试与报告：Codex主测"}
   },
   "tasks": {
-    "TASK-ROLE-P1": {"status": "done", "blocked_reason": null, "note": "角色框架+家长登录+P2P监听+数据层扩展"},
-    "TASK-ROLE-P1-VERIFY": {"status": "done", "blocked_reason": null, "note": "编译修复：coroutineContext/isActive/recordsArray/navigationIcon/Material3 OptIn"},
-    "BRAND-3.0": {"status": "done", "blocked_reason": null, "note": "白菜Logo全端替换（SVG/Android图标/Windows图标）"},
-    "TASK-ROLE-P2": {"status": "done", "blocked_reason": null, "note": "家长端UI完善：ParentDao(设备/策略/公告/报告CRUD)+5个UI页面+ParentHomeScreen重构为底部Tab导航"}
+    "TASK-OPT-12-P1-ANDROID": {"status": "in_progress", "note": "app_category V3迁移 + 协议消息扩展 + PolicyConfig restrictMode + ADR"},
+    "TASK-OPT-12-P1-WEB": {"status": "in_progress", "note": "diagnostics表+API + login-ticket/reset-ticket + relay路由 + app-category API + ADR"}
   },
-  "next_recommended": "Codex在50.20: 1) assembleDebug验证编译 2) 双模拟器联调(家长端AVD监听+儿童端连接) 3) P2P端到端验收"
+  "next_recommended": "P1完成后进入P2(Android儿童端)和P3(Android家长端)并行开发"
 }

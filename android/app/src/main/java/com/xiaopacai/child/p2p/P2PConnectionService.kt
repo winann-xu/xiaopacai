@@ -44,6 +44,8 @@ enum class MessageType(val value: String) {
     STATUS_UPDATE("status_update"),
     POLICY_ACK("policy_ack"),
     ANNOUNCEMENT_ACK("announcement_ack"),
+    // [TASK-OPT-12-P1] 故障诊断信息上报（儿童→家长，复用 P2P 链路）
+    DIAGNOSTICS_REPORT("diagnostics_report"),
     HEARTBEAT("heartbeat"),
     ERROR("error")
 }

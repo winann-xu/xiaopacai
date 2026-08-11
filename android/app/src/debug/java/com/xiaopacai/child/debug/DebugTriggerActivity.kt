@@ -148,10 +148,12 @@ class DebugTriggerActivity : ComponentActivity() {
         }
 
         // 注入测试公告（普通/重要/紧急三档）
+        // [TASK-OPT-12-P1] upsert 新增 requiresAck/acknowledgedAt 可选参数（默认 false/0），
+        // 此处仅将 passphrase 改为具名参数以兼容新签名，行为不变
         val dao = AnnouncementDao(db)
-        dao.upsert("test-ann-1", "周末使用提醒", "记得按时休息，保护眼睛哦。", 0, 0, passphrase)
-        dao.upsert("test-ann-2", "学习任务更新", "本周学习计划已由家长端更新，请查看。", 1, 0, passphrase)
-        dao.upsert("test-ann-3", "紧急通知", "今晚 21:00 前需要完成在线课程签到。", 2, 0, passphrase)
+        dao.upsert("test-ann-1", "周末使用提醒", "记得按时休息，保护眼睛哦。", 0, 0, passphrase = passphrase)
+        dao.upsert("test-ann-2", "学习任务更新", "本周学习计划已由家长端更新，请查看。", 1, 0, passphrase = passphrase)
+        dao.upsert("test-ann-3", "紧急通知", "今晚 21:00 前需要完成在线课程签到。", 2, 0, passphrase = passphrase)
     }
 
     private fun seedHighLimit() {

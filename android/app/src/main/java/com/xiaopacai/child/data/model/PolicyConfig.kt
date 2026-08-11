@@ -39,6 +39,15 @@ data class PolicyConfig(
     /** 每日限额（分钟），用于 daily_limit 类型 */
     val limitMinutes: Int = 120,
 
+    /**
+     * [TASK-OPT-12-P1] 超时限制模式，用于 daily_limit 类型
+     *
+     * full=全部停用 / partial=仅停用部分应用 / warn=仅警告不拦截。
+     * 与 Web 端 OvertimeAction 对齐（full_lock→full、partial_lock→partial、warn_only→warn）。
+     * 缺省为 full，兼容旧版本策略数据。
+     */
+    val restrictMode: String = "full",
+
     /** 就寝开始时间（HH:mm），用于 sleep_time 类型 */
     val sleepStart: String = "21:00",
 
@@ -83,6 +92,7 @@ data class PolicyConfig(
                     createdAt = obj.optLong("createdAt", 0),
                     updatedAt = obj.optLong("updatedAt", 0),
                     limitMinutes = obj.optInt("limitMinutes", 120),
+                    restrictMode = obj.optString("restrictMode", "full"),
                     sleepStart = obj.optString("sleepStart", "21:00"),
                     sleepEnd = obj.optString("sleepEnd", "07:00"),
                     packageNames = parseStringList(obj.optJSONArray("packageNames")),
@@ -119,6 +129,8 @@ data class PolicyConfig(
         obj.put("updatedAt", updatedAt)
         if (policyType == "daily_limit") {
             obj.put("limitMinutes", limitMinutes)
+            // [TASK-OPT-12-P1] 超时限制模式（full/partial/warn），缺省 full
+            obj.put("restrictMode", restrictMode)
         }
         if (policyType == "sleep_time") {
             obj.put("sleepStart", sleepStart)
