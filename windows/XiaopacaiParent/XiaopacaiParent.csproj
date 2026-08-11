@@ -14,9 +14,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- 品牌资源：app.ico 复制到输出目录（窗口图标与侧栏 Logo，运行时加载） -->
-    <None Include="Resources\app.ico" CopyToOutputDirectory="PreserveNewest" />
-
     <!-- SQLCipher 加密数据库（BSD 社区版 .NET 封装） -->
     <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="8.0.0" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.8" />

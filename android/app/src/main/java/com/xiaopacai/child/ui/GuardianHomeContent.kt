@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.animation.*
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,7 +21,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -315,15 +313,7 @@ fun GuardianHomeContent(
         AlertDialog(
             onDismissRequest = { showAboutDialog = false },
             title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Image(
-                        painter = painterResource(id = com.xiaopacai.child.R.drawable.ic_logo),
-                        contentDescription = "小趴菜 Logo",
-                        modifier = Modifier.size(32.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("关于小趴菜", fontWeight = FontWeight.Bold)
-                }
+                Text("关于小趴菜 🥬", fontWeight = FontWeight.Bold)
             },
             text = {
                 Text(
@@ -499,19 +489,12 @@ fun RemainingTimeCard(
             modifier = Modifier.padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 主 Logo（品牌标识）
-            Image(
-                painter = painterResource(id = com.xiaopacai.child.R.drawable.ic_logo),
-                contentDescription = null,
-                modifier = Modifier.size(36.dp)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
             // 状态标题
             val titleText = when {
                 isTimeoutActive && stopMode == "full" -> "🔒 设备已停用"
                 isTimeoutActive && stopMode == "partial" -> "⚠️ 娱乐应用已停用"
                 isNearLimit -> "⏰ 即将超时"
-                else -> "今日使用时长"
+                else -> "🥬 今日使用时长"
             }
             Text(
                 text = titleText,

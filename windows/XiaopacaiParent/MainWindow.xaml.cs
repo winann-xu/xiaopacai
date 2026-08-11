@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media.Imaging;
 using XiaopacaiParent.Services;
 using XiaopacaiParent.Views;
 
@@ -38,15 +37,6 @@ public partial class MainWindow : Window
         _reportService = new ReportService(_databaseService);
 
         InitializeComponent();
-
-        // 品牌 Logo：窗口图标 + 侧栏（从输出目录加载 app.ico，避免 pack URI 资源嵌入问题）
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "Resources", "app.ico");
-        if (File.Exists(iconPath))
-        {
-            var icon = BitmapFrame.Create(new Uri(iconPath));
-            Icon = icon;
-            LogoImage.Source = icon;
-        }
 
         // 启动 P2P 监听
         StartP2PListener();
