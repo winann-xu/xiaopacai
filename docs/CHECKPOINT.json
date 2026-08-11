@@ -1,22 +1,24 @@
 {
   "project": "xiaopacai",
   "kickoff": "2026-08-10T11:44:00+08:00",
-  "last_update": "2026-08-11T16:00:00+08:00",
+  "last_update": "2026-08-11T17:00:00+08:00",
   "branch": "main",
-  "version": "2.2.0-opt12-p1",
+  "version": "2.2.0-opt12-p3",
   "phases": {
-    "2.0-three-day": {"status": "completed", "note": "三天冲刺完成，全链路贯通"},
-    "ROLE-P1": {"status": "completed", "note": "角色框架/家长登录/P2P监听"},
-    "ROLE-P2": {"status": "completed", "note": "家长端五大功能页 + 双机E2E验证通过"},
-    "OPT-12-P1": {"status": "in_progress", "note": "协议与数据模型扩展：app_category表/diagnostics_report/restrictMode/announcement_ack/login-ticket/中继路由"},
-    "OPT-12-P2": {"status": "pending", "note": "Android儿童端：分类设置页/公告弹窗/DiagnosticsCollector/防卸载增强/partial链路"},
-    "OPT-12-P3": {"status": "pending", "note": "Android家长端：二维码/中继连接/扫码登录/忘记密码/守护状态页"},
-    "OPT-12-P4": {"status": "pending", "note": "Web 3.0：诊断模块/扫码登录/中继API/分类API/管理端页面"},
+    "2.0-three-day": {"status": "completed"},
+    "ROLE-P1": {"status": "completed"},
+    "ROLE-P2": {"status": "completed", "note": "双机E2E验证通过"},
+    "OPT-12-P1": {"status": "completed", "note": "协议与数据模型：app_category V3/诊断上报/restrictMode/announcement_ack/login-ticket/中继"},
+    "OPT-12-P2": {"status": "completed", "note": "Android儿童端：应用分类页/公告Overlay/AppCategoryHelper"},
+    "OPT-12-P3": {"status": "completed", "note": "Android家长端：QR生成/恢复码/Web中继/守护状态页"},
+    "OPT-12-P4": {"status": "in_progress", "note": "Web 3.0：前端诊断页/中继会话页/扫码登录/API扩展"},
     "OPT-12-P5": {"status": "pending", "note": "测试与报告：Codex主测"}
   },
   "tasks": {
-    "TASK-OPT-12-P1-ANDROID": {"status": "in_progress", "note": "app_category V3迁移 + 协议消息扩展 + PolicyConfig restrictMode + ADR"},
-    "TASK-OPT-12-P1-WEB": {"status": "in_progress", "note": "diagnostics表+API + login-ticket/reset-ticket + relay路由 + app-category API + ADR"}
+    "TASK-OPT-12-P1-ANDROID": {"status": "done"},
+    "TASK-OPT-12-P1-WEB": {"status": "done"},
+    "TASK-OPT-12-P2": {"status": "done", "note": "AppCategoryDao/AppCategoryHelper/AppCategoryScreen/AnnouncementOverlayActivity"},
+    "TASK-OPT-12-P3": {"status": "done", "note": "QrCodeGenerator/ParentHomeScreen QR集成/ParentSettingsScreen恢复码+中继/GuardianStatusScreen"}
   },
-  "next_recommended": "P1完成后进入P2(Android儿童端)和P3(Android家长端)并行开发"
+  "next_recommended": "P4完成后生成bundle→Codex P5测试验证"
 }
