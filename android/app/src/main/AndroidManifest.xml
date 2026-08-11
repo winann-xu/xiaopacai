@@ -52,9 +52,12 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Xiaopacai"
-        android:usesCleartextTraffic="false"
+        android:usesCleartextTraffic="true"
+        tools:ignore="UsesCleartextTraffic"
         tools:targetApi="34">
 
+        <!-- [TASK-OPT-12-P3/P4] 中继 REST（登录/注册）走局域网 HTTP；P2P 数据通道仍为 TLS。
+             生产部署建议 Web 侧配置 HTTPS 后再收紧 cleartext。 -->
         <!-- 主 Activity（入口） -->
         <activity
             android:name=".MainActivity"

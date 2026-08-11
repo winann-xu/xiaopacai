@@ -815,9 +815,27 @@ private fun catEmoji(c: String) = when(c) { "game"->"🎮"; "social"->"💬"; "v
 private fun SettingsTab(onLogout: () -> Unit) {
     val context = LocalContext.current
     var showChangePwd by remember { mutableStateOf(false) }
+    // [TASK-OPT-12-P3] Web 云端中继设置页（ParentSettingsScreen）入口
+    var showWebRelay by remember { mutableStateOf(false) }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    if (showWebRelay) {
+        ParentSettingsScreen(onBack = { showWebRelay = false })
+    } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { Text("设置", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp)) }
+
+        item {
+            Card(onClick = { showWebRelay = true }, modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Cloud, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Web 云端中继", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("登录 Web 3.0 账号、连接跨网络中继", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+                }
+            }
+        }
 
         item {
             Card(onClick = { showChangePwd = true }, modifier = Modifier.fillMaxWidth()) {
