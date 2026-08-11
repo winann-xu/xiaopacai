@@ -425,7 +425,12 @@ class ParentP2PListenerService : Service() {
             // DataOutputStream 非线程安全：心跳与公告推送可能并发写同一流，需同步
             synchronized(output) {
                 output.write(frame)
-                output.flush()
+                try {
+                    output.flush()
+                } catch (e: Exception) {
+                    // flush 竞态（如对端同时断开）：数据已交给内核，不判定为发送失败
+                    Log.w(TAG, "flush 异常（忽略）: ${e.message}")
+                }
             }
             true
         } catch (e: Exception) {
