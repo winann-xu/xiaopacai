@@ -552,7 +552,11 @@ private fun AnnouncementTab() {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                 when(status) {
-                                    "draft" -> { TextButton(onClick = { ParentDao.publishAnnouncement(context, a.optString("announcementId")); refreshAnn(context, filterStatus) { announcements = it } }) { Text("发布", fontSize = 12.sp) } }
+                                    "draft" -> { TextButton(onClick = {
+                                        ParentDao.publishAnnouncement(context, a.optString("announcementId"))
+                                        pushAnnouncementToDevices(context, a)
+                                        refreshAnn(context, filterStatus) { announcements = it }
+                                    }) { Text("发布", fontSize = 12.sp) } }
                                     "published" -> { TextButton(onClick = { ParentDao.revokeAnnouncement(context, a.optString("announcementId")); refreshAnn(context, filterStatus) { announcements = it } }) { Text("撤回", fontSize = 12.sp) } }
                                 }
                                 if (status in listOf("draft","revoked")) TextButton(onClick = { editingAnnouncement = a; showEditor = true }) { Text("编辑", fontSize = 12.sp) }
@@ -632,6 +636,22 @@ private fun refreshAnn(context: android.content.Context, filter: String, cb: (Li
     val arr = ParentDao.getAnnouncements(context)
     for (i in 0 until arr.length()) { val o = arr.getJSONObject(i); if(filter=="all" || o.optString("status")==filter) all.add(o) }
     cb(all)
+}
+
+/**
+ * 公告发布后推送到所有已连接的儿童端设备
+ */
+private fun pushAnnouncementToDevices(context: android.content.Context, a: JSONObject) {
+    val service = com.xiaopacai.child.p2p.ParentP2PListenerService.instance ?: return
+    for (device in service.getConnectedDevices()) {
+        service.sendAnnouncementToDevice(
+            deviceId = device.deviceId,
+            announcementId = a.optString("announcementId"),
+            title = a.optString("title"),
+            content = a.optString("content"),
+            priority = a.optInt("priority", 0)
+        )
+    }
 }
 
 private fun statusLabel(s: String) = when(s) { "draft"->"草稿"; "published"->"已发布"; "revoked"->"已撤回"; else->s }

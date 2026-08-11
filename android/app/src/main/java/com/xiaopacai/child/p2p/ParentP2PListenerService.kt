@@ -101,6 +101,8 @@ class ParentP2PListenerService : Service() {
 
     /** 已连接的儿童端设备信息 */
     private val connectedDevices = ConcurrentHashMap<String, ChildDeviceInfo>()
+    /** 设备 ID -> 输出流（用于主动推送公告等下行消息） */
+    private val deviceStreams = ConcurrentHashMap<String, DataOutputStream>()
     /** 儿童端连接任务（每个连接一个协程） */
     private val clientJobs = ConcurrentHashMap<String, Job>()
 
@@ -354,6 +356,7 @@ class ParentP2PListenerService : Service() {
                     // 更新 clientId（handshake 消息中获取）
                     if (message.type == "handshake") {
                         clientId = message.payload["deviceId"]?.toString() ?: clientId
+                        deviceStreams[clientId] = output
                         // 记录设备
                         connectedDevices[clientId] = ChildDeviceInfo(
                             deviceId = clientId,
@@ -379,6 +382,7 @@ class ParentP2PListenerService : Service() {
         } finally {
             // 标记设备离线
             connectedDevices.remove(clientId)
+            deviceStreams.remove(clientId)
             clientJobs.remove(clientId)
             updateNotification("监听中", "端口 $DEFAULT_PORT | 已连接 ${connectedDevices.size} 台设备")
             try { socket.close() } catch (_: Exception) {}
@@ -418,8 +422,11 @@ class ParentP2PListenerService : Service() {
                 .put(jsonBytes)
                 .array()
 
-            output.write(frame)
-            output.flush()
+            // DataOutputStream 非线程安全：心跳与公告推送可能并发写同一流，需同步
+            synchronized(output) {
+                output.write(frame)
+                output.flush()
+            }
             true
         } catch (e: Exception) {
             Log.e(TAG, "发送消息失败: ${e.message}")
@@ -477,34 +484,54 @@ class ParentP2PListenerService : Service() {
         }
 
         val deviceName = payload["deviceName"]?.toString() ?: "未知设备"
+        // 用握手包中的真实设备 ID（参数 deviceId 是连接临时 ID，会导致每次重连重复注册）
+        val realDeviceId = payload["deviceId"]?.toString() ?: deviceId
 
         // 注册/更新设备
-        connectedDevices[deviceId] = ChildDeviceInfo(
-            deviceId = deviceId,
+        connectedDevices[realDeviceId] = ChildDeviceInfo(
+            deviceId = realDeviceId,
             deviceName = deviceName,
-            ip = connectedDevices[deviceId]?.ip ?: "unknown",
+            ip = connectedDevices[realDeviceId]?.ip ?: "unknown",
             certFingerprint = certFingerprint,
             lastSeen = System.currentTimeMillis()
         )
 
-        // 持久化到数据库
-        persistDevice(deviceId, deviceName, certFingerprint)
+        // 持久化到数据库（按真实 ID 去重），并清理历史遗留的临时 ID 记录
+        persistDevice(realDeviceId, deviceName, certFingerprint)
+        cleanupUnknownDevices()
 
         // 响应：下发当前策略
-        val policies = getActivePolicies(deviceId)
+        val policies = getActivePolicies(realDeviceId)
 
-        Log.i(TAG, "设备握手成功: $deviceId ($deviceName)")
+        Log.i(TAG, "设备握手成功: $realDeviceId ($deviceName)")
         updateNotification("监听中", "端口 $DEFAULT_PORT | 已连接 ${connectedDevices.size} 台设备")
 
         return P2PMessage(
             type = "policy_update",
             payload = mapOf(
-                "deviceId" to deviceId,
+                "deviceId" to realDeviceId,
                 "policies" to policies.toString(),
                 "status" to "accepted",
                 "timestamp" to (System.currentTimeMillis() / 1000)
             )
         )
+    }
+
+    /**
+     * 清理历史遗留的临时 ID（unknown-*）设备记录，避免重复条目
+     */
+    private fun cleanupUnknownDevices() {
+        try {
+            val db = XiaopacaiApp.instance.database.getWritable(getPassphrase())
+            try {
+                val removed = db.delete("device_registry", "device_id LIKE 'unknown-%'", null)
+                if (removed > 0) Log.i(TAG, "已清理 $removed 条临时设备记录")
+            } finally {
+                db.close()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "清理临时设备记录失败: ${e.message}")
+        }
     }
 
     /**
@@ -739,11 +766,25 @@ class ParentP2PListenerService : Service() {
         priority: Int = 0,
         expiresAt: Long = 0
     ): Boolean {
-        // 在监听线程的上下文中推送到已连接设备
-        // P1: 简化实现 - 公告通过下一次 heartbeat/response 被动下发
-        // P2: 实现主动推送
-        Log.i(TAG, "公告已排队: $deviceId -> $title")
-        return true
+        val output = deviceStreams[deviceId] ?: run {
+            Log.w(TAG, "公告推送失败：设备未连接 $deviceId")
+            return false
+        }
+        // 与儿童端 SyncManager.handleAnnouncementPush 兼容的消息格式
+        val announcements = "[{\"id\":\"$announcementId\",\"title\":${org.json.JSONObject.quote(title)}," +
+            "\"content\":${org.json.JSONObject.quote(content)},\"priority\":$priority,\"expires_at\":$expiresAt}]"
+        val ok = sendMessage(
+            output,
+            P2PMessage(
+                type = "announcement_push",
+                payload = mapOf(
+                    "announcements" to announcements,
+                    "timestamp" to (System.currentTimeMillis() / 1000)
+                )
+            )
+        )
+        Log.i(TAG, "公告已推送: $deviceId -> $title (ok=$ok)")
+        return ok
     }
 
     // ==================== 通知管理 ====================
