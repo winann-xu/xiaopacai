@@ -1,6 +1,8 @@
 package com.xiaopacai.child.ui.parent
 
+import android.graphics.Bitmap
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -24,6 +27,7 @@ import kotlinx.coroutines.delay
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.net.NetworkInterface
 
 /**
  * [TASK-ROLE-P2] 家长端主页 — 五大功能板块（完整实现）
@@ -51,6 +55,7 @@ fun ParentHomeScreen(
     var pairingCode by remember { mutableStateOf<String?>(null) }
     var showPairingCode by remember { mutableStateOf(false) }
     var fingerprint by remember { mutableStateOf("未初始化") }
+    var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     // 定时刷新 P2P 状态
     LaunchedEffect(Unit) {
@@ -63,6 +68,24 @@ fun ParentHomeScreen(
             }
             delay(5000L)
         }
+    }
+
+    // 获取本机局域网 IP
+    fun getLocalIps(): List<String> {
+        val ips = mutableListOf<String>()
+        try {
+            NetworkInterface.getNetworkInterfaces()?.toList()?.forEach { iface ->
+                if (!iface.isLoopback && iface.isUp) {
+                    iface.inetAddresses.toList().forEach { addr ->
+                        val host = addr.hostAddress
+                        if (host != null && !host.contains(':') && host.startsWith("192.168.") || host.startsWith("10.") || host.startsWith("172.")) {
+                            ips.add(host)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return ips
     }
 
     val tabs = listOf("设备", "策略", "公告", "报告", "设置")
@@ -112,12 +135,14 @@ fun ParentHomeScreen(
                 pairingCode = pairingCode,
                 showPairingCode = showPairingCode,
                 fingerprint = fingerprint,
+                qrBitmap = qrBitmap,
                 onStartStop = {
                     if (isServiceRunning) {
                         ParentP2PListenerService.stop(context)
                         isServiceRunning = false
                         connectedDevices = emptyList()
                         pairingCode = null
+                        qrBitmap = null
                     } else {
                         ParentP2PListenerService.start(context)
                         isServiceRunning = true
@@ -125,9 +150,19 @@ fun ParentHomeScreen(
                     }
                 },
                 onGeneratePairingCode = {
-                    pairingCode = ParentP2PListenerService.instance?.generatePairingCode()
+                    val code = ParentP2PListenerService.instance?.generatePairingCode() ?: return@P2pStatusBar
+                    pairingCode = code
                     showPairingCode = true
-                    fingerprint = ParentP2PListenerService.instance?.getCertificateFingerprint() ?: ""
+                    val fp = ParentP2PListenerService.instance?.getCertificateFingerprint() ?: ""
+                    fingerprint = fp
+                    // [TASK-OPT-12-P3] 生成二维码供儿童端扫码配对
+                    qrBitmap = QrCodeGenerator.generatePairingQrCode(
+                        deviceId = "parent-${android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID).take(8)}",
+                        port = 9527,
+                        fingerprint = fp,
+                        pairingCode = code,
+                        hostIps = getLocalIps()
+                    )
                 }
             )
 
@@ -189,6 +224,7 @@ fun ParentHomeScreen(
 private fun P2pStatusBar(
     isRunning: Boolean, deviceCount: Int, pairingCode: String?,
     showPairingCode: Boolean, fingerprint: String,
+    qrBitmap: Bitmap?,
     onStartStop: () -> Unit, onGeneratePairingCode: () -> Unit
 ) {
     Card(
@@ -235,13 +271,25 @@ private fun P2pStatusBar(
             }
             if (showPairingCode && pairingCode != null && isRunning) {
                 Spacer(modifier = Modifier.height(8.dp))
-                        Divider()
+                Divider()
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     Text("配对码:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(pairingCode, fontSize = 22.sp, fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary, letterSpacing = 4.sp)
+                }
+                // [TASK-OPT-12-P3] 二维码展示（儿童端扫码配对）
+                if (qrBitmap != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = "配对二维码",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp)
+                            .padding(horizontal = 32.dp)
+                    )
                 }
                 Text("有效期 5 分钟 | 指纹: ${fingerprint.take(16)}…", fontSize = 10.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

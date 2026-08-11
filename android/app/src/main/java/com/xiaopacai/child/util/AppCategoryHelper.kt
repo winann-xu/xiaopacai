@@ -1,0 +1,102 @@
+package com.xiaopacai.child.util
+
+import android.content.Context
+import android.content.pm.PackageManager
+import android.util.Log
+import com.xiaopacai.child.XiaopacaiApp
+import com.xiaopacai.child.data.database.AppCategoryDao
+import com.xiaopacai.child.service.UsageStatsCollector
+
+/**
+ * [TASK-OPT-12-P2] 应用分类初始化助手
+ *
+ * 首次使用时扫描已安装应用，按 UsageStatsCollector.CATEGORY_RULES 关键词规则
+ * 生成默认分类并落库（无匹配归 other），后续仅在应用新增时补录。
+ *
+ * 分类口径：库内统一存储 V3 标准值 game/social/video/learning/other；
+ * 采集器旧 study 口径在入库时映射为 learning。
+ */
+object AppCategoryHelper {
+
+    private const val TAG = "AppCategoryHelper"
+
+    /** 需要跳过的包名（本应用自身） */
+    private val SKIP_PACKAGES = setOf("com.xiaopacai.child")
+
+    /**
+     * 初始化应用分类表（幂等，可重复调用）
+     *
+     * 扫描已安装应用，缺失的分类记录按关键词规则补录 default 分类。
+     *
+     * @return 本次新增的记录数
+     */
+    fun ensureInitialized(context: Context, passphrase: ByteArray): Int {
+        return try {
+            val dao = AppCategoryDao(XiaopacaiApp.instance.database)
+            val installed = getInstalledPackages(context)
+            var added = 0
+            installed.forEach { (packageName, appName) ->
+                // 已存在（含 manual）跳过，不覆盖家长设置
+                if (dao.getCategory(packageName, passphrase) == null) {
+                    val category = classifyByRules(packageName, appName)
+                    dao.insertIfAbsent(packageName, appName, category, passphrase)
+                    added++
+                }
+            }
+            if (added > 0) {
+                Log.i(TAG, "应用分类初始化完成，新增 $added 条（共 ${installed.size} 个应用）")
+            }
+            added
+        } catch (e: Exception) {
+            Log.e(TAG, "应用分类初始化失败: ${e.message}")
+            0
+        }
+    }
+
+    /**
+     * 获取已安装应用列表（包名 → 应用名）
+     */
+    fun getInstalledPackages(context: Context): Map<String, String> {
+        val pm = context.packageManager
+        val result = mutableMapOf<String, String>()
+        val apps = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getInstalledApplications(0)
+        }
+        apps.forEach { info ->
+            if (info.packageName in SKIP_PACKAGES) return@forEach
+            val label = try {
+                pm.getApplicationLabel(info).toString()
+            } catch (_: Exception) {
+                info.packageName
+            }
+            result[info.packageName] = label
+        }
+        return result
+    }
+
+    /**
+     * 按关键词规则分类（规则来自 UsageStatsCollector.CATEGORY_RULES）
+     *
+     * @return V3 标准分类值（study 映射为 learning）
+     */
+    fun classifyByRules(packageName: String, appName: String): String {
+        val searchText = "${packageName.lowercase()} ${appName.lowercase()}"
+        for ((keyword, category) in UsageStatsCollector.CATEGORY_RULES) {
+            if (keyword in searchText) {
+                return if (category == "study") "learning" else category
+            }
+        }
+        return "other"
+    }
+
+    /**
+     * 将 V3 标准分类值转换为采集器内部口径
+     * learning → study（usage_records/拦截引擎沿用旧口径）
+     */
+    fun toInternalCategory(category: String): String {
+        return if (category == "learning") "study" else category
+    }
+}
