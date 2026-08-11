@@ -1,5 +1,6 @@
 package com.xiaopacai.child.ui.parent
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,29 +12,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xiaopacai.child.data.database.ParentDao
 import com.xiaopacai.child.p2p.ChildDeviceInfo
 import com.xiaopacai.child.p2p.ParentP2PListenerService
 import com.xiaopacai.child.role.RoleManager
 import kotlinx.coroutines.delay
+import org.json.JSONObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
- * [TASK-ROLE-P2] 家长端主页 — 完整功能实现
+ * [TASK-ROLE-P2] 家长端主页 — 五大功能板块（完整实现）
  *
- * 五大板块：
- * - 设备管理：P2P 监听状态、已连接设备列表、配对码生成
- * - 策略配置：每日限额/就寝时段/分类限额/黑白名单/超时处理骨架
- * - 公告管理：发布/编辑/撤回公告骨架
- * - 使用报告：日报/周报/趋势骨架
- * - 设置：密码修改/端口配置/日志骨架
- *
- * 与 ParentP2PListenerService 状态联动：
- * - 监听服务启动/停止
- * - 实时设备连接数
- * - 配对码生成与展示
- * - 设备在线/离线状态
+ * 底部导航标签：设备 | 策略 | 公告 | 报告 | 设置
+ * 所有数据从 ParentDao（SQLCipher）读取，P2P 服务状态实时联动。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,72 +38,51 @@ fun ParentHomeScreen(
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
-
-    // ===== 导航状态 =====
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // ===== 角色切换对话框 =====
+    // 角色切换对话框
     var showSwitchDialog by remember { mutableStateOf(false) }
     var switchPassword by remember { mutableStateOf("") }
     var switchError by remember { mutableStateOf<String?>(null) }
 
-    // ===== P2P 状态（定时轮询，30 秒间隔）=====
+    // P2P 状态
     var isServiceRunning by remember { mutableStateOf(ParentP2PListenerService.isRunning) }
     var connectedDevices by remember { mutableStateOf(emptyList<ChildDeviceInfo>()) }
     var pairingCode by remember { mutableStateOf<String?>(null) }
     var showPairingCode by remember { mutableStateOf(false) }
     var fingerprint by remember { mutableStateOf("未初始化") }
 
-    // 轮询 P2P 服务状态
+    // 定时刷新 P2P 状态
     LaunchedEffect(Unit) {
         while (true) {
             isServiceRunning = ParentP2PListenerService.isRunning
-            try {
-                val instance = ParentP2PListenerService.Companion
-                if (isServiceRunning) {
-                    // 通过反射安全获取实例（避免直接访问 private instance）
-                    connectedDevices = try {
-                        val f = ParentP2PListenerService::class.java.getDeclaredField("instance")
-                        f.isAccessible = true
-                        val svc = f.get(null) as? ParentP2PListenerService
-                        svc?.getConnectedDevices() ?: emptyList()
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
-                } else {
-                    connectedDevices = emptyList()
-                }
-            } catch (_: Exception) {
+            if (isServiceRunning) {
+                connectedDevices = ParentP2PListenerService.instance?.getConnectedDevices() ?: emptyList()
+            } else {
                 connectedDevices = emptyList()
             }
-            delay(30_000L)
+            delay(5000L)
         }
     }
 
-    // ===== 标签页 =====
     val tabs = listOf("设备", "策略", "公告", "报告", "设置")
     val tabIcons = listOf(
-        Icons.Filled.Devices,
-        Icons.Filled.Tune,
-        Icons.Filled.Campaign,
-        Icons.Filled.Assessment,
-        Icons.Filled.Settings,
+        Icons.Filled.Devices, Icons.Filled.Tune, Icons.Filled.Campaign,
+        Icons.Filled.Assessment, Icons.Filled.Settings
     )
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("家长端") },
+                title = { Text("小趴菜家长端") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 ),
                 actions = {
-                    // 角色切换
                     IconButton(onClick = { showSwitchDialog = true }) {
                         Icon(Icons.Filled.SwapHoriz, contentDescription = "切换角色")
                     }
-                    // 退出登录
                     IconButton(onClick = onLogout) {
                         Icon(Icons.Filled.Logout, contentDescription = "退出登录")
                     }
@@ -128,11 +103,9 @@ fun ParentHomeScreen(
         }
     ) { paddingValues ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
+            modifier = Modifier.fillMaxSize().padding(paddingValues)
         ) {
-            // === P2P 状态条（始终可见） ===
+            // P2P 状态条
             P2pStatusBar(
                 isRunning = isServiceRunning,
                 deviceCount = connectedDevices.size,
@@ -148,123 +121,81 @@ fun ParentHomeScreen(
                     } else {
                         ParentP2PListenerService.start(context)
                         isServiceRunning = true
-                        // 获取证书指纹
-                        try {
-                            val f = ParentP2PListenerService::class.java.getDeclaredField("instance")
-                            f.isAccessible = true
-                            val svc = f.get(null) as? ParentP2PListenerService
-                            fingerprint = svc?.getCertificateFingerprint() ?: "未知"
-                        } catch (_: Exception) {
-                            fingerprint = "获取失败"
-                        }
+                        fingerprint = ParentP2PListenerService.instance?.getCertificateFingerprint() ?: "未知"
                     }
                 },
                 onGeneratePairingCode = {
-                    try {
-                        val f = ParentP2PListenerService::class.java.getDeclaredField("instance")
-                        f.isAccessible = true
-                        val svc = f.get(null) as? ParentP2PListenerService
-                        pairingCode = svc.generatePairingCode()
-                        showPairingCode = true
-                    } catch (_: Exception) {
-                        pairingCode = "ERROR"
-                    }
+                    pairingCode = ParentP2PListenerService.instance?.generatePairingCode()
+                    showPairingCode = true
+                    fingerprint = ParentP2PListenerService.instance?.getCertificateFingerprint() ?: ""
                 }
             )
 
-            // === 内容区 ===
+            // 标签内容
             when (selectedTab) {
-                0 -> DeviceManagementTab(devices = connectedDevices, isServiceRunning = isServiceRunning)
-                1 -> PolicyConfigTab()
-                2 -> AnnouncementsTab()
-                3 -> ReportsTab()
+                0 -> DeviceTab(devices = connectedDevices, isServiceRunning = isServiceRunning)
+                1 -> PolicyTab()
+                2 -> AnnouncementTab()
+                3 -> ReportTab()
                 4 -> SettingsTab(onLogout = onLogout)
             }
         }
     }
 
-    // ===== 角色切换对话框 =====
+    // 角色切换对话框
     if (showSwitchDialog) {
         AlertDialog(
-            onDismissRequest = {
-                showSwitchDialog = false
-                switchPassword = ""
-                switchError = null
-            },
+            onDismissRequest = { showSwitchDialog = false; switchPassword = ""; switchError = null },
             title = { Text("切换到儿童端") },
             text = {
                 Column {
-                    Text(
-                        text = "请输入家长密码以切换角色",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text("请输入家长密码以切换角色", fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
                         value = switchPassword,
-                        onValueChange = {
-                            switchPassword = it
-                            switchError = null
-                        },
+                        onValueChange = { switchPassword = it; switchError = null },
                         label = { Text("家长密码") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        visualTransformation = PasswordVisualTransformation(),
                         isError = switchError != null
                     )
-                    if (switchError != null) {
-                        Text(
-                            text = switchError!!,
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 12.sp
-                        )
-                    }
+                    if (switchError != null)
+                        Text(switchError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (switchPassword.isEmpty()) {
-                        switchError = "请输入密码"
-                    } else if (RoleManager.verifyParentPassword(context, switchPassword)) {
+                    if (switchPassword.isEmpty()) switchError = "请输入密码"
+                    else if (RoleManager.verifyParentPassword(context, switchPassword)) {
                         showSwitchDialog = false
                         onSwitchToChild(switchPassword)
-                    } else {
-                        switchError = "密码错误"
-                    }
+                    } else switchError = "密码错误"
                 }) { Text("确认切换") }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    showSwitchDialog = false
-                    switchPassword = ""
-                    switchError = null
-                }) { Text("取消") }
+                TextButton(onClick = { showSwitchDialog = false; switchPassword = ""; switchError = null }) {
+                    Text("取消")
+                }
             }
         )
     }
 }
 
-// ============================================================================
-// P2P 状态条
-// ============================================================================
+// ==================== P2P 状态条 ====================
 
 @Composable
 private fun P2pStatusBar(
-    isRunning: Boolean,
-    deviceCount: Int,
-    pairingCode: String?,
-    showPairingCode: Boolean,
-    fingerprint: String,
-    onStartStop: () -> Unit,
-    onGeneratePairingCode: () -> Unit
+    isRunning: Boolean, deviceCount: Int, pairingCode: String?,
+    showPairingCode: Boolean, fingerprint: String,
+    onStartStop: () -> Unit, onGeneratePairingCode: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (isRunning)
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-            else
-                MaterialTheme.colorScheme.surfaceVariant
+            containerColor = if (isRunning) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            else MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -274,863 +205,610 @@ private fun P2pStatusBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
+                    Text("P2P 监听服务", fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Text(
-                        text = "P2P 监听服务",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = if (isRunning)
-                            "端口 9527 | 已连接 $deviceCount 台设备"
-                        else
-                            "已停止",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        if (isRunning) "端口 9527 | 已连接 $deviceCount 台设备" else "已停止",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // 配对码按钮（仅运行时可用）
                     if (isRunning) {
-                        FilledTonalButton(
-                            onClick = onGeneratePairingCode,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                Icons.Filled.QrCode,
-                                contentDescription = "生成配对码",
-                                modifier = Modifier.size(16.dp)
-                            )
+                        FilledTonalButton(onClick = onGeneratePairingCode,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
+                            Icon(Icons.Filled.QrCode, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("配对码", fontSize = 12.sp)
                         }
                     }
-
-                    // 启动/停止按钮
-                    Button(
-                        onClick = onStartStop,
+                    Button(onClick = onStartStop,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isRunning)
-                                MaterialTheme.colorScheme.error
-                            else
-                                MaterialTheme.colorScheme.primary
-                        ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                            containerColor = if (isRunning) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.primary
+                        ), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                     ) {
-                        Icon(
-                            if (isRunning) Icons.Filled.Stop else Icons.Filled.PlayArrow,
-                            contentDescription = if (isRunning) "停止" else "启动",
-                            modifier = Modifier.size(16.dp)
-                        )
+                        Icon(if (isRunning) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                            contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            if (isRunning) "停止" else "启动",
-                            fontSize = 12.sp
-                        )
+                        Text(if (isRunning) "停止" else "启动", fontSize = 12.sp)
                     }
                 }
             }
-
-            // 配对码展示区
             if (showPairingCode && pairingCode != null && isRunning) {
                 Spacer(modifier = Modifier.height(8.dp))
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "配对码:",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    Text("配对码:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = pairingCode,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        letterSpacing = 4.sp
-                    )
+                    Text(pairingCode, fontSize = 22.sp, fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary, letterSpacing = 4.sp)
                 }
-
-                Text(
-                    text = "有效期 5 分钟，单次使用 | 指纹: ${fingerprint.take(16)}...",
-                    fontSize = 10.sp,
+                Text("有效期 5 分钟 | 指纹: ${fingerprint.take(16)}…", fontSize = 10.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center
-                )
+                    modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
             }
         }
     }
 }
 
-// ============================================================================
-// 1. 设备管理 Tab
-// ============================================================================
+// ==================== 1. 设备管理 Tab ====================
 
 @Composable
-private fun DeviceManagementTab(
-    devices: List<ChildDeviceInfo>,
-    isServiceRunning: Boolean
-) {
+private fun DeviceTab(devices: List<ChildDeviceInfo>, isServiceRunning: Boolean) {
+    val context = LocalContext.current
+    var allDevices by remember { mutableStateOf(devices) }
+    var showUnbindConfirm by remember { mutableStateOf<ChildDeviceInfo?>(null) }
+
+    // 合并 DB 和内存数据
+    LaunchedEffect(devices) {
+        val dbDevices = ParentDao.getDevices(context)
+        val merged = dbDevices.toMutableList()
+        for (live in devices) {
+            if (merged.none { it.deviceId == live.deviceId }) merged.add(live)
+        }
+        allDevices = merged
+    }
+
     if (!isServiceRunning) {
-        // 未启动监听
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    Icons.Filled.PowerOff,
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                )
+                Icon(Icons.Filled.PowerOff, contentDescription = null, modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "P2P 监听未启动",
-                    fontSize = 16.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "启动服务后可管理已连接的儿童设备",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
+                Text("P2P 监听未启动", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("启动服务后可管理已连接的儿童设备", fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
             }
         }
-    } else if (devices.isEmpty()) {
-        // 已启动但无设备
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
+    } else if (allDevices.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    Icons.Filled.PhoneAndroid,
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                )
+                Icon(Icons.Filled.PhoneAndroid, contentDescription = null, modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "等待设备连接...",
-                    fontSize = 16.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "在儿童设备上输入上方配对码即可连接",
-                    fontSize = 13.sp,
+                Text("等待设备连接…", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("在儿童设备上输入上方配对码即可连接", fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 32.dp)
-                )
+                    textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 32.dp))
             }
         }
     } else {
-        // 设备列表
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
-                Text(
-                    text = "已连接设备 (${devices.size})",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
+                Text("已连接设备 (${allDevices.size})", fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium, modifier = Modifier.padding(vertical = 4.dp))
             }
-            items(devices, key = { it.deviceId }) { device ->
-                DeviceCard(device)
-            }
-        }
-    }
-}
-
-@Composable
-private fun DeviceCard(device: ChildDeviceInfo) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // 在线指示器
-            Icon(
-                Icons.Filled.Circle,
-                contentDescription = null,
-                modifier = Modifier.size(10.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = device.deviceName,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "ID: ${device.deviceId.take(16)}...",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "IP: ${device.ip} | 证书: ${device.certFingerprint.take(12)}...",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            // 最后在线
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "● 在线",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = formatLastSeen(device.lastSeen),
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-private fun formatLastSeen(timestamp: Long): String {
-    val seconds = (System.currentTimeMillis() - timestamp) / 1000
-    return when {
-        seconds < 60 -> "刚刚"
-        seconds < 3600 -> "${seconds / 60} 分钟前"
-        seconds < 86400 -> "${seconds / 3600} 小时前"
-        else -> "${seconds / 86400} 天前"
-    }
-}
-
-// ============================================================================
-// 2. 策略配置 Tab（P2 骨架 → 可交互占位）
-// ============================================================================
-
-@Composable
-private fun PolicyConfigTab() {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            Text(
-                text = "策略配置",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-        }
-
-        item { PolicySettingCard("每日使用限额", "120 分钟", Icons.Filled.Timer, enabled = false) }
-        item { PolicySettingCard("就寝时段", "21:00 - 07:00", Icons.Filled.Bedtime, enabled = false) }
-        item { PolicySettingCard("游戏限额", "60 分钟/天", Icons.Filled.SportsEsports, enabled = false) }
-        item { PolicySettingCard("社交限额", "30 分钟/天", Icons.Filled.Chat, enabled = false) }
-        item { PolicySettingCard("视频限额", "90 分钟/天", Icons.Filled.Videocam, enabled = false) }
-        item { PolicySettingCard("学习应用", "不限时", Icons.Filled.School, enabled = false) }
-        item { PolicySettingCard("应用白名单", "2 个应用", Icons.Filled.Checklist, enabled = false) }
-        item { PolicySettingCard("应用黑名单", "1 个应用", Icons.Filled.Block, enabled = false) }
-        item { PolicySettingCard("超时处理方式", "完全锁定", Icons.Filled.Lock, enabled = false) }
-
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "🔧 策略配置联调准备",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "策略通过 P2P 握手/心跳下发到儿童端。" +
-                                "当前展示预置默认值，编辑功能在下一阶段实现。" +
-                                "\n\n家长端修改策略后，儿童端下次心跳/连接时自动拉取最新策略。",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PolicySettingCard(
-    title: String,
-    value: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    enabled: Boolean
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (enabled)
-                MaterialTheme.colorScheme.surface
-            else
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        ),
-        onClick = { /* P3 实现编辑 */ }
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                icon,
-                contentDescription = title,
-                modifier = Modifier.size(24.dp),
-                tint = if (enabled)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = value,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Icon(
-                Icons.Filled.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-            )
-        }
-    }
-}
-
-// ============================================================================
-// 3. 公告管理 Tab（P2 骨架）
-// ============================================================================
-
-@Composable
-private fun AnnouncementsTab() {
-    val sampleAnnouncements = listOf(
-        Triple("周末使用提醒", "normal", "记得按时休息，保护眼睛哦。"),
-        Triple("学习任务更新", "important", "本周学习计划已由家长端更新，请查看。"),
-        Triple("紧急通知", "urgent", "今晚 21:00 前需要完成在线课程签到。"),
-    )
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "公告管理",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                FilledTonalButton(
-                    onClick = { /* P3: 新建公告 */ },
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("新建", fontSize = 12.sp)
-                }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-        }
-
-        items(sampleAnnouncements.size) { index ->
-            val (title, priority, content) = sampleAnnouncements[index]
-            AnnouncementCard(title, priority, content)
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(12.dp))
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "🔧 公告管理联调准备",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "公告通过 P2P announcement_push 消息主动推送到已连接设备。" +
-                                "\n\n- 支持 normal / important / urgent 三级优先级\n" +
-                                "- 支持定向推送（单设备）和广播（所有设备）\n" +
-                                "- 已读状态通过 announcement_push 回执\n" +
-                                "- API: POST /api/announcements",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AnnouncementCard(title: String, priority: String, content: String) {
-    val priorityColor = when (priority) {
-        "urgent" -> MaterialTheme.colorScheme.error
-        "important" -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.outline
-    }
-    val priorityLabel = when (priority) {
-        "urgent" -> "紧急"
-        "important" -> "重要"
-        else -> "普通"
-    }
-
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    color = priorityColor.copy(alpha = 0.1f),
-                    shape = MaterialTheme.shapes.small
-                ) {
-                    Text(
-                        text = priorityLabel,
-                        fontSize = 11.sp,
-                        color = priorityColor,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = content,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "草稿 · 未发布",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-        }
-    }
-}
-
-// ============================================================================
-// 4. 使用报告 Tab（P2 骨架）
-// ============================================================================
-
-@Composable
-private fun ReportsTab() {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            Text(
-                text = "使用报告",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-        }
-
-        // 今日概览
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("📊 今日概览", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        StatTile(label = "使用时长", value = "-- min", icon = "⏱️")
-                        StatTile(label = "解锁次数", value = "-- 次", icon = "🔓")
-                        StatTile(label = "拦截次数", value = "-- 次", icon = "🛡️")
+            items(allDevices, key = { it.deviceId }) { device ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.Circle, contentDescription = null, modifier = Modifier.size(10.dp),
+                                    tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(device.deviceName, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                    Text("ID: ${device.deviceId.take(16)}…", fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            TextButton(onClick = { showUnbindConfirm = device },
+                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                                Text("解绑", fontSize = 12.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("IP: ${device.ip} | 指纹: ${device.certFingerprint.take(12)}…",
+                            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("最后连接: ${formatLastSeen(device.lastSeen)}", fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
         }
+    }
 
-        // 应用使用排名
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("📱 应用使用排名", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "设备连接后将自动同步使用记录\nP2P usage_report → 入库 → 报表生成",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+    showUnbindConfirm?.let { device ->
+        AlertDialog(
+            onDismissRequest = { showUnbindConfirm = null },
+            title = { Text("解绑设备") },
+            text = { Text("确定要解绑「${device.deviceName}」吗？解绑后需重新配对。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    ParentDao.unbindDevice(context, device.deviceId)
+                    showUnbindConfirm = null
+                    allDevices = ParentDao.getDevices(context)
+                }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                    Text("确认解绑")
+                }
+            },
+            dismissButton = { TextButton(onClick = { showUnbindConfirm = null }) { Text("取消") } }
+        )
+    }
+}
+
+// ==================== 2. 策略配置 Tab ====================
+
+@Composable
+private fun PolicyTab() {
+    val context = LocalContext.current
+    var dailyLimit by remember { mutableIntStateOf(120) }
+    var sleepStart by remember { mutableStateOf("21:00") }
+    var sleepEnd by remember { mutableStateOf("07:00") }
+    var gameLimit by remember { mutableIntStateOf(60) }
+    var socialLimit by remember { mutableIntStateOf(90) }
+    var videoLimit by remember { mutableIntStateOf(120) }
+    var stopMode by remember { mutableStateOf("full") }
+    var isLoading by remember { mutableStateOf(true) }
+    var isSaving by remember { mutableStateOf(false) }
+    var saveMsg by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        try {
+            val arr = ParentDao.getPolicies(context)
+            for (i in 0 until arr.length()) {
+                val p = arr.getJSONObject(i)
+                val data = p.optJSONObject("policyData") ?: continue
+                when (p.optString("policyType")) {
+                    "daily_limit" -> dailyLimit = data.optInt("limitMinutes", 120)
+                    "sleep_time" -> { sleepStart = data.optString("startTime", "21:00"); sleepEnd = data.optString("endTime", "07:00") }
+                    "category_limit" -> when (p.optString("policyName")) {
+                        "游戏限额" -> gameLimit = data.optInt("limitMinutes", 60)
+                        "社交限额" -> socialLimit = data.optInt("limitMinutes", 90)
+                        "视频限额" -> videoLimit = data.optInt("limitMinutes", 120)
+                    }
+                    "stop_mode" -> stopMode = data.optString("mode", "full")
                 }
             }
-        }
+        } catch (_: Exception) {}
+        isLoading = false
+    }
 
-        // 周趋势
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("📈 七日趋势", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "图表功能将在 P3 阶段通过 ECharts/Vue 实现\n数据来源: daily_summary 表",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+    fun saveAll() {
+        isSaving = true
+        try {
+            ParentDao.savePolicy(context, null, "daily_limit", "每日限额", JSONObject().put("limitMinutes", dailyLimit))
+            ParentDao.savePolicy(context, null, "sleep_time", "就寝时段", JSONObject().put("startTime", sleepStart).put("endTime", sleepEnd))
+            ParentDao.savePolicy(context, null, "category_limit", "游戏限额", JSONObject().put("category", "game").put("limitMinutes", gameLimit))
+            ParentDao.savePolicy(context, null, "category_limit", "社交限额", JSONObject().put("category", "social").put("limitMinutes", socialLimit))
+            ParentDao.savePolicy(context, null, "category_limit", "视频限额", JSONObject().put("category", "video").put("limitMinutes", videoLimit))
+            ParentDao.savePolicy(context, null, "stop_mode", "超时处理", JSONObject().put("mode", stopMode))
+            saveMsg = "策略已保存" + if (ParentP2PListenerService.isRunning) "（已连接设备将自动同步）" else ""
+        } catch (e: Exception) { saveMsg = "保存失败: ${e.message}" }
+        isSaving = false
+    }
+
+    if (isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+    } else {
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("策略配置", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Button(onClick = { saveAll() }, enabled = !isSaving,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)) {
+                        if (isSaving) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        else Text("保存")
+                    }
                 }
             }
-        }
-
-        // 导出说明
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "🔧 报告系统联调准备",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "儿童端定期上报 usage_report → 服务端入库 usage_records " +
-                                "+ daily_summary 实时汇总。" +
-                                "\n\n- 数据表: usage_records (原始), daily_summary (每日聚合)\n" +
-                                "- 查询 API: GET /api/reports/daily, GET /api/reports/weekly\n" +
-                                "- 导出格式: JSON / CSV / TXT\n" +
-                                "- Web 端 ECharts 趋势图（Vue 前端）",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                    )
+            saveMsg?.let {
+                item {
+                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
+                        containerColor = if (it.startsWith("策略已保存")) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.errorContainer)) {
+                        Text(it, modifier = Modifier.padding(12.dp), fontSize = 14.sp)
+                    }
                 }
             }
+            // 每日限额
+            item { PolicyCard("每日使用限额", Icons.Filled.Timer) {
+                Text("$dailyLimit 分钟/天", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Slider(value = dailyLimit.toFloat(), onValueChange = { dailyLimit = it.toInt() }, valueRange = 30f..480f)
+            }}
+            // 就寝时段
+            item { PolicyCard("就寝时段", Icons.Filled.Bedtime) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(sleepStart, { sleepStart = it }, label = { Text("开始") }, modifier = Modifier.weight(1f), singleLine = true)
+                    Text("—")
+                    OutlinedTextField(sleepEnd, { sleepEnd = it }, label = { Text("结束") }, modifier = Modifier.weight(1f), singleLine = true)
+                }
+            }}
+            // 分类限额
+            item { PolicyCard("分类限额", Icons.Filled.Category) {
+                CategoryRow("🎮 游戏", gameLimit, 0..300) { gameLimit = it }
+                CategoryRow("💬 社交", socialLimit, 0..300) { socialLimit = it }
+                CategoryRow("🎬 视频", videoLimit, 0..300) { videoLimit = it }
+            }}
+            // 超时处理
+            item { PolicyCard("超时处理方式", Icons.Filled.Block) {
+                listOf(
+                    Triple("full","整机停用","非白名单应用全部不可用"),
+                    Triple("partial","部分 APP 停用","仅娱乐类被停用，学习类继续可用"),
+                    Triple("none","仅提醒","不强制停用")
+                ).forEach { (mode, title, desc) ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.Top) {
+                        RadioButton(selected = stopMode == mode, onClick = { stopMode = mode })
+                        Spacer(Modifier.width(8.dp))
+                        Column { Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium); Text(desc, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                }
+            }}
+            item { Spacer(Modifier.height(32.dp)) }
         }
     }
 }
 
 @Composable
-private fun StatTile(label: String, value: String, icon: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(icon, fontSize = 24.sp)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(value, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Text(
-            label,
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+private fun PolicyCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, content: @Composable ColumnScope.() -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(12.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun CategoryRow(label: String, value: Int, range: IntRange, onChange: (Int) -> Unit) {
+    Column(Modifier.padding(vertical = 2.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, fontSize = 14.sp)
+            Text("${value}分钟", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+        }
+        Slider(value.toFloat(), { onChange(it.toInt()) }, valueRange = range.first.toFloat()..range.last.toFloat())
+    }
+}
+
+// ==================== 3. 公告管理 Tab ====================
+
+@Composable
+private fun AnnouncementTab() {
+    val context = LocalContext.current
+    var announcements by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var filterStatus by remember { mutableStateOf("all") }
+    var showEditor by remember { mutableStateOf(false) }
+    var editingAnnouncement by remember { mutableStateOf<JSONObject?>(null) }
+    var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(filterStatus) {
+        val all = mutableListOf<JSONObject>()
+        val arr = ParentDao.getAnnouncements(context)
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            if (filterStatus == "all" || o.optString("status") == filterStatus) all.add(o)
+        }
+        announcements = all
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        ScrollableTabRow(selectedTabIndex = listOf("all","draft","published","revoked").indexOf(filterStatus),
+            modifier = Modifier.fillMaxWidth(), edgePadding = 12.dp) {
+            listOf("全部","草稿","已发布","已撤回").forEachIndexed { i, label ->
+                Tab(selected = filterStatus == listOf("all","draft","published","revoked")[i],
+                    onClick = { filterStatus = listOf("all","draft","published","revoked")[i] },
+                    text = { Text(label, fontSize = 12.sp) })
+            }
+        }
+
+        if (announcements.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Filled.Campaign, null, Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                    Text("暂无公告", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = { showEditor = true; editingAnnouncement = null }) { Text("+ 新建公告") }
+                }
+            }
+        } else {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("公告 (${announcements.size})", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        TextButton(onClick = { showEditor = true; editingAnnouncement = null }) { Text("+ 新建") }
+                    }
+                }
+                items(announcements, key = { it.optString("announcementId") }) { a ->
+                    val status = a.optString("status")
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(a.optString("title", "无标题"), fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                                AssistChip(onClick = {}, label = { Text(statusLabel(status), fontSize = 10.sp) })
+                            }
+                            val priority = a.optInt("priority")
+                            Text(listOf("普通","重要","紧急")[priority.coerceIn(0,2)], fontSize = 12.sp,
+                                color = listOf(MaterialTheme.colorScheme.onSurfaceVariant, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.error)[priority.coerceIn(0,2)])
+                            Text(a.optString("content","").take(80) + if(a.optString("content","").length>80)"…" else "", fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                when(status) {
+                                    "draft" -> { TextButton(onClick = { ParentDao.publishAnnouncement(context, a.optString("announcementId")); refreshAnn(context, filterStatus) { announcements = it } }) { Text("发布", fontSize = 12.sp) } }
+                                    "published" -> { TextButton(onClick = { ParentDao.revokeAnnouncement(context, a.optString("announcementId")); refreshAnn(context, filterStatus) { announcements = it } }) { Text("撤回", fontSize = 12.sp) } }
+                                }
+                                if (status in listOf("draft","revoked")) TextButton(onClick = { editingAnnouncement = a; showEditor = true }) { Text("编辑", fontSize = 12.sp) }
+                                TextButton(onClick = { showDeleteConfirm = a.optString("announcementId") },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                                    Text("删除", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 编辑/新建对话框
+    if (showEditor) {
+        var title by remember { mutableStateOf(editingAnnouncement?.optString("title","") ?: "") }
+        var content by remember { mutableStateOf(editingAnnouncement?.optString("content","") ?: "") }
+        var priority by remember { mutableIntStateOf(editingAnnouncement?.optInt("priority",0) ?: 0) }
+        var titleErr by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showEditor = false },
+            title = { Text(if(editingAnnouncement != null) "编辑公告" else "新建公告") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(title, { title = it; titleErr = false }, label = { Text("标题") }, Modifier.fillMaxWidth(), singleLine = true, isError = titleErr)
+                    OutlinedTextField(content, { content = it }, label = { Text("正文") }, Modifier.fillMaxWidth().height(100.dp), maxLines = 6)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("普通","重要","紧急").forEachIndexed { i, l ->
+                            FilterChip(selected = priority==i, onClick = { priority=i }, label = { Text(l, fontSize = 12.sp) })
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if(title.isBlank()) { titleErr = true; return@TextButton }
+                    ParentDao.saveAnnouncement(context, editingAnnouncement?.optString("announcementId"), title.trim(), content.trim(), priority,
+                        editingAnnouncement?.optString("status","draft") ?: "draft")
+                    showEditor = false
+                    refreshAnn(context, filterStatus) { announcements = it }
+                }) { Text("保存") }
+            },
+            dismissButton = { TextButton(onClick = { showEditor = false }) { Text("取消") } }
+        )
+    }
+
+    showDeleteConfirm?.let { id ->
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = null },
+            title = { Text("删除公告") },
+            text = { Text("确定永久删除？") },
+            confirmButton = { TextButton(onClick = { ParentDao.deleteAnnouncement(context, id); showDeleteConfirm = null; refreshAnn(context, filterStatus) { announcements = it } },
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("删除") } },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = null }) { Text("取消") } }
         )
     }
 }
 
-// ============================================================================
-// 5. 设置 Tab（P2 骨架 — 可交互的密码修改 + 端口配置占位）
-// ============================================================================
+private fun refreshAnn(context: android.content.Context, filter: String, cb: (List<JSONObject>) -> Unit) {
+    val all = mutableListOf<JSONObject>()
+    val arr = ParentDao.getAnnouncements(context)
+    for (i in 0 until arr.length()) { val o = arr.getJSONObject(i); if(filter=="all" || o.optString("status")==filter) all.add(o) }
+    cb(all)
+}
+
+private fun statusLabel(s: String) = when(s) { "draft"->"草稿"; "published"->"已发布"; "revoked"->"已撤回"; else->s }
+
+// ==================== 4. 使用报告 Tab ====================
+
+@Composable
+private fun ReportTab() {
+    val context = LocalContext.current
+    var period by remember { mutableIntStateOf(0) }
+    val periods = listOf("今天","7天","30天"); val days = listOf(1,7,30)
+    var dailyTotals by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var catBreakdown by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var totalMin by remember { mutableLongStateOf(0L) }
+    var loading by remember { mutableStateOf(true) }
+
+    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+    val today = sdf.format(java.util.Date())
+    val cal = java.util.Calendar.getInstance()
+    cal.add(java.util.Calendar.DAY_OF_YEAR, -days[period])
+    val from = sdf.format(cal.time)
+
+    LaunchedEffect(period) {
+        loading = true
+        withContext(Dispatchers.IO) {
+            val tl = mutableListOf<JSONObject>()
+            val ta = ParentDao.getDailyTotals(context, fromDate = from, toDate = today)
+            for (i in 0 until ta.length()) tl.add(ta.getJSONObject(i))
+            dailyTotals = tl
+            val ca = ParentDao.getCategoryBreakdown(context, fromDate = from)
+            val cl = mutableListOf<JSONObject>()
+            var sum = 0L
+            for (i in 0 until ca.length()) { val o = ca.getJSONObject(i); cl.add(o); sum += o.optLong("totalMinutes") }
+            catBreakdown = cl; totalMin = sum
+        }
+        loading = false
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            periods.forEachIndexed { i, l -> FilterChip(selected = period==i, onClick = { period=i }, label = { Text(l, fontSize = 13.sp) }, modifier = Modifier.weight(1f)) }
+        }
+
+        if (loading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        else {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item {
+                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                        Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("总使用时长", fontSize = 14.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                            Text(formatMin(totalMin), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
+                }
+                if (dailyTotals.isNotEmpty()) {
+                    item { Text("每日趋势", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+                    items(dailyTotals.take(10), key = { it.optString("date") }) { d ->
+                        Card(Modifier.fillMaxWidth()) {
+                            Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(d.optString("date").takeLast(5), fontSize = 14.sp)
+                                val max = dailyTotals.maxOfOrNull { it.optLong("totalMinutes") } ?: 1L
+                                LinearProgressIndicator({ (d.optLong("totalMinutes").toFloat()/max).coerceIn(0f,1f) }, Modifier.weight(1f).height(8.dp).padding(horizontal = 12.dp))
+                                Text(formatMin(d.optLong("totalMinutes")), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
+                if (catBreakdown.isNotEmpty()) {
+                    item { Text("分类占比", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+                    items(catBreakdown) { c ->
+                        val ct = c.optLong("totalMinutes"); val pct = if(totalMin>0) ct*100f/totalMin else 0f
+                        Card(Modifier.fillMaxWidth()) {
+                            Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("${catEmoji(c.optString("category"))} ${catName(c.optString("category"))}", fontSize = 14.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    LinearProgressIndicator({ pct/100f }, Modifier.width(80.dp).height(8.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("${"%.1f".format(pct)}%", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
+                    }
+                }
+                if (dailyTotals.isEmpty() && catBreakdown.isEmpty()) {
+                    item {
+                        Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Filled.Assessment, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                                Text("暂无数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("等待儿童端上报使用时长", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                            }
+                        }
+                    }
+                }
+                item { Spacer(Modifier.height(32.dp)) }
+            }
+        }
+    }
+}
+
+private fun formatMin(m: Long): String { val h=m/60; val min=m%60; return if(h>0) "${h}h${min}m" else "${min}m" }
+private fun catName(c: String) = when(c) { "game"->"游戏"; "social"->"社交"; "video"->"视频"; "study"->"学习"; else->"其他" }
+private fun catEmoji(c: String) = when(c) { "game"->"🎮"; "social"->"💬"; "video"->"🎬"; "study"->"📚"; else->"📱" }
+
+// ==================== 5. 设置 Tab ====================
 
 @Composable
 private fun SettingsTab(onLogout: () -> Unit) {
     val context = LocalContext.current
-    var showChangePassword by remember { mutableStateOf(false) }
+    var showChangePwd by remember { mutableStateOf(false) }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            Text(
-                text = "设置",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-        }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item { Text("设置", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp)) }
 
-        // 账号安全
         item {
-            Card(modifier = Modifier.fillMaxWidth(), onClick = { showChangePassword = true }) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("修改家长密码", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text(
-                            "修改后所有设备需重新验证",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Icon(
-                        Icons.Filled.ChevronRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                    )
+            Card(Modifier.fillMaxWidth(), onClick = { showChangePwd = true }) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Lock, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) { Text("修改家长密码", fontSize = 14.sp, fontWeight = FontWeight.Medium); Text("修改后需重新验证", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
                 }
             }
         }
 
-        // P2P 端口配置
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Filled.Dns, contentDescription = null, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("P2P 监听端口", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text("当前: 9527", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Icon(
-                        Icons.Filled.ChevronRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                    )
+            Card(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Security, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) { Text("安全信息", fontSize = 14.sp, fontWeight = FontWeight.Medium); Text("SQLCipher AES-256 加密 · 本地存储", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
         }
 
-        // 数据库
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Filled.Storage, contentDescription = null, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("数据库管理", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text(
-                            "SQLCipher 加密 · 本地存储",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Icon(
-                        Icons.Filled.ChevronRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                    )
+            Card(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Info, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) { Text("关于", fontSize = 14.sp, fontWeight = FontWeight.Medium); Text("小趴菜 2.1（双角色版）· Apache-2.0", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
         }
 
-        // 关于
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("关于", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text(
-                            "小趴菜 3.0 · P2 阶段",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        // 退出登录
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = onLogout,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                )
-            ) {
-                Icon(
-                    Icons.Filled.Logout,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("退出登录")
-            }
-        }
-
-        // 联调说明
-        item {
-            Spacer(modifier = Modifier.height(4.dp))
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "🔧 设置页联调准备：密码修改通过 RoleManager API，" +
-                            "端口配置在 P2P 监听启动时读取 SharedPreferences。" +
-                            "\n\n双模拟器端到端联调由 Codex@50.20 执行（Android SDK 环境）。",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(16.dp)
-                )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onLogout, Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                Icon(Icons.Filled.Logout, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("退出登录")
             }
         }
     }
 
-    // 修改密码对话框
-    if (showChangePassword) {
-        ChangePasswordDialog(
-            onDismiss = { showChangePassword = false },
-            context = context
+    if (showChangePwd) {
+        var oldPwd by remember { mutableStateOf("") }; var newPwd by remember { mutableStateOf("") }
+        var confirmPwd by remember { mutableStateOf("") }; var err by remember { mutableStateOf<String?>(null) }
+        var ok by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showChangePwd = false },
+            title = { Text("修改家长密码") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (ok) Text("密码已修改成功！", color = MaterialTheme.colorScheme.primary)
+                    else {
+                        OutlinedTextField(oldPwd, { oldPwd = it; err = null }, label = { Text("当前密码") }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
+                        OutlinedTextField(newPwd, { newPwd = it; err = null }, label = { Text("新密码（6-16位）") }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
+                        OutlinedTextField(confirmPwd, { confirmPwd = it; err = null }, label = { Text("确认新密码") }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
+                        if (err != null) Text(err!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                if (ok) TextButton(onClick = { showChangePwd = false }) { Text("关闭") }
+                else TextButton(onClick = {
+                    when {
+                        oldPwd.isEmpty() || newPwd.isEmpty() -> err = "请填写所有字段"
+                        newPwd != confirmPwd -> err = "两次密码不一致"
+                        !RoleManager.isValidPasswordFormat(newPwd) -> err = "密码格式不正确"
+                        !RoleManager.changeParentPassword(context, oldPwd, newPwd) -> err = "当前密码错误"
+                        else -> ok = true
+                    }
+                }) { Text("确认修改") }
+            },
+            dismissButton = { TextButton(onClick = { showChangePwd = false }) { Text("取消") } }
         )
     }
 }
 
-@Composable
-private fun ChangePasswordDialog(
-    onDismiss: () -> Unit,
-    context: android.content.Context
-) {
-    var oldPassword by remember { mutableStateOf("") }
-    var newPassword by remember { mutableStateOf("") }
-    var confirmPassword by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    var success by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("修改家长密码") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (success) {
-                    Text(
-                        "密码已修改成功！下次登录请使用新密码。",
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                } else {
-                    OutlinedTextField(
-                        value = oldPassword,
-                        onValueChange = { oldPassword = it; error = null },
-                        label = { Text("旧密码") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
-                    )
-                    OutlinedTextField(
-                        value = newPassword,
-                        onValueChange = { newPassword = it; error = null },
-                        label = { Text("新密码（6-16位）") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
-                    )
-                    OutlinedTextField(
-                        value = confirmPassword,
-                        onValueChange = { confirmPassword = it; error = null },
-                        label = { Text("确认新密码") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
-                    )
-                    if (error != null) {
-                        Text(error!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            if (success) {
-                TextButton(onClick = onDismiss) { Text("关闭") }
-            } else {
-                TextButton(onClick = {
-                    when {
-                        oldPassword.isEmpty() || newPassword.isEmpty() || confirmPassword.isEmpty() ->
-                            error = "请填写所有字段"
-                        newPassword != confirmPassword ->
-                            error = "两次输入的新密码不一致"
-                        !RoleManager.isValidPasswordFormat(newPassword) ->
-                            error = "密码格式不符合要求（6-16位数字或字母）"
-                        !RoleManager.verifyParentPassword(context, oldPassword) ->
-                            error = "旧密码错误"
-                        else -> {
-                            val ok = RoleManager.changeParentPassword(context, oldPassword, newPassword)
-                            if (ok) {
-                                success = true
-                            } else {
-                                error = "密码修改失败"
-                            }
-                        }
-                    }
-                }) { Text("确认修改") }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        }
-    )
+private fun formatLastSeen(ts: Long): String {
+    val s = (System.currentTimeMillis() - ts) / 1000
+    return when { s < 60 -> "刚刚"; s < 3600 -> "${s/60}分钟前"; s < 86400 -> "${s/3600}小时前"; else -> "${s/86400}天前" }
 }
