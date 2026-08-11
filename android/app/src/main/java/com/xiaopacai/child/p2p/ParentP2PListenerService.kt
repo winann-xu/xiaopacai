@@ -13,6 +13,7 @@ import android.security.keystore.KeyProperties
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.xiaopacai.child.XiaopacaiApp
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.*
 import java.io.*
 import java.math.BigInteger
@@ -305,7 +306,7 @@ class ParentP2PListenerService : Service() {
             val output = DataOutputStream(BufferedOutputStream(sslSocket.outputStream))
 
             // 3. 消息循环
-            while (isActive && !sslSocket.isClosed) {
+            while (currentCoroutineContext().isActive && !sslSocket.isClosed) {
                 try {
                     val message = readMessage(input) ?: break
 
@@ -479,9 +480,9 @@ class ParentP2PListenerService : Service() {
     private fun handleUsageReport(message: P2PMessage, deviceId: String): P2PMessage? {
         try {
             val recordsStr = message.payload["records"]?.toString() ?: return null
+            val recordsArray = org.json.JSONArray(recordsStr)
             val db = XiaopacaiApp.instance.database.getWritable(getPassphrase())
             try {
-                val recordsArray = org.json.JSONArray(recordsStr)
                 db.beginTransaction()
                 try {
                     for (i in 0 until recordsArray.length()) {

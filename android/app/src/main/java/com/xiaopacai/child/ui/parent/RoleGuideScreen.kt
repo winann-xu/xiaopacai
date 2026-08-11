@@ -1,5 +1,7 @@
 package com.xiaopacai.child.ui.parent
 
+import androidx.compose.material3.ExperimentalMaterial3Api
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChildCare
@@ -22,6 +24,7 @@ import com.xiaopacai.child.role.RoleManager
  * - 儿童端：免密直进守护界面
  * - 家长端：需设置/输入家长密码
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RoleGuideScreen(
     onChildSelected: () -> Unit,

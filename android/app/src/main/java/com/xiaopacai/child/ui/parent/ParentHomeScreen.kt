@@ -251,7 +251,8 @@ fun ParentHomeScreen(
  * 家长端功能入口卡片
  */
 @Composable
-private fun FeatureCard(
+    @OptIn(ExperimentalMaterial3Api::class)
+    private fun FeatureCard(
     modifier: Modifier = Modifier,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
