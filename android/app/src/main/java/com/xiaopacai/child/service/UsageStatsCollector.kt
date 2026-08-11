@@ -41,8 +41,7 @@ class UsageStatsCollector(
         private const val INITIAL_DELAY_MS = 30 * 1000L
 
         // === 应用分类规则（包名关键词 → 分类） ===
-        // [TASK-OPT-12-P2] 对外暴露：应用分类初始化助手（AppCategoryHelper）复用同一套规则
-        val CATEGORY_RULES = listOf(
+        private val CATEGORY_RULES = listOf(
             // 游戏类关键词
             "game" to "game",
             "游戏" to "game",
@@ -95,6 +94,9 @@ class UsageStatsCollector(
             "wikipedia" to "study",
             "duolingo" to "study"
         )
+
+        /** 供其他模块复用的分类规则（AppCategoryHelper 等） */
+        fun getCategoryRules(): List<Pair<String, String>> = CATEGORY_RULES
     }
 
     private val dao = UsageRecordDao(XiaopacaiApp.instance.database)
@@ -228,25 +230,9 @@ class UsageStatsCollector(
     }
 
     /**
-     * 分类应用
-     *
-     * [TASK-OPT-12-P2] 优先使用 app_category 表（家长手工设置优先），
-     * 未收录时按关键词规则分类；V3 口径 learning 映射回内部 study。
+     * 分类应用（基于包名和名称的关键词匹配）
      */
     private fun classifyApp(packageName: String, appName: String): String {
-        // 1. 查询家长设置的应用分类（manual 覆盖 default）
-        val stored = try {
-            com.xiaopacai.child.data.database.AppCategoryDao(XiaopacaiApp.instance.database)
-                .getCategory(packageName, getPassphrase())
-        } catch (e: Exception) {
-            null
-        }
-        if (stored != null) {
-            // 时长上报沿用旧 study 口径，V3 learning 在此映射
-            return com.xiaopacai.child.util.AppCategoryHelper.toInternalCategory(stored)
-        }
-
-        // 2. 兜底：关键词规则
         val searchText = "${packageName.lowercase()} ${appName.lowercase()}"
         for ((keyword, category) in CATEGORY_RULES) {
             if (keyword in searchText) return category
@@ -298,20 +284,14 @@ class UsageStatsCollector(
         val exceeded = _todayTotalMinutes >= limitMinutes
         if (exceeded != _isTimeoutActive) {
             _isTimeoutActive = exceeded
-            // [TASK-OPT-12-P2] 按策略 restrictMode 决定停用模式（需求7）：
-            // full_lock→full / partial_lock→partial / warn_only→warn，缺省 full（兼容旧策略）
             _stopMode = if (exceeded) getRestrictMode(passphrase) else "none"
             Log.i(TAG, "超时状态变更: isTimeout=$_isTimeoutActive, mode=$_stopMode")
         }
     }
 
     /**
-     * [TASK-OPT-12-P2] 读取策略限制模式（需求7 partial_lock 全链路）
-     *
-     * 从 daily_limit 策略缓存解析 restrictMode 字段：
-     * - "full"（或 full_lock/缺省）→ full：整机停用
-     * - "partial"（或 partial_lock）→ partial：部分停用
-     * - "warn"（或 warn_only）→ warn：仅警告
+     * [TASK-OPT-7] 从策略缓存读取超时处理模式（full/partial/warn），缺省 full
+     * 与 Web/家长端 OvertimeAction（full_lock/partial_lock/warn_only）对齐
      */
     private fun getRestrictMode(passphrase: ByteArray): String {
         return try {
@@ -324,14 +304,12 @@ class UsageStatsCollector(
                 cursor.use {
                     if (it.moveToFirst()) {
                         val json = it.getString(0)
-                        val modePattern = Regex(""""restrictMode"\s*:\s*"([^"]+)"""")
-                        val raw = modePattern.find(json)?.groupValues?.get(1) ?: "full"
-                        // 与 Web 端 OvertimeAction 对齐：full_lock/partial_lock/warn_only → full/partial/warn
-                        when (raw) {
-                            "full_lock" -> "full"
-                            "partial_lock" -> "partial"
-                            "warn_only" -> "warn"
-                            else -> raw.ifBlank { "full" }
+                        val modePattern = Regex(""""restrictMode"\s*:\s*"(\w+)"""")
+                        val mode = modePattern.find(json)?.groupValues?.get(1)
+                        when (mode) {
+                            "partial" -> "partial"
+                            "warn" -> "warn"
+                            else -> "full"
                         }
                     } else "full"
                 }
@@ -339,7 +317,7 @@ class UsageStatsCollector(
                 db.close()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "读取限制模式失败: ${e.message}")
+            Log.w(TAG, "读取停用模式失败，默认 full: ${e.message}")
             "full"
         }
     }

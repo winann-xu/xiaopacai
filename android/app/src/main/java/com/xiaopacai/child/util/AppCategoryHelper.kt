@@ -84,7 +84,7 @@ object AppCategoryHelper {
      */
     fun classifyByRules(packageName: String, appName: String): String {
         val searchText = "${packageName.lowercase()} ${appName.lowercase()}"
-        for ((keyword, category) in UsageStatsCollector.CATEGORY_RULES) {
+        for ((keyword, category) in com.xiaopacai.child.service.UsageStatsCollector.getCategoryRules()) {
             if (keyword in searchText) {
                 return if (category == "study") "learning" else category
             }

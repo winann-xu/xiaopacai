@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.xiaopacai.child.ui.parent
 
 import android.widget.Toast
@@ -19,6 +21,7 @@ import com.xiaopacai.child.p2p.ParentP2PListenerService
 import com.xiaopacai.child.role.RoleManager
 import com.xiaopacai.child.XiaopacaiApp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -229,7 +232,6 @@ fun ParentSettingsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (ok) Text("密码已修改成功！", color = MaterialTheme.colorScheme.primary)
                     else {
-                        // [BUILD-FIX] 规范命名参数写法，修复命名参数后跟位置参数导致的编译错误
                         OutlinedTextField(
                             value = oldPwd,
                             onValueChange = { oldPwd = it; err = null },
@@ -353,7 +355,6 @@ private fun SectionTitle(title: String) {
         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,

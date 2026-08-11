@@ -1,24 +1,22 @@
 {
   "project": "xiaopacai",
   "kickoff": "2026-08-10T11:44:00+08:00",
-  "last_update": "2026-08-11T17:00:00+08:00",
+  "last_update": "2026-08-11T17:10:00+08:00",
   "branch": "main",
-  "version": "2.2.0-opt12-p3",
+  "version": "2.2.0-opt12-p1p3-integrated",
   "phases": {
-    "2.0-three-day": {"status": "completed"},
-    "ROLE-P1": {"status": "completed"},
-    "ROLE-P2": {"status": "completed", "note": "双机E2E验证通过"},
-    "OPT-12-P1": {"status": "completed", "note": "协议与数据模型：app_category V3/诊断上报/restrictMode/announcement_ack/login-ticket/中继"},
-    "OPT-12-P2": {"status": "completed", "note": "Android儿童端：应用分类页/公告Overlay/AppCategoryHelper"},
-    "OPT-12-P3": {"status": "completed", "note": "Android家长端：QR生成/恢复码/Web中继/守护状态页"},
-    "OPT-12-P4": {"status": "in_progress", "note": "Web 3.0：前端诊断页/中继会话页/扫码登录/API扩展"},
-    "OPT-12-P5": {"status": "pending", "note": "测试与报告：Codex主测"}
+    "2.0-three-day": {"status": "completed", "note": "三天冲刺完成，全链路贯通"},
+    "ROLE-P1": {"status": "completed", "note": "角色框架/家长登录/P2P监听"},
+    "ROLE-P2": {"status": "completed", "note": "家长端五大功能页 + 双机E2E验证通过"},
+    "OPT-12-P1": {"status": "completed", "note": "协议与数据模型扩展合并完成（Claude b76c1bd + Codex 集成 e8e2a24）：app_category表/diagnostics_report/restrictMode/announcement_ack/login-ticket/中继路由"},
+    "OPT-12-P2": {"status": "completed", "note": "Android儿童端完成（Claude 8d64019 + Codex OPT-4 公告直达/OPT-7 partial）：分类设置页/公告弹窗与紧急置顶/DiagnosticsCollector/防卸载增强/partial链路"},
+    "OPT-12-P3": {"status": "completed", "note": "Android家长端完成（Claude 8d64019）：二维码生成/扫码配对/中继连接入口/扫码登录授权/忘记密码恢复码/守护状态页"},
+    "OPT-12-P4": {"status": "in_progress", "note": "Web 3.0 合并完成（82cd8cd + 66dc3fc + 709fe6a，178 测试通过 + npm build 通过）；待办：P2P 中继路由写入 relay_sessions、policy_push 携带 app_categories、设备级鉴权、Ticket 限速、审计日志落库（Claude P4 深化）"},
+    "OPT-12-P5": {"status": "in_progress", "note": "Codex 主测：partial E2E 双模拟器验证通过（4054622）+ 安全审计/性能耗能/兼容性三份报告完成（f5e3471）；待全量回归与 dist 打包更新"}
   },
   "tasks": {
-    "TASK-OPT-12-P1-ANDROID": {"status": "done"},
-    "TASK-OPT-12-P1-WEB": {"status": "done"},
-    "TASK-OPT-12-P2": {"status": "done", "note": "AppCategoryDao/AppCategoryHelper/AppCategoryScreen/AnnouncementOverlayActivity"},
-    "TASK-OPT-12-P3": {"status": "done", "note": "QrCodeGenerator/ParentHomeScreen QR集成/ParentSettingsScreen恢复码+中继/GuardianStatusScreen"}
+    "TASK-OPT-12-P1-ANDROID": {"status": "completed", "note": "app_category V3迁移 + 协议消息扩展 + PolicyConfig restrictMode + ADR"},
+    "TASK-OPT-12-P1-WEB": {"status": "completed", "note": "diagnostics表+API + login-ticket/reset-ticket + relay表+API + app-category API + ADR + 既有库补表引导（709fe6a）"}
   },
-  "next_recommended": "P4完成后生成bundle→Codex P5测试验证"
+  "next_recommended": "Claude 合并集成 bundle（xiaopacai-opt12-integrated / xiaopacai-web-opt12-integrated）后继续 Web P4 深化（中继路由/policy_push app_categories/设备级鉴权/限速/审计）；Codex 同步执行 P5 全量回归与 dist 打包"
 }

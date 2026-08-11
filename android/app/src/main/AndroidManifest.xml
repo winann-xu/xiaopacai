@@ -20,6 +20,9 @@
     <!-- 通知权限（Android 13+） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- [TASK-OPT-4] 紧急公告全屏通知（Android 14+ 需用户授权） -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
     <!-- 网络权限（P2P 通信） -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -74,7 +77,7 @@
             android:turnScreenOn="true"
             android:theme="@style/Theme.Xiaopacai" />
 
-        <!-- [TASK-OPT-12-P2] 紧急公告全屏覆盖 Activity（需求4：锁屏亮屏 + 需确认 + 防绕过） -->
+        <!-- [TASK-OPT-4] 紧急公告全屏置顶界面（儿童必须确认） -->
         <activity
             android:name=".ui.overlay.AnnouncementOverlayActivity"
             android:exported="false"
@@ -82,18 +85,6 @@
             android:launchMode="singleInstance"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
-            android:theme="@style/Theme.Xiaopacai" />
-
-        <!-- [TASK-OPT-12-P2] 应用分类设置页（需求1） -->
-        <activity
-            android:name=".ui.settings.AppCategoryActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Xiaopacai" />
-
-        <!-- [TASK-OPT-12-P2] 守护状态页（需求6） -->
-        <activity
-            android:name=".ui.settings.GuardianStatusActivity"
-            android:exported="false"
             android:theme="@style/Theme.Xiaopacai" />
 
         <!-- 前台服务（时长采集 + 超时守护） -->
@@ -129,11 +120,6 @@
             android:name=".p2p.ParentP2PListenerService"
             android:exported="false"
             android:foregroundServiceType="specialUse" />
-
-        <!-- [TASK-OPT-12-P2] 守护兜底闹钟接收器（需求6：AlarmManager 双守护兜底） -->
-        <receiver
-            android:name=".service.GuardianAlarmReceiver"
-            android:exported="false" />
 
         <!-- [TASK-D3-03] 设备管理器接收器（防卸载保护） -->
         <receiver

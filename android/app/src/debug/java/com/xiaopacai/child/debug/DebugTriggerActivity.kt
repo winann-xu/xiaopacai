@@ -63,6 +63,9 @@ class DebugTriggerActivity : ComponentActivity() {
                 "seed" -> seedData()
                 "seed_highlimit" -> seedHighLimit()
                 "collect" -> collectNow()
+                "seed_usage" -> seedUsage()
+                "seed_partial" -> seedPartial()
+                "seed_partial_block" -> seedPartialBlock()
                 "partial" -> setPartialMode()
                 "fullstate" -> setFullState()
                 "reset" -> resetMode()
@@ -194,6 +197,105 @@ class DebugTriggerActivity : ComponentActivity() {
         collector.collectAndPersist()
     }
 
+    /**
+     * [TASK-OPT-7] 注入 partial 停用策略：
+     * daily_limit restrictMode=partial + 白名单 Chrome + 黑名单计算器
+     * 供双模拟器 partial E2E 验证
+     */
+    private fun seedPartial() {
+        val passphrase = DbPassphraseProvider.getPassphrase(this)
+        val writable = XiaopacaiApp.instance.database.getWritable(passphrase)
+        val now = (System.currentTimeMillis() / 1000).toString()
+        try {
+            writable.execSQL(
+                """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
+                   VALUES (?, ?, ?, ?)""",
+                arrayOf(
+                    "daily_limit",
+                    """{"policyType":"daily_limit","limitMinutes":1,"restrictMode":"partial"}""",
+                    "1",
+                    now
+                )
+            )
+            writable.execSQL(
+                """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
+                   VALUES (?, ?, ?, ?)""",
+                arrayOf(
+                    "whitelist",
+                    """{"policyType":"whitelist","packages":["com.android.chrome"]}""",
+                    "1",
+                    now
+                )
+            )
+            writable.execSQL(
+                """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
+                   VALUES (?, ?, ?, ?)""",
+                arrayOf(
+                    "blacklist",
+                    """{"policyType":"blacklist","packages":["com.android.calculator2"]}""",
+                    "1",
+                    now
+                )
+            )
+        } finally {
+            writable.close()
+        }
+        Log.i(TAG, "partial 策略已注入（restrictMode=partial, whitelist=chrome）")
+    }
+
+    /**
+     * [TASK-OPT-7] 注入 partial 停用 + 黑名单 Chrome（拦截场景）
+     */
+    private fun seedPartialBlock() {
+        val passphrase = DbPassphraseProvider.getPassphrase(this)
+        val writable = XiaopacaiApp.instance.database.getWritable(passphrase)
+        val now = (System.currentTimeMillis() / 1000).toString()
+        try {
+            writable.execSQL(
+                """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
+                   VALUES (?, ?, ?, ?)""",
+                arrayOf(
+                    "daily_limit",
+                    """{"policyType":"daily_limit","limitMinutes":1,"restrictMode":"partial"}""",
+                    "1",
+                    now
+                )
+            )
+            writable.execSQL(
+                """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
+                   VALUES (?, ?, ?, ?)""",
+                arrayOf(
+                    "blacklist",
+                    """{"policyType":"blacklist","packages":["com.android.chrome"]}""",
+                    "1",
+                    now
+                )
+            )
+        } finally {
+            writable.close()
+        }
+        Log.i(TAG, "partial 拦截策略已注入（blacklist=chrome）")
+    }
+
+    /**
+     * 注入一条未同步的使用时长记录（供 SyncManager 上报链路验证）
+     */
+    private fun seedUsage() {
+        val passphrase = DbPassphraseProvider.getPassphrase(this)
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        val dao = com.xiaopacai.child.data.database.UsageRecordDao(XiaopacaiApp.instance.database)
+        val id = dao.upsertUsageRecord(
+            packageName = "com.android.chrome",
+            appName = "Chrome 浏览器",
+            date = today,
+            totalMinutes = 25,
+            category = "other",
+            passphrase = passphrase
+        )
+        Log.i(TAG, "usage record seeded: id=$id date=$today minutes=25")
+    }
+
     private fun setPartialMode() {
         val collector = requireCollector()
         setField(collector, "_isTimeoutActive", true)
@@ -314,12 +416,18 @@ class DebugTriggerActivity : ComponentActivity() {
             kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob()
         )
         scope.launch {
+            val prefs = getSharedPreferences("guardian_prefs", MODE_PRIVATE)
+            var localDeviceId = prefs.getString("device_id", null)
+            if (localDeviceId == null) {
+                localDeviceId = java.util.UUID.randomUUID().toString()
+                prefs.edit().putString("device_id", localDeviceId).apply()
+            }
             com.xiaopacai.child.service.GuardianForegroundService.getP2PConnection()
                 .connect(
                     host = host,
                     port = port,
                     expectedFingerprint = null,
-                    deviceId = "XP-SHARED",
+                    deviceId = localDeviceId,
                     deviceName = "模拟器测试设备",
                     pairingCode = pairingCode,
                     scope = scope
