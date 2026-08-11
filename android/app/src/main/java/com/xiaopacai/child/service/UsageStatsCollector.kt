@@ -281,8 +281,41 @@ class UsageStatsCollector(
         val exceeded = _todayTotalMinutes >= limitMinutes
         if (exceeded != _isTimeoutActive) {
             _isTimeoutActive = exceeded
-            _stopMode = if (exceeded) "full" else "none"
+            _stopMode = if (exceeded) getRestrictMode(passphrase) else "none"
             Log.i(TAG, "超时状态变更: isTimeout=$_isTimeoutActive, mode=$_stopMode")
+        }
+    }
+
+    /**
+     * [TASK-OPT-7] 从策略缓存读取超时处理模式（full/partial/warn），缺省 full
+     * 与 Web/家长端 OvertimeAction（full_lock/partial_lock/warn_only）对齐
+     */
+    private fun getRestrictMode(passphrase: ByteArray): String {
+        return try {
+            val db = XiaopacaiApp.instance.database.getReadable(passphrase)
+            try {
+                val cursor = db.rawQuery(
+                    "SELECT policy_data FROM policy_cache WHERE policy_type = ?",
+                    arrayOf("daily_limit")
+                )
+                cursor.use {
+                    if (it.moveToFirst()) {
+                        val json = it.getString(0)
+                        val modePattern = Regex(""""restrictMode"\s*:\s*"(\w+)"""")
+                        val mode = modePattern.find(json)?.groupValues?.get(1)
+                        when (mode) {
+                            "partial" -> "partial"
+                            "warn" -> "warn"
+                            else -> "full"
+                        }
+                    } else "full"
+                }
+            } finally {
+                db.close()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "读取停用模式失败，默认 full: ${e.message}")
+            "full"
         }
     }
 

@@ -51,6 +51,33 @@ class AppInterceptor(private val context: Context) {
             "com.vivo.launcher",
             "com.bbk.launcher2"
         )
+
+        /**
+         * [TASK-OPT-7] partial 模式纯判定逻辑（可单测）
+         */
+        fun decidePartialIntercept(
+            category: String,
+            isBlacklisted: Boolean,
+            isWhitelisted: Boolean,
+            categoryExceeded: Boolean
+        ): InterceptResult {
+            if (isBlacklisted) {
+                return InterceptResult(intercept = true, reason = "blacklist")
+            }
+            if (isWhitelisted) {
+                return InterceptResult(intercept = false, reason = "whitelist")
+            }
+            if (categoryExceeded) {
+                return InterceptResult(intercept = true, reason = "category-limit")
+            }
+            if (category == "learning" || category == "study") {
+                return InterceptResult(intercept = false, reason = "study")
+            }
+            if (category in setOf("game", "social", "video")) {
+                return InterceptResult(intercept = true, reason = "partial-$category")
+            }
+            return InterceptResult(intercept = false, reason = "other")
+        }
     }
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -139,20 +166,12 @@ class AppInterceptor(private val context: Context) {
         // 6. 分类限额检查（仅超时 partial 模式）
         if (isTimeout && stopMode == "partial") {
             val category = getAppCategory(packageName)
-            if (isCategoryExceeded(category, passphrase)) {
-                return InterceptResult(
-                    intercept = true,
-                    reason = "分类限额已用尽（${category}）"
-                )
-            }
-            // 非受限分类允许继续使用
-            if (category == "study") {
-                return InterceptResult(intercept = false, reason = "学习应用（不受限）")
-            }
-            if (category == "other") {
-                // partial 模式下，非指定分类的应用也允许
-                return InterceptResult(intercept = false, reason = "非受限分类")
-            }
+            return decidePartialIntercept(
+                category = category,
+                isBlacklisted = isInBlacklist(packageName, passphrase),
+                isWhitelisted = isInWhitelist(packageName, passphrase),
+                categoryExceeded = isCategoryExceeded(category, passphrase)
+            )
         }
 
         return InterceptResult(intercept = false, reason = "正常使用")
