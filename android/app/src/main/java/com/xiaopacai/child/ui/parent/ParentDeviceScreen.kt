@@ -319,7 +319,7 @@ private fun PairingDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider()
+                        Divider()
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "证书指纹（核对用）",

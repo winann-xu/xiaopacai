@@ -59,7 +59,7 @@ class ParentP2PListenerService : Service() {
         private const val PAIRING_LOCKOUT_MS = 5 * 60 * 1000L
 
         @Volatile
-        private var instance: ParentP2PListenerService? = null
+        var instance: ParentP2PListenerService? = null
 
         /** 是否正在运行 */
         val isRunning: Boolean get() = instance != null

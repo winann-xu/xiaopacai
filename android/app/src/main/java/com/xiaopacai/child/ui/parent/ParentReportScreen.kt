@@ -189,7 +189,7 @@ fun ParentReportScreen(
                                     val maxMin = dailyTotals.maxOfOrNull { it.optLong("totalMinutes") } ?: 1L
                                     val pct = (day.optLong("totalMinutes").toFloat() / maxMin).coerceIn(0f, 1f)
                                     LinearProgressIndicator(
-                                        progress = { pct },
+                                        progress = pct,
                                         modifier = Modifier.fillMaxWidth().height(8.dp)
                                     )
                                 }
@@ -225,7 +225,7 @@ fun ParentReportScreen(
                                 Text("$catEmoji $catName", fontSize = 14.sp)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     LinearProgressIndicator(
-                                        progress = { pct / 100f },
+                                        progress = pct / 100f,
                                         modifier = Modifier.width(80.dp).height(8.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))

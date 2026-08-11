@@ -235,7 +235,7 @@ private fun P2pStatusBar(
             }
             if (showPairingCode && pairingCode != null && isRunning) {
                 Spacer(modifier = Modifier.height(8.dp))
-                HorizontalDivider()
+                        Divider()
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     Text("配对码:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -490,6 +490,7 @@ private fun CategoryRow(label: String, value: Int, range: IntRange, onChange: (I
 // ==================== 3. 公告管理 Tab ====================
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun AnnouncementTab() {
     val context = LocalContext.current
     var announcements by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
@@ -579,8 +580,21 @@ private fun AnnouncementTab() {
             title = { Text(if(editingAnnouncement != null) "编辑公告" else "新建公告") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(title, { title = it; titleErr = false }, label = { Text("标题") }, Modifier.fillMaxWidth(), singleLine = true, isError = titleErr)
-                    OutlinedTextField(content, { content = it }, label = { Text("正文") }, Modifier.fillMaxWidth().height(100.dp), maxLines = 6)
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it; titleErr = false },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("标题") },
+                        singleLine = true,
+                        isError = titleErr
+                    )
+                    OutlinedTextField(
+                        value = content,
+                        onValueChange = { content = it },
+                        modifier = Modifier.fillMaxWidth().height(100.dp),
+                        label = { Text("正文") },
+                        maxLines = 6
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("普通","重要","紧急").forEachIndexed { i, l ->
                             FilterChip(selected = priority==i, onClick = { priority=i }, label = { Text(l, fontSize = 12.sp) })
@@ -625,6 +639,7 @@ private fun statusLabel(s: String) = when(s) { "draft"->"草稿"; "published"->"
 // ==================== 4. 使用报告 Tab ====================
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun ReportTab() {
     val context = LocalContext.current
     var period by remember { mutableIntStateOf(0) }
@@ -679,7 +694,10 @@ private fun ReportTab() {
                             Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text(d.optString("date").takeLast(5), fontSize = 14.sp)
                                 val max = dailyTotals.maxOfOrNull { it.optLong("totalMinutes") } ?: 1L
-                                LinearProgressIndicator({ (d.optLong("totalMinutes").toFloat()/max).coerceIn(0f,1f) }, Modifier.weight(1f).height(8.dp).padding(horizontal = 12.dp))
+                                LinearProgressIndicator(
+                                    progress = (d.optLong("totalMinutes").toFloat()/max).coerceIn(0f,1f),
+                                    modifier = Modifier.weight(1f).height(8.dp).padding(horizontal = 12.dp)
+                                )
                                 Text(formatMin(d.optLong("totalMinutes")), fontSize = 14.sp, fontWeight = FontWeight.Medium)
                             }
                         }
@@ -693,7 +711,7 @@ private fun ReportTab() {
                             Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text("${catEmoji(c.optString("category"))} ${catName(c.optString("category"))}", fontSize = 14.sp)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    LinearProgressIndicator({ pct/100f }, Modifier.width(80.dp).height(8.dp))
+                                    LinearProgressIndicator(progress = pct/100f, modifier = Modifier.width(80.dp).height(8.dp))
                                     Spacer(Modifier.width(8.dp))
                                     Text("${"%.1f".format(pct)}%", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                 }
@@ -725,6 +743,7 @@ private fun catEmoji(c: String) = when(c) { "game"->"🎮"; "social"->"💬"; "v
 // ==================== 5. 设置 Tab ====================
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun SettingsTab(onLogout: () -> Unit) {
     val context = LocalContext.current
     var showChangePwd by remember { mutableStateOf(false) }
@@ -733,7 +752,7 @@ private fun SettingsTab(onLogout: () -> Unit) {
         item { Text("设置", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp)) }
 
         item {
-            Card(Modifier.fillMaxWidth(), onClick = { showChangePwd = true }) {
+            Card(onClick = { showChangePwd = true }, modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Lock, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(12.dp))
@@ -784,9 +803,21 @@ private fun SettingsTab(onLogout: () -> Unit) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (ok) Text("密码已修改成功！", color = MaterialTheme.colorScheme.primary)
                     else {
-                        OutlinedTextField(oldPwd, { oldPwd = it; err = null }, label = { Text("当前密码") }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
-                        OutlinedTextField(newPwd, { newPwd = it; err = null }, label = { Text("新密码（6-16位）") }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
-                        OutlinedTextField(confirmPwd, { confirmPwd = it; err = null }, label = { Text("确认新密码") }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
+                        OutlinedTextField(
+                            value = oldPwd, onValueChange = { oldPwd = it; err = null },
+                            modifier = Modifier.fillMaxWidth(), label = { Text("当前密码") },
+                            singleLine = true, visualTransformation = PasswordVisualTransformation()
+                        )
+                        OutlinedTextField(
+                            value = newPwd, onValueChange = { newPwd = it; err = null },
+                            modifier = Modifier.fillMaxWidth(), label = { Text("新密码（6-16位）") },
+                            singleLine = true, visualTransformation = PasswordVisualTransformation()
+                        )
+                        OutlinedTextField(
+                            value = confirmPwd, onValueChange = { confirmPwd = it; err = null },
+                            modifier = Modifier.fillMaxWidth(), label = { Text("确认新密码") },
+                            singleLine = true, visualTransformation = PasswordVisualTransformation()
+                        )
                         if (err != null) Text(err!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                     }
                 }
