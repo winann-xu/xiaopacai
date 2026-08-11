@@ -20,6 +20,9 @@
     <!-- 通知权限（Android 13+） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- [TASK-OPT-4] 紧急公告全屏通知（Android 14+ 需用户授权） -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
     <!-- 网络权限（P2P 通信） -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -67,6 +70,16 @@
         <!-- 拦截覆盖 Activity（全屏锁屏界面） -->
         <activity
             android:name=".ui.BlockOverlayActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/Theme.Xiaopacai" />
+
+        <!-- [TASK-OPT-4] 紧急公告全屏置顶界面（儿童必须确认） -->
+        <activity
+            android:name=".ui.AnnouncementOverlayActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"

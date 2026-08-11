@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.xiaopacai.child.ui.BlockOverlayActivity
+import com.xiaopacai.child.ui.AnnouncementOverlayActivity
 
 /**
  * [TASK-D1-02][TASK-D2-03] 小趴菜无障碍服务
@@ -34,12 +35,44 @@ class GuardianAccessibilityService : AccessibilityService() {
 
         /** 防抖间隔（毫秒） */
         private const val DEBOUNCE_MS = 3000L
+
+        /** 当前服务实例（供 SyncManager 从无障碍特权上下文启动紧急公告） */
+        @Volatile
+        private var instance: GuardianAccessibilityService? = null
+
+        /**
+         * [TASK-OPT-4] 从无障碍服务上下文启动紧急公告全屏界面。
+         * 无障碍服务持有系统 BAL 特权（Android 12+ 后台 Activity 启动限制豁免），
+         * 是"游戏中/视频中强制置顶"的可靠通道。
+         */
+        fun showAnnouncementOverlay(
+            announcementId: String,
+            title: String,
+            content: String
+        ): Boolean {
+            val service = instance ?: return false
+            return try {
+                val intent = Intent(service, AnnouncementOverlayActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                    putExtra("announcement_id", announcementId)
+                    putExtra("title", title)
+                    putExtra("content", content)
+                }
+                service.startActivity(intent)
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "紧急公告启动失败: ${e.message}")
+                false
+            }
+        }
     }
 
     private lateinit var interceptor: AppInterceptor
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        instance = this
 
         // 初始化拦截引擎
         interceptor = AppInterceptor(this)
@@ -123,5 +156,10 @@ class GuardianAccessibilityService : AccessibilityService() {
         Log.w(TAG, "无障碍服务被中断")
         lastBlockedPackage = null
         lastBlockedTime = 0
+    }
+
+    override fun onDestroy() {
+        if (instance === this) instance = null
+        super.onDestroy()
     }
 }
