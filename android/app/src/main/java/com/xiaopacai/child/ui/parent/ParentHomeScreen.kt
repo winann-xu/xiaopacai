@@ -657,8 +657,11 @@ private fun AnnouncementTab() {
             confirmButton = {
                 TextButton(onClick = {
                     if(title.isBlank()) { titleErr = true; return@TextButton }
+                    // [FIX] 撤回后的公告重新编辑保存时回到草稿状态，允许再次发布
+                    val oldStatus = editingAnnouncement?.optString("status", "draft") ?: "draft"
+                    val newStatus = if (oldStatus == "revoked") "draft" else oldStatus
                     ParentDao.saveAnnouncement(context, editingAnnouncement?.optString("announcementId"), title.trim(), content.trim(), priority,
-                        editingAnnouncement?.optString("status","draft") ?: "draft")
+                        newStatus)
                     showEditor = false
                     refreshAnn(context, filterStatus) { announcements = it }
                 }) { Text("保存") }

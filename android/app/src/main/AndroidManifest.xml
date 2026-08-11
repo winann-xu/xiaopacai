@@ -71,8 +71,15 @@
         </activity>
 
         <!-- 拦截覆盖 Activity（全屏锁屏界面） -->
-        <activity
-            android:name=".ui.BlockOverlayActivity"
+<!-- [FIX] 儿童端快捷入口：应用分类 / 守护状态（此前未注册导致点击无反应） -->
+<activity
+    android:name=".ui.settings.AppCategoryActivity"
+    android:exported="false" />
+<activity
+    android:name=".ui.settings.GuardianStatusActivity"
+    android:exported="false" />
+<activity
+    android:name=".ui.BlockOverlayActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
