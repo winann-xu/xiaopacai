@@ -55,14 +55,14 @@ fun ParentLoginScreen(
                         if (isSetupMode) "设置家长密码" else "家长登录"
                     )
                 },
-                navigationIcon = if (isFromSwitch) {
-                    {
+                navigationIcon = {
+                    if (isFromSwitch) {
                         IconButton(onClick = onSwitchToChild) {
                             Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                         }
                     }
-                } else null
-            }
+                },
+            )
         }
     ) { paddingValues ->
         Column(
