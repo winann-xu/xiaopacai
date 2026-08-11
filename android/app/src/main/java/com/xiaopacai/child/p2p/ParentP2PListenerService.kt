@@ -15,6 +15,15 @@ import androidx.core.app.NotificationCompat
 import com.xiaopacai.child.XiaopacaiApp
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.*
+import org.bouncycastle.asn1.x500.X500Name
+import org.bouncycastle.asn1.x509.BasicConstraints
+import org.bouncycastle.asn1.x509.ExtendedKeyUsage
+import org.bouncycastle.asn1.x509.Extension
+import org.bouncycastle.asn1.x509.KeyPurposeId
+import org.bouncycastle.asn1.x509.KeyUsage
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import java.io.*
 import java.math.BigInteger
 import java.net.InetSocketAddress
@@ -137,48 +146,73 @@ class ParentP2PListenerService : Service() {
     // ==================== 证书管理 ====================
 
     /**
-     * 从 Android KeyStore 获取或生成 P2P 服务端证书
+     * 获取或生成 P2P 服务端证书（普通 EC 密钥 + PKCS12 持久化）
      *
-     * KeyStore 确保证书持久化，重启后指纹稳定不变。
+     * 不使用 AndroidKeyStore：Conscrypt TLS 握手签名走原始摘要路径（NONEwithECDSA），
+     * AndroidKeyStore 密钥不支持 → Incompatible digest 握手失败。
+     * 普通密钥 + 自签名证书 + PKCS12 落盘（app 私有目录），重启后指纹稳定（对标 Windows LEGACY-e）。
      */
     private fun getOrCreateCertificate(): Pair<PrivateKey, Array<X509Certificate>> {
-        val keyStore = KeyStore.getInstance("AndroidKeyStore")
-        keyStore.load(null)
+        val pfxFile = File(filesDir, "p2p_server.pfx")
+        val pwdFile = File(filesDir, "p2p_server.pwd")
 
-        if (keyStore.containsAlias(CERT_ALIAS)) {
-            val entry = keyStore.getEntry(CERT_ALIAS, null) as KeyStore.PrivateKeyEntry
-            return Pair(entry.privateKey, entry.certificateChain as Array<X509Certificate>)
+        // 1) 已有持久化证书：加载
+        if (pfxFile.exists() && pwdFile.exists()) {
+            try {
+                val pwd = pwdFile.readText().trim()
+                val ks = KeyStore.getInstance("PKCS12")
+                FileInputStream(pfxFile).use { ks.load(it, pwd.toCharArray()) }
+                val entry = ks.getEntry("p2p", KeyStore.PasswordProtection(pwd.toCharArray())) as KeyStore.PrivateKeyEntry
+                Log.i(TAG, "已加载持久化 P2P 证书: ${computeFingerprint(entry.certificate as X509Certificate)}")
+                return Pair(entry.privateKey, entry.certificateChain as Array<X509Certificate>)
+            } catch (e: Exception) {
+                Log.w(TAG, "加载 P2P 证书失败，重新生成: ${e.message}")
+            }
         }
 
-        // 生成新的自签名证书（EC P-256，有效期 10 年）
-        val startDate = GregorianCalendar()
-        val endDate = GregorianCalendar()
-        endDate.add(Calendar.YEAR, 10)
+        // 2) 生成普通 EC P-256 密钥 + BouncyCastle 自签名证书
+        val keyPair = KeyPairGenerator.getInstance("EC").apply {
+            initialize(ECGenParameterSpec("secp256r1"))
+        }.generateKeyPair()
+        val cert = generateSelfSignedCertificate(keyPair)
 
-        val spec = KeyGenParameterSpec.Builder(
-            CERT_ALIAS,
-            KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
+        // 3) 持久化 PKCS12（密码文件同目录）
+        try {
+            val pwd = java.util.UUID.randomUUID().toString()
+            val ks = KeyStore.getInstance("PKCS12")
+            ks.load(null, null)
+            ks.setKeyEntry("p2p", keyPair.private, pwd.toCharArray(), arrayOf(cert))
+            FileOutputStream(pfxFile).use { ks.store(it, pwd.toCharArray()) }
+            pwdFile.writeText(pwd)
+        } catch (e: Exception) {
+            Log.w(TAG, "持久化 P2P 证书失败: ${e.message}")
+        }
+        Log.i(TAG, "已生成新的 P2P 服务端证书: ${computeFingerprint(cert)}")
+        return Pair(keyPair.private, arrayOf(cert))
+    }
+
+    /**
+     * 用 BouncyCastle 生成自签名证书（SHA256withECDSA，10 年，serverAuth EKU）
+     */
+    private fun generateSelfSignedCertificate(keyPair: KeyPair): X509Certificate {
+        val now = System.currentTimeMillis()
+        val subject = X500Name("CN=Xiaopacai P2P Server")
+        val builder = JcaX509v3CertificateBuilder(
+            subject,
+            java.math.BigInteger.valueOf(now),
+            java.util.Date(now - 86400_000L),
+            java.util.Date(now + 10L * 365 * 24 * 3600 * 1000),
+            subject,
+            keyPair.public
         )
-            .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
-            .setKeySize(256)
-            .setCertificateSubject(X500Principal("CN=Xiaopacai P2P Server"))
-            .setCertificateSerialNumber(BigInteger.valueOf(System.currentTimeMillis()))
-            .setCertificateNotBefore(startDate.time)
-            .setCertificateNotAfter(endDate.time)
-            .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA384, KeyProperties.DIGEST_SHA512)
-            .build()
-
-        val keyPairGenerator = KeyPairGenerator.getInstance(
-            KeyProperties.KEY_ALGORITHM_EC,
-            "AndroidKeyStore"
+        builder.addExtension(Extension.basicConstraints, true, BasicConstraints(false))
+        builder.addExtension(
+            Extension.keyUsage, true,
+            KeyUsage(KeyUsage.digitalSignature or KeyUsage.keyEncipherment)
         )
-        keyPairGenerator.initialize(spec)
-        keyPairGenerator.generateKeyPair()
-
-        // 重新加载获取生成的条目
-        val entry = keyStore.getEntry(CERT_ALIAS, null) as KeyStore.PrivateKeyEntry
-        Log.i(TAG, "已生成新的 P2P 服务端证书，指纹: ${computeFingerprint(entry.certificate as X509Certificate)}")
-        return Pair(entry.privateKey, entry.certificateChain as Array<X509Certificate>)
+        builder.addExtension(Extension.extendedKeyUsage, true, ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth))
+        val signer = JcaContentSignerBuilder("SHA256withECDSA").build(keyPair.private)
+        return JcaX509CertificateConverter().getCertificate(builder.build(signer))
     }
 
     /**
@@ -645,9 +679,10 @@ class ParentP2PListenerService : Service() {
             val db = XiaopacaiApp.instance.database.getReadable(getPassphrase())
             try {
                 val cursor = db.rawQuery(
-                    """SELECT policy_data FROM policy_cache
-                       WHERE 1=1 ORDER BY applied_at DESC LIMIT 20""",
-                    emptyArray()
+                    """SELECT policy_data FROM parent_policies
+                       WHERE is_active = 1 AND (target_device_id = ? OR target_device_id = '')
+                       ORDER BY updated_at DESC LIMIT 20""",
+                    arrayOf(deviceId)
                 )
                 cursor.use {
                     while (it.moveToNext()) {

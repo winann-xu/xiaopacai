@@ -42,6 +42,7 @@ import kotlinx.coroutines.launch
  *   action=parent_seedpolicy    向 parent_policies 注入测试策略（daily_limit=60min/游戏30min/就寝22:00-06:00）
  *   action=parent_seedannounce  向 parent_announcements 注入 3 条测试公告
  *   action=parent_fulldata      一键注入全部家长端测试数据（策略+公告+设备注册记录）
+ *   action=parent_setup         直接设置家长角色与密码（跳过 UI 引导，供联调自动化）
  *
  * 该组件不进入 release 构建，仅用于测试环境，不构成产品功能。
  */
@@ -75,8 +76,9 @@ class DebugTriggerActivity : ComponentActivity() {
                 "parent_stop" -> parentStop()
                 "parent_paircode" -> parentPairCode()
                 "parent_seedpolicy" -> parentSeedPolicy()
-                "parent_seedannounce" -> parentSeedAnnounce()
-                "parent_fulldata" -> parentFullData()
+            "parent_seedannounce" -> parentSeedAnnounce()
+            "parent_fulldata" -> parentFullData()
+            "parent_setup" -> parentSetup()
                 else -> goHome()
             }
             toast("DebugTrigger: $action ok")
@@ -381,56 +383,56 @@ class DebugTriggerActivity : ComponentActivity() {
             // 每日限额 60 分钟
             writable.execSQL("""
                 INSERT OR REPLACE INTO parent_policies
-                (device_id, policy_type, policy_data, version, applied_at)
-                VALUES (?, ?, ?, ?, ?)
+                (policy_id, policy_type, policy_name, policy_data, target_device_id, is_active, version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
             """.trimIndent(), arrayOf(
-                "XP-DEBUG-DEVICE", "daily_limit",
+                java.util.UUID.randomUUID().toString(), "daily_limit", "每日限额60分钟",
                 """{"policyType":"daily_limit","limitMinutes":60,"restrictMode":"full"}""",
-                "1", now
+                "", "1", now, now
             ))
 
             // 就寝时段 22:00-06:00
             writable.execSQL("""
                 INSERT OR REPLACE INTO parent_policies
-                (device_id, policy_type, policy_data, version, applied_at)
-                VALUES (?, ?, ?, ?, ?)
+                (policy_id, policy_type, policy_name, policy_data, target_device_id, is_active, version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
             """.trimIndent(), arrayOf(
-                "XP-DEBUG-DEVICE", "bedtime",
+                java.util.UUID.randomUUID().toString(), "bedtime", "就寝时段22:00-06:00",
                 """{"policyType":"bedtime","startTime":"22:00","endTime":"06:00"}""",
-                "1", now
+                "", "1", now, now
             ))
 
             // 分类限额：游戏 30 分钟
             writable.execSQL("""
                 INSERT OR REPLACE INTO parent_policies
-                (device_id, policy_type, policy_data, version, applied_at)
-                VALUES (?, ?, ?, ?, ?)
+                (policy_id, policy_type, policy_name, policy_data, target_device_id, is_active, version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
             """.trimIndent(), arrayOf(
-                "XP-DEBUG-DEVICE", "category_limit",
+                java.util.UUID.randomUUID().toString(), "category_limit", "游戏类限额30分钟",
                 """{"policyType":"category_limit","category":"game","categoryLimitMinutes":30}""",
-                "1", now
+                "", "1", now, now
             ))
 
             // 白名单
             writable.execSQL("""
                 INSERT OR REPLACE INTO parent_policies
-                (device_id, policy_type, policy_data, version, applied_at)
-                VALUES (?, ?, ?, ?, ?)
+                (policy_id, policy_type, policy_name, policy_data, target_device_id, is_active, version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
             """.trimIndent(), arrayOf(
-                "XP-DEBUG-DEVICE", "whitelist",
+                java.util.UUID.randomUUID().toString(), "whitelist", "白名单",
                 """{"policyType":"whitelist","packages":["com.xiaopacai.child","com.android.contacts","com.android.phone"]}""",
-                "1", now
+                "", "1", now, now
             ))
 
             // 黑名单
             writable.execSQL("""
                 INSERT OR REPLACE INTO parent_policies
-                (device_id, policy_type, policy_data, version, applied_at)
-                VALUES (?, ?, ?, ?, ?)
+                (policy_id, policy_type, policy_name, policy_data, target_device_id, is_active, version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
             """.trimIndent(), arrayOf(
-                "XP-DEBUG-DEVICE", "blacklist",
+                java.util.UUID.randomUUID().toString(), "blacklist", "黑名单",
                 """{"policyType":"blacklist","packages":["com.android.calculator2","com.android.gallery3d"]}""",
-                "1", now
+                "", "1", now, now
             ))
 
             Log.i(TAG, "parent_seedpolicy: 注入 1 设备 + 5 策略完成")
@@ -497,6 +499,15 @@ class DebugTriggerActivity : ComponentActivity() {
         parentSeedAnnounce()
         Log.i(TAG, "parent_fulldata: 全部家长端测试数据注入完成")
         toast("家长端测试数据注入完成:\n1 设备 + 5 策略 + 3 公告")
+    }
+
+    private fun parentSetup() {
+        val pwd = intent.getStringExtra("password") ?: "123456"
+        val okPwd = com.xiaopacai.child.role.RoleManager.setParentPassword(this, pwd)
+        val okRole = com.xiaopacai.child.role.RoleManager.setCurrentRole(
+            this, com.xiaopacai.child.role.RoleManager.Role.PARENT
+        )
+        Log.i(TAG, "parent_setup: setPwd=$okPwd setRole=$okRole")
     }
 
     private fun goHome() {

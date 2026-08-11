@@ -70,6 +70,8 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            excludes += "META-INF/versions/9/OSGI-INF/LICENSES/**"
         }
     }
 
@@ -114,6 +116,8 @@ dependencies {
     // === 网络（P2P 通信） ===
     // OkHttp 用于 TCP/TLS 连接
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // BouncyCastle：家长端 P2P 服务端自签名证书生成（AndroidKeyStore 密钥不兼容 Conscrypt TLS 握手签名）
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78")
     // JmDNS 用于局域网服务发现
     implementation("org.jmdns:jmdns:3.5.9")
 
