@@ -3,6 +3,7 @@ package com.xiaopacai.child.ui
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -104,9 +105,12 @@ fun PermissionGuideScreen(
             description = "采集各应用使用时长，用于计算今日使用总量与超时判断。",
             isGranted = usageStatsGranted,
             onRequestPermission = {
-                // 跳转系统"使用情况访问"设置页
-                val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-                context.startActivity(intent)
+                // 跳转系统"使用情况访问"设置页（失败回退应用详情）
+                openPermissionSettings(
+                    context,
+                    Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS),
+                    { appDetailsIntent(context) }
+                )
             }
         )
 
@@ -119,9 +123,12 @@ fun PermissionGuideScreen(
             description = "用于实现超时停用：识别前台应用、展示守护界面、拦截非白名单应用。",
             isGranted = accessibilityGranted,
             onRequestPermission = {
-                // 跳转系统无障碍设置页
-                val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                context.startActivity(intent)
+                // 跳转系统无障碍设置页（失败回退应用详情）
+                openPermissionSettings(
+                    context,
+                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS),
+                    { appDetailsIntent(context) }
+                )
             }
         )
 
@@ -134,15 +141,13 @@ fun PermissionGuideScreen(
             description = "避免系统在后台杀死守护服务，确保时长统计与超时停用持续有效。",
             isGranted = batteryOptimizationGranted,
             onRequestPermission = {
-                // 请求忽略电池优化
-                try {
-                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = Uri.parse("package:${context.packageName}")
-                    }
-                    context.startActivity(intent)
-                } catch (e: Exception) {
-                    // 部分设备不支持此 Intent，跳过
-                }
+                // 打开电池优化设置列表（部分设备/模拟器上 ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                // 会解析异常，统一走通用设置页更可靠；失败再回退应用详情）
+                openPermissionSettings(
+                    context,
+                    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+                    { appDetailsIntent(context) }
+                )
             }
         )
 
@@ -156,12 +161,15 @@ fun PermissionGuideScreen(
             description = "接收家长公告推送与超时提醒，Android 13+ 需用户确认。",
             isGranted = notificationGranted,
             onRequestPermission = {
-                // Android 13+ 系统会弹出通知权限请求
+                // Android 13+ 打开应用通知设置页（失败回退应用详情）
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                    }
-                    context.startActivity(intent)
+                    openPermissionSettings(
+                        context,
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        },
+                        { appDetailsIntent(context) }
+                    )
                 }
             }
         )
@@ -280,3 +288,31 @@ private fun PermissionCard(
         }
     }
 }
+
+/**
+ * [FIX] 统一打开权限设置页：主意图失败时回退到应用详情设置，并记录日志便于排查
+ */
+private fun openPermissionSettings(
+    context: android.content.Context,
+    primary: Intent,
+    fallback: () -> Intent
+) {
+    try {
+        context.startActivity(primary)
+    } catch (e: Exception) {
+        Log.w("PermissionGuide", "权限设置意图打开失败（${primary.action}）: ${e.message}，回退应用详情")
+        try {
+            context.startActivity(fallback())
+        } catch (e2: Exception) {
+            Log.e("PermissionGuide", "回退打开应用详情失败: ${e2.message}")
+        }
+    }
+}
+
+/**
+ * 本应用系统详情页（通用回退目标）
+ */
+private fun appDetailsIntent(context: android.content.Context): Intent =
+    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = Uri.parse("package:${context.packageName}")
+    }

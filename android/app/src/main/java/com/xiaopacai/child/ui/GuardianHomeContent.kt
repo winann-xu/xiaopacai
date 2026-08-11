@@ -56,7 +56,8 @@ data class Announcement(
     val title: String,
     val content: String,
     val time: String,
-    val priority: Int  // 0=普通 1=重要 2=紧急
+    val priority: Int,  // 0=普通 1=重要 2=紧急
+    val isRead: Boolean  // [FIX] 列表展示最近公告（含已确认），弹窗仅未读
 )
 
 @Composable
@@ -134,10 +135,10 @@ fun GuardianHomeContent(
                 val passphrase = com.xiaopacai.child.util.DbPassphraseProvider.getPassphrase(context)
                 val db = com.xiaopacai.child.XiaopacaiApp.instance.database.getReadable(passphrase)
                 val cursor = db.rawQuery(
-                    """SELECT announcement_id, title, content, priority, created_at
-                       FROM announcements WHERE is_read = 0
-                       AND (expires_at = 0 OR expires_at > ?)
-                       ORDER BY priority DESC, created_at DESC LIMIT 10""",
+                    """SELECT announcement_id, title, content, priority, created_at, is_read
+                       FROM announcements
+                       WHERE (expires_at = 0 OR expires_at > ?)
+                       ORDER BY priority DESC, created_at DESC LIMIT 3""",
                     arrayOf((System.currentTimeMillis() / 1000).toString())
                 )
                 val list = mutableListOf<Announcement>()
@@ -149,7 +150,8 @@ fun GuardianHomeContent(
                             content = it.getString(2),
                             priority = it.getInt(3),
                             time = java.text.SimpleDateFormat("MM/dd HH:mm", java.util.Locale.getDefault())
-                                .format(java.util.Date(it.getLong(4) * 1000))
+                                .format(java.util.Date(it.getLong(4) * 1000)),
+                            isRead = it.getInt(5) == 1
                         ))
                     }
                 }
@@ -159,7 +161,7 @@ fun GuardianHomeContent(
                 // [TASK-OPT-12-P2] 挑选一条未展示过的普通公告弹窗（紧急公告走全屏覆盖层）
                 if (announcementToShow == null) {
                     val candidate = list.firstOrNull {
-                        it.priority < 2 && it.id !in shownAnnouncementIds
+                        it.priority < 2 && !it.isRead && it.id !in shownAnnouncementIds
                     }
                     if (candidate != null) {
                         announcementToShow = candidate

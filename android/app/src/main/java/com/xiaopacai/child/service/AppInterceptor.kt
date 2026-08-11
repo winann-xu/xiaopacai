@@ -127,6 +127,12 @@ class AppInterceptor(private val context: Context) {
      * @return InterceptResult 拦截结果（是否拦截 + 原因描述）
      */
     fun shouldIntercept(packageName: String): InterceptResult {
+        // [FIX] 守护应用自身永不拦截：超时停用期间家长/用户仍需能进入权限引导、设置等自身页面，
+        // 否则引导页被 BlockOverlay 覆盖形成“点去开启无反应”的死锁
+        if (packageName == context.packageName) {
+            return InterceptResult(intercept = false, reason = "守护应用自身")
+        }
+
         // 1. 系统应用永不拦截
         if (packageName in SYSTEM_PACKAGES) {
             return InterceptResult(intercept = false, reason = "系统应用")
