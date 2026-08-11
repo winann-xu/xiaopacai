@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import com.xiaopacai.child.XiaopacaiApp
 import com.xiaopacai.child.data.database.AnnouncementDao
 import com.xiaopacai.child.p2p.P2PConnectionService
+import com.xiaopacai.child.p2p.ParentP2PListenerService
 import com.xiaopacai.child.service.AntiBypassService
 import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.service.UsageStatsCollector
@@ -18,6 +19,8 @@ import kotlinx.coroutines.launch
  * [TEST-ONLY] 模拟器 GUI 走查调试触发器（仅 debug 构建存在）
  *
  * 通过 adb 以 intent extra 驱动测试场景：
+ *
+ * === 儿童端（原有）===
  *   action=start_service  拉起守护前台服务（真实用户路径为开机广播，此处为测试捷径）
  *   action=seed           注入策略缓存（daily_limit=1 分钟、黑白名单、分类限额）与测试公告
  *   action=seed_highlimit 注入高限额策略（daily_limit=999999），供 IME 豁免验证（采集器不触发超时）
@@ -31,6 +34,14 @@ import kotlinx.coroutines.launch
  *   action=pair_report    连接家长端后发送一条 usage_report 并等待 sync_ack（验证 TLS 上时长上报链路）
  *   action=pair_shared    使用 GuardianForegroundService 共享连接连接家长端（供 SyncManager 断网重试验证）
  *   action=home           返回桌面（关闭覆盖界面）
+ *
+ * === 家长端（P2 新增）===
+ *   action=parent_start         启动 ParentP2PListenerService 监听端口 9527
+ *   action=parent_stop          停止 ParentP2PListenerService
+ *   action=parent_paircode      生成配对码并 Toast 展示
+ *   action=parent_seedpolicy    向 parent_policies 注入测试策略（daily_limit=60min/游戏30min/就寝22:00-06:00）
+ *   action=parent_seedannounce  向 parent_announcements 注入 3 条测试公告
+ *   action=parent_fulldata      一键注入全部家长端测试数据（策略+公告+设备注册记录）
  *
  * 该组件不进入 release 构建，仅用于测试环境，不构成产品功能。
  */
@@ -59,6 +70,13 @@ class DebugTriggerActivity : ComponentActivity() {
                 "pair" -> pairWithParent()
                 "pair_report" -> pairAndReport()
                 "pair_shared" -> pairShared()
+                // === 家长端（P2 新增）===
+                "parent_start" -> parentStart()
+                "parent_stop" -> parentStop()
+                "parent_paircode" -> parentPairCode()
+                "parent_seedpolicy" -> parentSeedPolicy()
+                "parent_seedannounce" -> parentSeedAnnounce()
+                "parent_fulldata" -> parentFullData()
                 else -> goHome()
             }
             toast("DebugTrigger: $action ok")
@@ -302,6 +320,183 @@ class DebugTriggerActivity : ComponentActivity() {
                 )
             Log.i(TAG, "shared connection pair initiated: $host:$port")
         }
+    }
+
+    // ==================== 家长端调试触发器（P2 新增）====================
+
+    private fun parentStart() {
+        ParentP2PListenerService.start(this)
+        Log.i(TAG, "ParentP2PListenerService started")
+    }
+
+    private fun parentStop() {
+        ParentP2PListenerService.stop(this)
+        Log.i(TAG, "ParentP2PListenerService stopped")
+    }
+
+    private fun parentPairCode() {
+        parentStart() // 确保服务已启动
+        // 使用反射获取实例并生成配对码
+        try {
+            val f = ParentP2PListenerService::class.java.getDeclaredField("instance")
+            f.isAccessible = true
+            val svc = f.get(null) as? ParentP2PListenerService
+            if (svc != null) {
+                val code = svc.generatePairingCode()
+                val fingerprint = svc.getCertificateFingerprint().take(16) + "..."
+                Log.i(TAG, "Pairing code: $code, fingerprint: $fingerprint")
+                toast("配对码: $code\n指纹: $fingerprint")
+            } else {
+                Log.w(TAG, "ParentP2PListenerService instance not found")
+                toast("实例未找到，请确认服务已启动")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "parent_paircode failed: ${e.message}", e)
+            toast("失败: ${e.message}")
+        }
+    }
+
+    /**
+     * 向家长端数据库注入测试策略
+     *
+     * 将测试策略写入 parent_policies 表，供 ParentHomeScreen 策略配置页展示。
+     */
+    private fun parentSeedPolicy() {
+        val passphrase = DbPassphraseProvider.getPassphrase(this)
+        val db = XiaopacaiApp.instance.database
+        val writable = db.getWritable(passphrase)
+        val now = (System.currentTimeMillis() / 1000).toString()
+        try {
+            // 注册测试设备
+            writable.execSQL("""
+                INSERT OR REPLACE INTO device_registry
+                (device_id, device_name, cert_fingerprint, last_connected_at, is_active)
+                VALUES (?, ?, ?, ?, 1)
+            """.trimIndent(), arrayOf(
+                "XP-DEBUG-DEVICE", "模拟器测试设备",
+                "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+                now
+            ))
+
+            // 每日限额 60 分钟
+            writable.execSQL("""
+                INSERT OR REPLACE INTO parent_policies
+                (device_id, policy_type, policy_data, version, applied_at)
+                VALUES (?, ?, ?, ?, ?)
+            """.trimIndent(), arrayOf(
+                "XP-DEBUG-DEVICE", "daily_limit",
+                """{"policyType":"daily_limit","limitMinutes":60,"restrictMode":"full"}""",
+                "1", now
+            ))
+
+            // 就寝时段 22:00-06:00
+            writable.execSQL("""
+                INSERT OR REPLACE INTO parent_policies
+                (device_id, policy_type, policy_data, version, applied_at)
+                VALUES (?, ?, ?, ?, ?)
+            """.trimIndent(), arrayOf(
+                "XP-DEBUG-DEVICE", "bedtime",
+                """{"policyType":"bedtime","startTime":"22:00","endTime":"06:00"}""",
+                "1", now
+            ))
+
+            // 分类限额：游戏 30 分钟
+            writable.execSQL("""
+                INSERT OR REPLACE INTO parent_policies
+                (device_id, policy_type, policy_data, version, applied_at)
+                VALUES (?, ?, ?, ?, ?)
+            """.trimIndent(), arrayOf(
+                "XP-DEBUG-DEVICE", "category_limit",
+                """{"policyType":"category_limit","category":"game","categoryLimitMinutes":30}""",
+                "1", now
+            ))
+
+            // 白名单
+            writable.execSQL("""
+                INSERT OR REPLACE INTO parent_policies
+                (device_id, policy_type, policy_data, version, applied_at)
+                VALUES (?, ?, ?, ?, ?)
+            """.trimIndent(), arrayOf(
+                "XP-DEBUG-DEVICE", "whitelist",
+                """{"policyType":"whitelist","packages":["com.xiaopacai.child","com.android.contacts","com.android.phone"]}""",
+                "1", now
+            ))
+
+            // 黑名单
+            writable.execSQL("""
+                INSERT OR REPLACE INTO parent_policies
+                (device_id, policy_type, policy_data, version, applied_at)
+                VALUES (?, ?, ?, ?, ?)
+            """.trimIndent(), arrayOf(
+                "XP-DEBUG-DEVICE", "blacklist",
+                """{"policyType":"blacklist","packages":["com.android.calculator2","com.android.gallery3d"]}""",
+                "1", now
+            ))
+
+            Log.i(TAG, "parent_seedpolicy: 注入 1 设备 + 5 策略完成")
+            toast("已注入 1 台设备 + 5 条策略")
+        } finally {
+            writable.close()
+        }
+    }
+
+    /**
+     * 向家长端数据库注入测试公告
+     */
+    private fun parentSeedAnnounce() {
+        val passphrase = DbPassphraseProvider.getPassphrase(this)
+        val db = XiaopacaiApp.instance.database
+        val writable = db.getWritable(passphrase)
+        val now = (System.currentTimeMillis() / 1000).toString()
+        try {
+            // 普通公告
+            writable.execSQL("""
+                INSERT OR REPLACE INTO parent_announcements
+                (announcement_id, title, content, priority, status, target_device_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent(), arrayOf(
+                "parent-ann-1", "周末使用提醒",
+                "记得按时休息，保护眼睛哦。每天户外活动至少1小时。",
+                "0", "draft", "XP-DEBUG-DEVICE", now, now
+            ))
+
+            // 重要公告
+            writable.execSQL("""
+                INSERT OR REPLACE INTO parent_announcements
+                (announcement_id, title, content, priority, status, target_device_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent(), arrayOf(
+                "parent-ann-2", "学习计划更新",
+                "本周数学练习需要完成第5章全部习题，请在周五前提交。",
+                "1", "draft", "XP-DEBUG-DEVICE", now, now
+            ))
+
+            // 紧急公告（广播）
+            writable.execSQL("""
+                INSERT OR REPLACE INTO parent_announcements
+                (announcement_id, title, content, priority, status, target_device_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent(), arrayOf(
+                "parent-ann-3", "紧急通知",
+                "今晚22:00系统维护升级，服务暂时不可用，预计持续30分钟。",
+                "2", "published", null, now, now
+            ))
+
+            Log.i(TAG, "parent_seedannounce: 注入 3 条公告完成")
+            toast("已注入 3 条公告 (1 紧急已发布 + 2 草稿)")
+        } finally {
+            writable.close()
+        }
+    }
+
+    /**
+     * 一键注入全部家长端测试数据
+     */
+    private fun parentFullData() {
+        parentSeedPolicy()
+        parentSeedAnnounce()
+        Log.i(TAG, "parent_fulldata: 全部家长端测试数据注入完成")
+        toast("家长端测试数据注入完成:\n1 设备 + 5 策略 + 3 公告")
     }
 
     private fun goHome() {
