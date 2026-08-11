@@ -119,6 +119,7 @@ class PairingManager(private val context: Context) {
                 expectedFingerprint = savedFingerprint,
                 deviceId = getLocalDeviceId(),
                 deviceName = getLocalDeviceName(),
+                pairingCode = pairingCode,
                 scope = scope
             )
 

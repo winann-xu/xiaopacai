@@ -307,6 +307,7 @@ class DebugTriggerActivity : ComponentActivity() {
     private fun pairShared() {
         val host = intent.getStringExtra("host") ?: "10.0.2.2"
         val port = intent.getIntExtra("port", 9527)
+        val pairingCode = intent.getStringExtra("pairingCode")
         val scope = kotlinx.coroutines.CoroutineScope(
             kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob()
         )
@@ -318,6 +319,7 @@ class DebugTriggerActivity : ComponentActivity() {
                     expectedFingerprint = null,
                     deviceId = "XP-SHARED",
                     deviceName = "模拟器测试设备",
+                    pairingCode = pairingCode,
                     scope = scope
                 )
             Log.i(TAG, "shared connection pair initiated: $host:$port")

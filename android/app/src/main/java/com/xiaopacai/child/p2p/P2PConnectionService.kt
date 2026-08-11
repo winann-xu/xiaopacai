@@ -79,6 +79,7 @@ class P2PConnectionService {
     private var reconnectAttempt = 0
     private var _deviceId: String = ""
     private var _deviceName: String = ""
+    private var _pairingCode: String? = null
 
     /**
      * 连接到家长端
@@ -87,6 +88,7 @@ class P2PConnectionService {
      * @param expectedFingerprint 期望的证书指纹（首次配对时可为 null）
      * @param deviceId 本机设备 ID
      * @param deviceName 本机设备名称
+     * @param pairingCode 配对码（6 位数字，家长端要求时提供）
      */
     suspend fun connect(
         host: String,
@@ -94,11 +96,13 @@ class P2PConnectionService {
         expectedFingerprint: String?,
         deviceId: String,
         deviceName: String,
+        pairingCode: String? = null,
         scope: CoroutineScope
     ) {
         this.expectedFingerprint = expectedFingerprint
         this._deviceId = deviceId
         this._deviceName = deviceName
+        this._pairingCode = pairingCode
         this.reconnectAttempt = 0
 
         disconnect()  // 断开旧连接
@@ -230,15 +234,18 @@ class P2PConnectionService {
 
     /** 发送握手消息 */
     private fun sendHandshake() {
+        val payload = mutableMapOf<String, Any>(
+            "version" to "1.0",
+            "deviceId" to _deviceId,
+            "deviceName" to _deviceName,
+            "deviceType" to "android",
+            "timestamp" to System.currentTimeMillis() / 1000
+        )
+        // 仅在提供了配对码时携带，避免空串触发家长端校验
+        _pairingCode?.let { payload["pairingCode"] = it }
         val message = P2PMessage(
             type = MessageType.HANDSHAKE.value,
-            payload = mapOf(
-                "version" to "1.0",
-                "deviceId" to _deviceId,
-                "deviceName" to _deviceName,
-                "deviceType" to "android",
-                "timestamp" to System.currentTimeMillis() / 1000
-            )
+            payload = payload
         )
         sendMessage(message)
     }
