@@ -1,6 +1,7 @@
 package com.xiaopacai.child
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -57,6 +58,18 @@ class MainActivity : ComponentActivity() {
         var showParentFlow by remember { mutableStateOf(currentRole == RoleManager.Role.PARENT) }
         var parentLoggedIn by remember {
             mutableStateOf(currentRole == RoleManager.Role.PARENT && RoleManager.isParentPasswordSet(this@MainActivity))
+        }
+
+        // [FIX] 儿童模式打开应用即拉起守护前台服务（含 SyncManager/采集器），
+        // 避免重装/重启后服务不运行导致公告不展示、数据不同步、超时失效
+        LaunchedEffect(currentRole) {
+            if (currentRole == RoleManager.Role.CHILD) {
+                try {
+                    com.xiaopacai.child.service.GuardianForegroundService.start(this@MainActivity)
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "拉起守护服务失败: ${e.message}")
+                }
+            }
         }
 
         // 角色引导页回调：选定角色后刷新并进入对应流程
