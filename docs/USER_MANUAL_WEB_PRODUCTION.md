@@ -102,3 +102,17 @@
   换 Web/家长端服务器时需在儿童端重新“手动连接/配对”以更新指纹，否则会提示“证书指纹不匹配”。
 - **Windows 家长端说明**：Windows 端为局域网直连模式（不与 Web 中继互通）；
   在同一局域网内儿童端可直接连 Windows（电脑 IP:9527），Android 家长端则走 Web 中继。
+
+## 八、下载中心
+
+- 访问 `http://192.168.50.11:5000/download`（**登录前后均可访问**）
+- 提供：Android APK、Windows 桌面端 ZIP、iOS（即将上线）
+- 登录页底部也有“下载客户端”入口；登录后侧边栏“下载中心”菜单直达
+- 安装包存放在服务器 `wwwroot/downloads/`，随新版本由发布流程同步更新
+
+## 九、发布与推送（Codex/开发者）
+
+- 每次有新版本（Android/Windows/Web 更新）后执行一键推送：
+  `powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\Public\bridge\work\tools\deploy_prod.ps1`
+- 该脚本：构建前端 → 发布后端 → 拷贝最新 APK/Windows 安装包到下载目录 → 上传生产 → 重启并健康检查
+- 生产数据目录 `Data/` 不会被覆盖；升级安全
