@@ -61,3 +61,42 @@
 ## 用户手册
 - Web 生产用户手册：`docs/USER_MANUAL_WEB_PRODUCTION.md`
 - 全面验收测试提示词：`docs/PROMPT_TEST_VERIFICATION.md`（V1.1，含多端互联/隐私边界）
+
+## 2026-08-12 深夜：实机反馈修复（扫码 + 权限）— 已本地提交 e2f62c3，未推 GitHub
+
+### 问题 1：儿童端权限开启繁琐（4 项开了 10 分钟只开 2 项）
+- 权限引导页重写为快捷版：`PermissionGuideScreen.kt`
+  - “一键引导”：按顺序自动打开未授权项，从系统设置返回且新授权一项后自动跳下一项
+  - 通知权限（Android 13+）直接弹系统授权框；电池优化优先 `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` 直接弹窗
+  - 进度条 doneCount/4 + 可选第 5 项开机自启动（国产 ROM 深链）
+  - 新增“ADB 一键授权”卡片：一键复制 5 条 adb 命令（usage/notification/battery/accessibility）
+- 模拟器实测：一键引导 20 秒内完成 无障碍→通知→完成（电池已在白名单），全程自动跳转 ✓
+
+### 问题 2：家长端无法扫码（Web 端/儿童端均扫不了）
+- 根因 1：扫码结果回调未接 —— `launchQrScan`/`launchChildScan` 用 `context.startActivity` 直接启动，
+  没有走 `rememberLauncherForActivityResult`，导致结果永远收不到。已全部改为 launcher 启动。
+- 根因 2：`QrScannerActivity` YUV→NV21 转换的行数/步长逻辑错误，解码必然失败。已重写为
+  标准逐行拷贝（处理 rowStride/pixelStride），修复 zxing 包路径。
+- 新增能力：
+  - 家长端设置页「扫码登录 Web」：扫 Web 登录二维码 → 从 ticketUrl 提取 ticket →
+    `POST /api/auth/login-ticket/{ticket}/confirm`（需已保存 web_token）；顺带自动填入中继地址
+  - 儿童端「我的二维码」（被扫）：内容 `{"type":"xiaopacai_child",deviceId,deviceName}`
+  - 儿童端「扫描家长端」：识别 pairing/web_relay 二维码自动连接（`GuardianForegroundService.getP2PConnection().connect` 包在 scope.launch）
+  - 家长端「扫码配对」：识别儿童二维码后展示设备信息并生成新配对码
+- 调试构建新增：儿童/家长端「调试：模拟扫码」按钮（注入 test_result）+ 家长设置页
+  「调试：生成真实 Ticket 模拟扫码登录」（先向 Web 创建真实 ticket 再注入）
+- 新增 `clear_usage` 调试触发器 + `UsageRecordDao.deleteUsageRecordsForDate`（重置当日使用时长，供重头测试）
+
+### 模拟器实测结果（5554/5556/5558，AVD 无真实相机故用注入 QR）
+- 儿童端扫家长端 QR → 家长端显示「已连接 1 台设备」，儿童端显示「● 已连接到家长端」✓
+- 家长端扫儿童端 QR → 弹窗「已识别儿童设备：测试儿童设备 + 配对码」✓
+- 家长端扫码登录 Web（真实 ticket）→ 「扫码登录已确认 ✓ 网页端将自动登录」✓
+- 儿童端「我的二维码」弹窗正常 ✓；权限一键引导全流程 ✓；单元测试 BUILD SUCCESSFUL ✓
+- 新 APK 已上传生产：http://192.168.50.11:5000/downloads/XiaopacaiParent-1.0.0-debug.apk（HTTP 200）
+
+### 备注
+- 儿童端模拟器系统 UsageStats 残留 1498 分钟假数据（pm clear 不清系统统计），测试中若出现
+  超时锁定，先 `am start -n com.xiaopacai.child/.debug.DebugTriggerActivity --es action clear_usage`
+  再重启应用；策略限时若被家长端推送覆盖，需先在家长端把限额调大或断连。
+- 「家长扫儿童端 = 全自动下发连接请求」尚未实现（当前为识别 + 新配对码，儿童端手动连接）；
+  若用户要求双向自动连，需评估 Web 中继下发配对请求 + 儿童端轮询。
