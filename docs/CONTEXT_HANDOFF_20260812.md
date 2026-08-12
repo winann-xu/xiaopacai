@@ -31,6 +31,14 @@
 - .NET 8.0.30 运行时 `~/.dotnet`；P2P 9527；SQLCipher 库已内置（e_sqlite3）
 - 运维见 `docs/USER_MANUAL_WEB_PRODUCTION.md`
 
+## 生产互联已实测（2026-08-12 上午）
+- child1 ↔ 生产 Web(192.168.50.11:9527) 在线；owner 已绑定
+- 家长端(Android) ↔ 生产 Web 中继（登录→register userId=1→relay P2P 会话），
+  child usage_report 经生产实时转发到家长端（已实测）
+- child2 ↔ Windows 家长端局域网直连（重配对后指纹更新，上报 4 条落 Windows DB）
+- 注意：儿童端切换服务器需重新配对（指纹固定）；Windows 端无 Web 中继功能（局域网直连）
+- 生产 admin 密码仍为 admin123，需尽快改密
+
 ## 已验收链路（全绿）
 - Android：双角色、P2P TLS 配对（指纹）、策略下发、时长上报、超时 full/partial、
   公告直达/紧急置顶/回执、应用分类、守护状态、断线重连、守护自启
