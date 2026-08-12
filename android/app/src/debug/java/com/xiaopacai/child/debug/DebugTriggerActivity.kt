@@ -69,6 +69,7 @@ class DebugTriggerActivity : ComponentActivity() {
                 "partial" -> setPartialMode()
                 "fullstate" -> setFullState()
                 "reset" -> resetMode()
+                "clear_usage" -> clearUsage()
                 "overlay" -> showOverlay()
                 "notify" -> sendSecurityNotify()
                 "pair" -> pairWithParent()
@@ -312,6 +313,20 @@ class DebugTriggerActivity : ComponentActivity() {
         val collector = GuardianForegroundService.getCollector() ?: return
         setField(collector, "_isTimeoutActive", false)
         setField(collector, "_stopMode", "none")
+    }
+
+    /**
+     * 清空今日使用时长（usage_records + daily_summary），并复位超时状态。
+     * 供测试重头开始 / 家长重置使用时间验证。
+     */
+    private fun clearUsage() {
+        val passphrase = DbPassphraseProvider.getPassphrase(this)
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        com.xiaopacai.child.data.database.UsageRecordDao(XiaopacaiApp.instance.database)
+            .deleteUsageRecordsForDate(today, passphrase)
+        resetMode()
+        Log.i(TAG, "usage cleared for $today")
     }
 
     private fun showOverlay() {

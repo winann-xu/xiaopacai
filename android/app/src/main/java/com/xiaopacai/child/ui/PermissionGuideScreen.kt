@@ -1,9 +1,16 @@
 package com.xiaopacai.child.ui
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,20 +22,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
- * [TASK-D1-02] 权限引导页
+ * [TASK-D1-02] 权限引导页（快捷版）
  *
- * 引导家长/儿童完成小趴菜所需的系统权限设置：
- * 1. 使用情况访问权限（采集应用使用时长）
- * 2. 无障碍服务（超时停用拦截）
- * 3. 通知权限（公告推送）
- * 4. 忽略电池优化（保活增强）
+ * 引导家长/儿童完成小趴菜所需的系统权限：
+ * 1. 使用情况访问 2. 无障碍服务 3. 通知权限 4. 忽略电池优化（5. 厂商自启动，可选）
  *
- * 每一项权限提供说明、开启按钮和状态指示。
- * 所有必要权限开启后，自动跳转到守护主页。
+ * 快捷能力：
+ * - “一键引导”：自动按顺序打开每一项，从设置页返回后自动跳到下一项，减少手动来回
+ * - 通知权限：Android 13+ 直接弹系统授权对话框（不再进设置页翻开关）
+ * - 电池优化：优先直接请求对话框，失败回退通用设置页
+ * - 进度显示 + 厂商自启动深链（小米/华为/OPPO/vivo）
  */
 @Composable
 fun PermissionGuideScreen(
@@ -36,14 +48,56 @@ fun PermissionGuideScreen(
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
 
-    // 实时刷新各权限状态（BUG-0810-09 终回归）
-    // 从系统设置返回时（Activity ON_RESUME）重新检查，确保状态及时刷新并自动跳转守护主页
+    // 实时权限状态
     var usageStatsGranted by remember { mutableStateOf(hasUsageStatsPermission(context)) }
     var accessibilityGranted by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
-    var batteryOptimizationGranted by remember { mutableStateOf(false) }
     var notificationGranted by remember { mutableStateOf(hasNotificationPermission(context)) }
+    var batteryGranted by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
+    var autoStartGranted by remember { mutableStateOf(isAutoStartGranted(context)) }
 
+    // 一键引导模式：从设置页返回且某项刚授权时，自动打开下一项
+    var autoGuide by remember { mutableStateOf(false) }
+
+    fun grantedCount(): Int =
+        listOf(usageStatsGranted, accessibilityGranted, notificationGranted, batteryGranted).count { it }
+
+    var lastGrantedCount by remember { mutableIntStateOf(grantedCount()) }
+
+    // 通知权限：直接请求系统授权对话框
+    val notifLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> notificationGranted = granted }
+
+    // 打开“下一项待授权”的设置/请求
+    fun openNextPending() {
+        when {
+            !usageStatsGranted -> openPermissionSettings(
+                context,
+                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS),
+                { appDetailsIntent(context) })
+            !accessibilityGranted -> openPermissionSettings(
+                context,
+                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS),
+                { appDetailsIntent(context) })
+            !notificationGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+                try {
+                    notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } catch (e: Exception) {
+                    openPermissionSettings(
+                        context,
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        },
+                        { appDetailsIntent(context) })
+                }
+            }
+            !batteryGranted -> requestBatteryOptimization(context)
+        }
+    }
+
+    // 从系统设置/对话框返回时刷新；一键引导下自动跳到下一项
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -51,19 +105,33 @@ fun PermissionGuideScreen(
                 usageStatsGranted = hasUsageStatsPermission(context)
                 accessibilityGranted = isAccessibilityServiceEnabled(context)
                 notificationGranted = hasNotificationPermission(context)
+                batteryGranted = isIgnoringBatteryOptimizations(context)
+                autoStartGranted = isAutoStartGranted(context)
+                val newCount = grantedCount()
+                if (autoGuide && newCount > lastGrantedCount) {
+                    lastGrantedCount = newCount
+                    // 延迟片刻让返回动画结束，再打开下一项
+                    scope.launch {
+                        delay(400)
+                        openNextPending()
+                    }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // 检查是否全部就绪，是则通知跳转
-    val allGranted = usageStatsGranted && accessibilityGranted
+    // 全部必需权限就绪后自动跳转
+    val allGranted = usageStatsGranted && accessibilityGranted && notificationGranted && batteryGranted
     LaunchedEffect(allGranted) {
         if (allGranted) {
+            autoGuide = false
             onAllGranted()
         }
     }
+
+    val doneCount = listOf(usageStatsGranted, accessibilityGranted, notificationGranted, batteryGranted).count { it }
 
     Column(
         modifier = Modifier
@@ -72,148 +140,175 @@ fun PermissionGuideScreen(
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // 标题区
+        Spacer(modifier = Modifier.height(24.dp))
         Icon(
             imageVector = Icons.Default.VerifiedUser,
             contentDescription = null,
-            modifier = Modifier.size(72.dp),
+            modifier = Modifier.size(64.dp),
             tint = MaterialTheme.colorScheme.primary
         )
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = "欢迎使用小趴菜 🥬",
-            style = MaterialTheme.typography.headlineLarge,
+            style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = "需要开启以下权限才能正常使用\n请按照引导逐步完成设置",
+            text = "共需开启 4 项权限（已开启 $doneCount/4）",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
+        Spacer(modifier = Modifier.height(8.dp))
+        LinearProgressIndicator(
+            progress = doneCount / 4f,
+            modifier = Modifier.fillMaxWidth().height(8.dp)
+        )
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // === 权限项 1：使用情况访问 ===
+        // 一键引导
+        Button(
+            onClick = {
+                autoGuide = true
+                lastGrantedCount = grantedCount()
+                openNextPending()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !allGranted,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary
+            )
+        ) {
+            Icon(Icons.Default.Bolt, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (autoGuide) "引导中…每项完成后自动跳下一项" else "一键引导（自动跳转每一项）")
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
         PermissionCard(
             icon = Icons.Default.Timer,
             title = "使用情况访问",
             description = "采集各应用使用时长，用于计算今日使用总量与超时判断。",
             isGranted = usageStatsGranted,
             onRequestPermission = {
-                // 跳转系统"使用情况访问"设置页（失败回退应用详情）
                 openPermissionSettings(
                     context,
                     Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS),
-                    { appDetailsIntent(context) }
-                )
+                    { appDetailsIntent(context) })
             }
         )
-
         Spacer(modifier = Modifier.height(12.dp))
 
-        // === 权限项 2：无障碍服务 ===
         PermissionCard(
             icon = Icons.Default.Accessibility,
             title = "无障碍服务",
-            description = "用于实现超时停用：识别前台应用、展示守护界面、拦截非白名单应用。",
+            description = "识别前台应用、展示守护界面、拦截非白名单应用。",
             isGranted = accessibilityGranted,
             onRequestPermission = {
-                // 跳转系统无障碍设置页（失败回退应用详情）
                 openPermissionSettings(
                     context,
                     Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS),
-                    { appDetailsIntent(context) }
-                )
+                    { appDetailsIntent(context) })
             }
         )
-
         Spacer(modifier = Modifier.height(12.dp))
 
-        // === 权限项 3：忽略电池优化 ===
-        PermissionCard(
-            icon = Icons.Default.BatterySaver,
-            title = "忽略电池优化",
-            description = "避免系统在后台杀死守护服务，确保时长统计与超时停用持续有效。",
-            isGranted = batteryOptimizationGranted,
-            onRequestPermission = {
-                // 打开电池优化设置列表（部分设备/模拟器上 ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-                // 会解析异常，统一走通用设置页更可靠；失败再回退应用详情）
-                openPermissionSettings(
-                    context,
-                    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
-                    { appDetailsIntent(context) }
-                )
-            }
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // === 权限项 4：通知权限 ===
-        // BUG-0810-12: 不再硬编码 true，实时查询系统通知权限状态（ON_RESUME 刷新）
         PermissionCard(
             icon = Icons.Default.Notifications,
             title = "通知权限",
-            description = "接收家长公告推送与超时提醒，Android 13+ 需用户确认。",
+            description = "接收家长公告推送与超时提醒（Android 13+ 弹窗确认，最快）。",
             isGranted = notificationGranted,
             onRequestPermission = {
-                // Android 13+ 打开应用通知设置页（失败回退应用详情）
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                    openPermissionSettings(
-                        context,
-                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                        },
-                        { appDetailsIntent(context) }
-                    )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    notificationGranted = true
                 }
             }
         )
+        Spacer(modifier = Modifier.height(12.dp))
 
-        Spacer(modifier = Modifier.height(24.dp))
+        PermissionCard(
+            icon = Icons.Default.BatterySaver,
+            title = "忽略电池优化",
+            description = "避免系统在后台杀死守护服务（优先弹窗，失败进设置页）。",
+            isGranted = batteryGranted,
+            onRequestPermission = { requestBatteryOptimization(context) }
+        )
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // 底部提示
+        // 可选：厂商自启动（国产 ROM 保活）
+        PermissionCard(
+            icon = Icons.Default.Power,
+            title = "开机自启动（可选）",
+            description = "国产 ROM 需额外允许自启动才能开机恢复守护；点击跳转厂商设置。",
+            isGranted = autoStartGranted,
+            onRequestPermission = { openAutoStartSettings(context) }
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
         Card(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer
             )
         ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "提示：当从设置页返回后，权限状态会自动刷新。\n灰色按钮已表示已授权，无需重复操作。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
+            Text(
+                text = "提示：点“一键引导”后，每完成一项返回即自动打开下一项；\n灰色按钮/对勾表示已授权。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(16.dp)
+            )
         }
 
+        // [REQ] 高级：ADB 一键授权（连电脑后复制执行，免去逐项翻设置）
+        Spacer(modifier = Modifier.height(12.dp))
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "高级：ADB 一键授权（需连接电脑）",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "将本机用 USB 连接电脑，开启「开发者选项-USB 调试」后，复制以下命令到电脑执行，可一次性开启使用情况/通知/电池优化/无障碍。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                val adbCmds = buildString {
+                    appendLine("adb shell pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS")
+                    appendLine("adb shell appops set ${context.packageName} GET_USAGE_STATS allow")
+                    appendLine("adb shell dumpsys deviceidle whitelist +${context.packageName}")
+                    appendLine("adb shell settings put secure enabled_accessibility_services ${context.packageName}/.service.GuardianAccessibilityService")
+                    appendLine("adb shell settings put secure accessibility_enabled 1")
+                }.trimEnd()
+                Text(
+                    text = adbCmds,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(onClick = {
+                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("adb", adbCmds))
+                    Toast.makeText(context, "ADB 命令已复制，请粘贴到电脑终端执行", Toast.LENGTH_LONG).show()
+                }) {
+                    Text("复制 ADB 命令")
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(32.dp))
     }
 }
 
-/**
- * 权限卡片组件
- *
- * @param icon 权限图标
- * @param title 权限名称
- * @param description 权限说明（为什么需要）
- * @param isGranted 是否已授权
- * @param onRequestPermission 点击按钮时的操作
- */
+/** 权限卡片组件 */
 @Composable
 private fun PermissionCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -232,56 +327,24 @@ private fun PermissionCard(
         )
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 图标
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(40.dp),
-                tint = if (isGranted)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // 文字说明
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Icon(icon, null, Modifier.size(40.dp),
+                tint = if (isGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text(description, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // 状态/操作按钮
+            Spacer(Modifier.width(12.dp))
             if (isGranted) {
-                // 已授权：显示绿色对勾
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "已授权",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp)
-                )
+                Icon(Icons.Default.CheckCircle, "已授权", Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
             } else {
-                // 未授权：显示蓝色开启按钮
-                Button(
-                    onClick = onRequestPermission,
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                ) {
+                Button(onClick = onRequestPermission,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
                     Text("去开启", style = MaterialTheme.typography.labelLarge)
                 }
             }
@@ -289,9 +352,7 @@ private fun PermissionCard(
     }
 }
 
-/**
- * [FIX] 统一打开权限设置页：主意图失败时回退到应用详情设置，并记录日志便于排查
- */
+/** 统一打开权限设置页：主意图失败回退应用详情 */
 private fun openPermissionSettings(
     context: android.content.Context,
     primary: Intent,
@@ -309,10 +370,66 @@ private fun openPermissionSettings(
     }
 }
 
-/**
- * 本应用系统详情页（通用回退目标）
- */
+/** 本应用系统详情页（通用回退目标） */
 private fun appDetailsIntent(context: android.content.Context): Intent =
     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
         data = Uri.parse("package:${context.packageName}")
     }
+
+/** 请求忽略电池优化：优先直接弹窗，失败回退通用设置页 */
+private fun requestBatteryOptimization(context: android.content.Context) {
+    try {
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:${context.packageName}")
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        openPermissionSettings(
+            context,
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            { appDetailsIntent(context) })
+    }
+}
+
+/** 是否已忽略电池优化 */
+private fun isIgnoringBatteryOptimizations(context: android.content.Context): Boolean {
+    return try {
+        val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as PowerManager
+        pm.isIgnoringBatteryOptimizations(context.packageName)
+    } catch (e: Exception) {
+        false
+    }
+}
+
+/** 打开厂商自启动设置（小米/华为/OPPO/vivo 等） */
+private fun openAutoStartSettings(context: android.content.Context) {
+    val targets = listOf(
+        "com.miui.securitycenter" to "com.miui.permcenter.autostart.AutoStartManagementActivity",
+        "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+        "com.coloros.safecenter" to "com.coloros.safecenter.permission.startup.StartupAppListActivity",
+        "com.vivo.permissionmanager" to "com.vivo.permissionmanager.activity.BgStartUpManagerActivity",
+    )
+    for ((pkg, act) in targets) {
+        try {
+            val intent = Intent().apply {
+                setClassName(pkg, act)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            return
+        } catch (e: Exception) {
+            // 尝试下一个厂商
+        }
+    }
+    // 兜底：应用详情页（用户手动找“自启动”）
+    openPermissionSettings(context, appDetailsIntent(context)) { appDetailsIntent(context) }
+}
+
+/** 厂商自启动是否已开启（粗略判断：不存在对应安全中心时视为无需处理） */
+private fun isAutoStartGranted(context: android.content.Context): Boolean {
+    val brands = listOf("xiaomi", "huawei", "honor", "oppo", "vivo", "oneplus", "realme")
+    val manufacturer = Build.MANUFACTURER?.lowercase() ?: ""
+    // 非国产 ROM：视为无需自启动授权
+    // 国产 ROM：无法可靠查询自启动开关，保守显示未授权，引导用户去厂商设置
+    return brands.none { manufacturer.contains(it) }
+}

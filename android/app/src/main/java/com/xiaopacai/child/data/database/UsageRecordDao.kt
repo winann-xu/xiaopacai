@@ -286,6 +286,21 @@ class UsageRecordDao(private val dbHelper: AppDatabase) {
             db.close()
         }
     }
+
+    /**
+     * [DEBUG/REQ] 删除指定日期的使用记录与每日汇总（重置使用时长）
+     *
+     * @param date 日期（yyyy-MM-dd）
+     */
+    fun deleteUsageRecordsForDate(date: String, passphrase: ByteArray) {
+        val db = dbHelper.getWritable(passphrase)
+        try {
+            db.delete("usage_records", "date = ?", arrayOf(date))
+            db.delete("daily_summary", "date = ?", arrayOf(date))
+        } finally {
+            db.close()
+        }
+    }
 }
 
 /**

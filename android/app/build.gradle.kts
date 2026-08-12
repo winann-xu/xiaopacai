@@ -61,6 +61,7 @@ android {
 
     buildFeatures {
         compose = true  // 启用 Jetpack Compose
+        buildConfig = true  // 生成 BuildConfig（调试模式测试入口用）
     }
 
     composeOptions {
@@ -101,6 +102,12 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
     implementation("androidx.activity:activity-compose:1.8.1")
     implementation("androidx.navigation:navigation-compose:2.7.5")
+
+    // === CameraX（二维码扫码）===
+    val cameraxVersion = "1.3.1"
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
 
     // === SQLCipher 加密数据库（BSD 社区版） ===
     // 使用 net.zetetic:android-database-sqlcipher 提供 SQLCipher 加密

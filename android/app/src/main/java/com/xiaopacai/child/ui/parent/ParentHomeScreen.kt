@@ -2,6 +2,8 @@ package com.xiaopacai.child.ui.parent
 
 import android.graphics.Bitmap
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,6 +25,8 @@ import com.xiaopacai.child.data.database.ParentDao
 import com.xiaopacai.child.p2p.ChildDeviceInfo
 import com.xiaopacai.child.p2p.ParentP2PListenerService
 import com.xiaopacai.child.role.RoleManager
+import com.xiaopacai.child.BuildConfig
+import com.xiaopacai.child.ui.scan.QrScannerActivity
 import kotlinx.coroutines.delay
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +62,49 @@ fun ParentHomeScreen(
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
     // [REQ] 本机 IP 列表：生成配对码时采集，展示在配对码旁边，方便家长告知儿童端手动连接
     var localIps by remember { mutableStateOf(emptyList<String>()) }
+    // [REQ] 扫码识别到的儿童设备信息（对话框展示）
+    var scanChildInfo by remember { mutableStateOf<String?>(null) }
+
+    val childScanLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val text = result.data?.getStringExtra(QrScannerActivity.EXTRA_RESULT)
+        if (text.isNullOrBlank()) return@rememberLauncherForActivityResult
+        try {
+            val obj = JSONObject(text)
+            if (obj.optString("type") == "xiaopacai_child") {
+                val name = obj.optString("deviceName", "未知设备")
+                val id = obj.optString("deviceId", "")
+                val code = ParentP2PListenerService.instance?.generatePairingCode() ?: "------"
+                scanChildInfo = "已识别儿童设备：$name\n设备 ID：$id\n\n配对码：$code\n请在儿童端使用该配对码连接家长端（IP + 配对码）。"
+            } else {
+                scanChildInfo = "二维码内容无法识别为儿童设备"
+            }
+        } catch (e: Exception) {
+            scanChildInfo = "二维码解析失败：${e.message}"
+        }
+    }
+
+    // [FIX] 必须通过 launcher 启动，否则扫描结果回调不会触发
+    fun launchChildScan() {
+        try {
+            childScanLauncher.launch(android.content.Intent(context, QrScannerActivity::class.java))
+        } catch (e: Exception) {
+            scanChildInfo = "无法打开相机：${e.message}"
+        }
+    }
+
+    // 扫码识别儿童设备结果对话框
+    scanChildInfo?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { scanChildInfo = null },
+            title = { Text("扫码配对") },
+            text = { Text(msg) },
+            confirmButton = {
+                TextButton(onClick = { scanChildInfo = null }) { Text("知道了") }
+            }
+        )
+    }
 
     // 定时刷新 P2P 状态
     LaunchedEffect(Unit) {
@@ -139,6 +186,7 @@ fun ParentHomeScreen(
                 fingerprint = fingerprint,
                 qrBitmap = qrBitmap,
                 localIps = localIps,
+                onScanPair = { launchChildScan() },
                 onStartStop = {
                     if (isServiceRunning) {
                         ParentP2PListenerService.stop(context)
@@ -169,6 +217,25 @@ fun ParentHomeScreen(
                     )
                 }
             )
+
+            // [DEBUG] 模拟器无真实相机，调试构建提供扫码结果注入入口
+            if (BuildConfig.DEBUG) {
+                TextButton(
+                    onClick = {
+                        val testQr = JSONObject().apply {
+                            put("type", "xiaopacai_child")
+                            put("deviceId", "child-debug-emulator")
+                            put("deviceName", "测试儿童设备")
+                            put("timestamp", System.currentTimeMillis() / 1000)
+                        }.toString()
+                        childScanLauncher.launch(
+                            android.content.Intent(context, QrScannerActivity::class.java)
+                                .putExtra(QrScannerActivity.EXTRA_TEST_RESULT, testQr)
+                        )
+                    },
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) { Text("调试：模拟儿童端二维码", fontSize = 12.sp) }
+            }
 
             // 标签内容
             when (selectedTab) {
@@ -230,6 +297,7 @@ private fun P2pStatusBar(
     showPairingCode: Boolean, fingerprint: String,
     qrBitmap: Bitmap?,
     localIps: List<String>,
+    onScanPair: () -> Unit,
     onStartStop: () -> Unit, onGeneratePairingCode: () -> Unit
 ) {
     Card(
@@ -254,6 +322,12 @@ private fun P2pStatusBar(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (isRunning) {
+                        FilledTonalButton(onClick = onScanPair,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
+                            Icon(Icons.Filled.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("扫码配对", fontSize = 12.sp)
+                        }
                         FilledTonalButton(onClick = onGeneratePairingCode,
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
                             Icon(Icons.Filled.QrCode, contentDescription = null, modifier = Modifier.size(16.dp))

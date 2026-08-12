@@ -3,6 +3,8 @@
 package com.xiaopacai.child.ui.parent
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -18,6 +20,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaopacai.child.p2p.ParentP2PListenerService
+import com.xiaopacai.child.BuildConfig
+import com.xiaopacai.child.ui.scan.QrScannerActivity
 import com.xiaopacai.child.role.RoleManager
 import com.xiaopacai.child.XiaopacaiApp
 import kotlinx.coroutines.Dispatchers
@@ -74,6 +78,59 @@ fun ParentSettingsScreen(
             context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
                 .getString(KEY_WEB_TOKEN, null)?.isNotBlank() == true
         )
+    }
+    // [REQ] 扫码登录 Web（家长端扫 Web 登录二维码 → 确认授权）
+    var scanLoginMessage by remember { mutableStateOf<String?>(null) }
+
+    fun handleWebLoginQr(text: String) {
+        try {
+            val obj = JSONObject(text)
+            if (obj.optString("type") != "login_ticket") {
+                scanLoginMessage = "该二维码不是 Web 登录二维码"
+                return
+            }
+            val ticketUrl = obj.optString("ticketUrl", "")
+            val ticket = ticketUrl.substringAfterLast('/').trim()
+            val origin = ticketUrl.substringBefore("/auth/")
+            if (ticket.isBlank() || origin.isBlank()) {
+                scanLoginMessage = "二维码缺少有效的登录 Ticket"
+                return
+            }
+            // 顺带把 Web 服务地址填入中继配置，方便后续连接
+            if (relayHost.isBlank()) {
+                try {
+                    val u = java.net.URI(origin)
+                    relayHost = u.host ?: ""
+                    u.port.takeIf { it > 0 }?.let { relayPort = it }
+                } catch (_: Exception) {}
+            }
+            val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+            val token = prefs.getString(KEY_WEB_TOKEN, null)
+            if (token.isNullOrBlank()) {
+                scanLoginMessage = "请先用账号密码登录获取 Token，再扫码确认 Web 登录"
+                return
+            }
+            scanLoginMessage = "正在确认 Web 登录…"
+            GlobalScope.launch(Dispatchers.IO) {
+                val result = confirmWebLogin(origin, ticket, token)
+                withContext(Dispatchers.Main) {
+                    scanLoginMessage = result
+                }
+            }
+        } catch (e: Exception) {
+            scanLoginMessage = "二维码解析失败：${e.message}"
+        }
+    }
+
+    val webQrScanLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val text = result.data?.getStringExtra(QrScannerActivity.EXTRA_RESULT)
+        if (text.isNullOrBlank()) {
+            scanLoginMessage = "未识别到二维码，请重试"
+            return@rememberLauncherForActivityResult
+        }
+        handleWebLoginQr(text)
     }
 
     // P2P
@@ -198,6 +255,52 @@ fun ParentSettingsScreen(
                             Text("清除")
                         }
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // [REQ] 扫码登录 Web：扫 Web 端登录二维码，用已保存 Token 确认授权
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                webQrScanLauncher.launch(
+                                    android.content.Intent(context, QrScannerActivity::class.java)
+                                )
+                            } catch (e: Exception) {
+                                scanLoginMessage = "无法打开相机：${e.message}"
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = webTokenSaved
+                    ) {
+                        Icon(Icons.Filled.QrCode, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (webTokenSaved) "扫码登录 Web（网页端被扫后自动登录）"
+                        else "先登录获取 Token 后即可扫码确认")
+                    }
+                    // [DEBUG] 模拟器无真实相机，调试构建提供扫码结果注入入口
+                    if (BuildConfig.DEBUG) {
+                        TextButton(
+                            onClick = {
+                                val origin = if (relayHost.isNotBlank()) {
+                                    "http://${relayHost}:${relayPort}"
+                                } else {
+                                    "http://192.168.50.11:5000"
+                                }
+                                GlobalScope.launch(Dispatchers.IO) {
+                                    val testQr = createDebugLoginQr(origin)
+                                    withContext(Dispatchers.Main) {
+                                        if (testQr == null) {
+                                            scanLoginMessage = "调试：向 Web 获取登录 Ticket 失败，请检查地址与网络"
+                                        } else {
+                                            webQrScanLauncher.launch(
+                                                android.content.Intent(context, QrScannerActivity::class.java)
+                                                    .putExtra(QrScannerActivity.EXTRA_TEST_RESULT, testQr)
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("调试：生成真实 Ticket 模拟扫码登录", fontSize = 12.sp) }
+                    }
                 }
             }
 
@@ -310,6 +413,18 @@ fun ParentSettingsScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+
+    // === 扫码登录 Web 结果对话框 ===
+    scanLoginMessage?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { scanLoginMessage = null },
+            title = { Text("扫码登录 Web") },
+            text = { Text(msg) },
+            confirmButton = {
+                TextButton(onClick = { scanLoginMessage = null }) { Text("知道了") }
+            }
+        )
     }
 
     // === 修改密码对话框 ===
@@ -621,5 +736,75 @@ private suspend fun loginToWeb(context: android.content.Context, host: String, p
         }
     } catch (e: Exception) {
         "登录请求失败: ${e.message}"
+    }
+}
+
+/**
+ * [REQ] 确认 Web 扫码登录：家长端扫 Web 登录二维码后，
+ * 从 ticketUrl 提取 ticket 并调用 POST /api/auth/login-ticket/{ticket}/confirm
+ * （需已保存的 web_token 作为登录态）。
+ */
+private suspend fun confirmWebLogin(origin: String, ticket: String, token: String): String {
+    return try {
+        val url = URL("$origin/api/auth/login-ticket/$ticket/confirm")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.setRequestProperty("Authorization", "Bearer $token")
+        conn.doOutput = true
+
+        OutputStreamWriter(conn.outputStream).use { it.write("{}") }
+
+        val code = conn.responseCode
+        val body = try {
+            if (code in 200..299) conn.inputStream?.bufferedReader()?.readText()
+            else conn.errorStream?.bufferedReader()?.readText()
+        } catch (_: Exception) { "" }
+
+        if (code in 200..299) {
+            "扫码登录已确认 ✓ 网页端将自动登录"
+        } else {
+            val err = try { JSONObject(body ?: "").optString("error", body ?: "") } catch (_: Exception) { body ?: "" }
+            "确认失败($code): ${err.take(120)}"
+        }
+    } catch (e: Exception) {
+        "确认请求失败: ${e.message}"
+    }
+}
+
+/**
+ * [DEBUG] 向 Web 服务生成一个真实登录 Ticket，并包装成二维码内容
+ * （仅调试构建使用：模拟器无相机，用于全链路验证扫码登录）
+ */
+private suspend fun createDebugLoginQr(origin: String): String? {
+    return try {
+        val url = URL("$origin/api/auth/login-ticket")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+        conn.doOutput = true
+
+        OutputStreamWriter(conn.outputStream).use { it.write("{\"clientId\":\"android-debug\"}") }
+
+        if (conn.responseCode in 200..299) {
+            val json = JSONObject(conn.inputStream.bufferedReader().readText())
+            val ticket = json.optString("ticket", "")
+            if (ticket.isBlank()) return null
+            val expiresAt = json.optLong("expiresAt", System.currentTimeMillis() / 1000 + 90)
+            JSONObject().apply {
+                put("type", "login_ticket")
+                put("ticketUrl", "$origin/auth/login-ticket/$ticket")
+                put("expiresAt", expiresAt)
+                put("action", "scan_to_login")
+            }.toString()
+        } else {
+            null
+        }
+    } catch (e: Exception) {
+        null
     }
 }

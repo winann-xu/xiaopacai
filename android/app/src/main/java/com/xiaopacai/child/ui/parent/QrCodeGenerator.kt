@@ -123,6 +123,23 @@ object QrCodeGenerator {
     }
 
     /**
+     * [REQ] 生成儿童端二维码（供家长端扫码识别配对）
+     */
+    fun generateChildQrCode(
+        deviceId: String,
+        deviceName: String,
+        displaySize: Int = 480
+    ): Bitmap {
+        val json = JSONObject().apply {
+            put("type", "xiaopacai_child")
+            put("deviceId", deviceId)
+            put("deviceName", deviceName)
+            put("timestamp", System.currentTimeMillis() / 1000)
+        }
+        return generate(json.toString(), displaySize)
+    }
+
+    /**
      * 核心生成逻辑
      */
     private fun generate(content: String, displaySize: Int): Bitmap {

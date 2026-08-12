@@ -21,19 +21,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.xiaopacai.child.p2p.DiscoveredParent
 import com.xiaopacai.child.p2p.P2PConnectionState
 import com.xiaopacai.child.p2p.PairingManager
 import com.xiaopacai.child.p2p.PairingState
+import com.xiaopacai.child.BuildConfig
 import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.service.UsageStatsCollector
 import com.xiaopacai.child.ui.settings.AppCategoryActivity
 import com.xiaopacai.child.ui.settings.GuardianStatusActivity
+import com.xiaopacai.child.ui.scan.QrScannerActivity
+import com.xiaopacai.child.ui.parent.QrCodeGenerator
+import org.json.JSONObject
 
 /**
  * [TASK-D1-05][TASK-D2-01] 小趴菜儿童端守护主页
@@ -92,6 +100,106 @@ fun GuardianHomeContent(
     var manualHost by remember { mutableStateOf("") }
     var manualPort by remember { mutableStateOf("9527") }
     var pairingCode by remember { mutableStateOf("") }
+
+    // [REQ] 相机扫码配对 / 我的二维码（被扫）
+    var scanMessage by remember { mutableStateOf<String?>(null) }
+    var showMyQr by remember { mutableStateOf(false) }
+    var myQrBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+
+    fun handleQrScanResult(text: String) {
+        try {
+            val obj = JSONObject(text)
+            when (obj.optString("type")) {
+                "pairing", "web_relay" -> {
+                    val ips = obj.optJSONArray("ips")
+                    val host = obj.optString("host").ifBlank { ips?.optString(0) ?: "" }
+                    val port = obj.optInt("port", 9527)
+                    val code = obj.optString("pairingCode", "")
+                    val fp = obj.optString("fingerprint", "")
+                    if (host.isBlank()) {
+                        scanMessage = "二维码缺少可连接地址"
+                        return
+                    }
+                    val prefs = context.getSharedPreferences("guardian_prefs", android.content.Context.MODE_PRIVATE)
+                    val deviceId = prefs.getString("device_id", null) ?: java.util.UUID.randomUUID().toString()
+                    val scope = kotlinx.coroutines.CoroutineScope(
+                        kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()
+                    )
+                    scope.launch {
+                        GuardianForegroundService.getP2PConnection().connect(
+                            host = host,
+                            port = port,
+                            expectedFingerprint = fp.ifBlank { null },
+                            deviceId = deviceId,
+                            deviceName = "模拟器测试设备",
+                            pairingCode = code,
+                            scope = scope
+                        )
+                    }
+                    scanMessage = "已通过扫码连接家长端 $host:$port"
+                }
+                else -> scanMessage = "二维码内容无法识别"
+            }
+        } catch (e: Exception) {
+            scanMessage = "二维码解析失败：${e.message}"
+        }
+    }
+
+    val qrScanLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val text = result.data?.getStringExtra(QrScannerActivity.EXTRA_RESULT)
+        if (text.isNullOrBlank()) {
+            scanMessage = "未识别到二维码，请重试"
+            return@rememberLauncherForActivityResult
+        }
+        handleQrScanResult(text)
+    }
+
+    // [FIX] 必须通过 launcher 启动，否则扫描结果回调不会触发
+    fun launchQrScan() {
+        try {
+            qrScanLauncher.launch(android.content.Intent(context, QrScannerActivity::class.java))
+        } catch (e: Exception) {
+            scanMessage = "无法打开相机：${e.message}"
+        }
+    }
+
+    // 扫码结果提示
+    scanMessage?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { scanMessage = null },
+            title = { Text("扫码结果") },
+            text = { Text(msg) },
+            confirmButton = {
+                TextButton(onClick = { scanMessage = null }) { Text("知道了") }
+            }
+        )
+    }
+
+    // 我的二维码（家长端扫码识别）
+    if (showMyQr) {
+        AlertDialog(
+            onDismissRequest = { showMyQr = false },
+            title = { Text("我的二维码") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    myQrBitmap?.let { bmp ->
+                        androidx.compose.foundation.Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = "儿童端二维码",
+                            modifier = Modifier.size(260.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text("请家长端“扫码配对”识别此设备", fontSize = 13.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showMyQr = false }) { Text("关闭") }
+            }
+        )
+    }
 
     // 清理
     DisposableEffect(Unit) {
@@ -283,11 +391,7 @@ fun GuardianHomeContent(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = {
-                                if (pairingState == PairingState.SCANNING) {
-                                    pairingManager.stopScanning()
-                                } else {
-                                    pairingManager.startScanning()
-                                }
+                                launchQrScan()
                             },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) {
@@ -297,11 +401,45 @@ fun GuardianHomeContent(
                             )
                         }
                         OutlinedButton(
+                            onClick = {
+                                val prefs = context.getSharedPreferences("guardian_prefs", android.content.Context.MODE_PRIVATE)
+                                val deviceId = prefs.getString("device_id", null) ?: "unknown"
+                                myQrBitmap = QrCodeGenerator.generateChildQrCode(deviceId, "模拟器测试设备")
+                                showMyQr = true
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("我的二维码", fontSize = 13.sp)
+                        }
+                        OutlinedButton(
                             onClick = { showPairingDialog = true },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Text("手动连接", fontSize = 13.sp)
                         }
+                    }
+                    // [DEBUG] 模拟器无真实相机，调试构建提供扫码结果注入入口
+                    if (BuildConfig.DEBUG) {
+                        TextButton(
+                            onClick = {
+                                val testQr = JSONObject().apply {
+                                    put("type", "pairing")
+                                    put("version", "2.2")
+                                    put("deviceId", "parent-debug-test")
+                                    put("port", 9528)
+                                    // 空指纹 = 跳过证书校验（模拟器测试用，真机扫码会带真实指纹）
+                                    put("fingerprint", "")
+                                    put("pairingCode", "123456")
+                                    put("ips", org.json.JSONArray(listOf("10.0.2.2")))
+                                    put("timestamp", System.currentTimeMillis() / 1000)
+                                }.toString()
+                                qrScanLauncher.launch(
+                                    android.content.Intent(context, QrScannerActivity::class.java)
+                                        .putExtra(QrScannerActivity.EXTRA_TEST_RESULT, testQr)
+                                )
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) { Text("调试：模拟扫码配对", fontSize = 12.sp) }
                     }
                 }
             }
