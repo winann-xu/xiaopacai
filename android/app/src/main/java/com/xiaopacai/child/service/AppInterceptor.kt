@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import android.view.inputmethod.InputMethodManager
 import com.xiaopacai.child.XiaopacaiApp
+import com.xiaopacai.child.data.database.AppCategoryDao
 import com.xiaopacai.child.util.CategoryTaxonomy
 import com.xiaopacai.child.util.DbPassphraseProvider
 import java.text.SimpleDateFormat
@@ -239,19 +240,18 @@ class AppInterceptor(private val context: Context) {
     }
 
     /**
-     * 获取应用分类（简化版，从包名推断）
+     * [FIX] 获取应用分类：优先读 app_category 表（家长可一键自动分类/手动微调），
+     * 缺失时按 CategoryTaxonomy 规则即时分类（细粒度）。
+     * decidePartialIntercept 会再映射回引擎粗粒度。
      */
     private fun getAppCategory(packageName: String): String {
-        val lower = packageName.lowercase()
-        return when {
-            lower.contains("game") || lower.contains("minecraft") || lower.contains("roblox") -> "game"
-            lower.contains("wechat") || lower.contains("tencent") || lower.contains("douyin") ||
-            lower.contains("tiktok") || lower.contains("facebook") || lower.contains("instagram") -> "social"
-            lower.contains("video") || lower.contains("bilibili") || lower.contains("youtube") ||
-            lower.contains("iqiyi") || lower.contains("netflix") -> "video"
-            lower.contains("edu") || lower.contains("study") || lower.contains("learn") ||
-            lower.contains("note") || lower.contains("calculator") -> "study"
-            else -> "other"
+        return try {
+            val dao = AppCategoryDao(XiaopacaiApp.instance.database)
+            dao.getCategory(packageName, getPassphrase())
+                ?: CategoryTaxonomy.classify(packageName, "")
+        } catch (e: Exception) {
+            Log.w(TAG, "读取应用分类失败，使用规则回退: ${e.message}")
+            CategoryTaxonomy.classify(packageName, "")
         }
     }
 
