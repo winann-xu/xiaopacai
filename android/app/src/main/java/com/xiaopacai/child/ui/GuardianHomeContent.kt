@@ -138,7 +138,7 @@ fun GuardianHomeContent(
                             port = port,
                             expectedFingerprint = fp.ifBlank { null },
                             deviceId = deviceId,
-                            deviceName = "模拟器测试设备",
+                            deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim(),
                             pairingCode = code,
                             // [REQ] web_relay 二维码 → 经 Web 中继连接（否则服务器不登记中继会话，无法路由）
                             isRelay = obj.optString("type") == "web_relay",
