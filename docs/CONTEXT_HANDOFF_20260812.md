@@ -239,6 +239,16 @@
 - parent/parent123 登录 ✓；parent@xiaopacai.local 邮箱登录 ✓；邮箱注册 ✓。
 - binding-qr 返回 {host:192.168.50.11, port:9527, qrContent:web_relay...} ✓。
 
+## 2026-08-13 晚：儿童端限额不生效（快手仍可刷）修复（Android de8d7db）
+- 现象：限额用尽（261/250，超限 true，partial 模式），但快手仍可正常使用。
+- 根因：AppInterceptor.getAppCategory 用写死的包名关键词判断分类，快手包名
+  com.smile.gifmaker 不命中任何规则 → other → partial 模式不拦截。
+- 修复：拦截引擎分类改读 app_category 表（一键自动分类/家长微调结果），缺失回退
+  CategoryTaxonomy；并补 gifmaker/gifshow/smile.gif 等快手包名。
+- 实测：打开快手 → GuardianA11y 拦截 com.smile.gifmaker，原因 partial-video，覆盖层显示
+  「应用已停用 261/250 分钟」✓
+- 注意：partial 模式只拦 game/social/video（含 short_video），其他/学习放行，符合设计。
+
 ### 问题 3：儿童端公告未显示最近三条
 - 根因 A：公告实时推送只在儿童端在线时生效；离线期间发布的公告，儿童端重连后永远收不到
   （心跳的 1 小时待办窗口儿童端未消费）。
