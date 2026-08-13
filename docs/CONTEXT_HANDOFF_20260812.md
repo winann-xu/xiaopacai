@@ -126,3 +126,30 @@
 ### 生产下载已更新
 - 修复版 APK（MD5 d10987947a6affedc1443e3b8a81636c）已上传
   http://192.168.50.11:5000/downloads/XiaopacaiParent-1.0.0-debug.apk
+
+## 2026-08-13 上午：权限底层快速授权实测 + 引导页自动检测（已提交 6a3c670）
+
+### 用户诉求
+减少家长设定手机的门槛；探索更底层方式（如 ADB、重启进高权限模式等）。
+
+### 真机（OPPO PKV110 / ColorOS / Android 16）验证结果
+- 底层授权命令实测有效：
+  - 使用情况：`adb shell appops set <pkg> GET_USAGE_STATS allow` ✓
+  - 通知：`adb shell pm grant <pkg> android.permission.POST_NOTIFICATIONS` ✓
+  - 电池优化：`adb shell dumpsys deviceidle whitelist +<pkg>` ✓
+  - 无障碍：`settings put secure enabled_accessibility_services ...` + `accessibility_enabled 1` ✓
+    **注意 ColorOS 坑**：应用被 force-stop 时系统会回退该设置；应用常驻时保持有效。
+- 自启动（可选第 5 项）：ColorOS 的自启动管理（com.oplus.battery/com.oplus.startupapp...）
+  受 OPLUS_COMPONENT_SAFE 签名权限保护，第三方应用无法直接拉起深链；已补充 OPLUS 变体尝试，
+  失败回退应用详情页。AUTO_START appop 在该机型不存在。
+- “重启进高权限”不可行：重启不会授予任何权限；且无线调试在重启后需重新开启。
+  真正可行的低门槛路径 = 电脑 ADB 一条命令（30 秒）+ 引导页自动检测。
+
+### 引导页改进（6a3c670）
+- 每 2 秒自动刷新权限状态：ADB 外部授权后手机无需操作，自动识别并进入儿童端。
+  实测：引导页 3/4 → 电脑执行无障碍授权命令 → 5 秒内自动进入儿童端主页 ✓
+- ADB 一键授权卡置顶高亮，含 5 条已验证命令（新增 accessibility_enabled=1）。
+- 新版 APK 已上传生产 downloads（MD5 29aee1b6ed717df3506944540efd7805）。
+
+### 重启测试（未完成，待用户重新开启无线调试）
+- 手机重启后无线调试未自动广播（ColorOS 需手动重开），等待用户提供新的 IP:端口/配对码。
