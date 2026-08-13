@@ -106,8 +106,28 @@ fun AppCategoryScreen(onBack: () -> Unit) {
                 .padding(padding)
         ) {
             if (loading) {
-                // 加载中
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                // 加载中（首次会扫描已安装应用并生成默认分类，需要几秒）
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(12.dp))
+                    Text("正在加载应用列表…", fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else if (items.isEmpty()) {
+                // 空状态：安装应用扫描失败或列表为空
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("暂无可分类的应用", fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(4.dp))
+                    Text("请确认已授予「应用列表」权限", fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),

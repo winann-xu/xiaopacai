@@ -35,8 +35,8 @@ class UsageStatsCollector(
 
     companion object {
         private const val TAG = "UsageStatsCollector"
-        /** 采集间隔：5 分钟 */
-        private const val COLLECT_INTERVAL_MS = 5 * 60 * 1000L
+        /** [FIX] 采集间隔：1 分钟（此前 5 分钟导致超时后最多延迟 5 分钟才锁定） */
+        private const val COLLECT_INTERVAL_MS = 60 * 1000L
         /** 初始延迟：30 秒（给系统启动留足时间） */
         private const val INITIAL_DELAY_MS = 30 * 1000L
 
