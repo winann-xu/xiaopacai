@@ -68,6 +68,23 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
     }
 
     /**
+     * 查询已入库的全部包名（用于初始化时一次性判断哪些应用缺分类，避免逐个开库）
+     */
+    fun getAllPackageNames(passphrase: ByteArray): Set<String> {
+        val db = dbHelper.getReadable(passphrase)
+        return try {
+            val cursor = db.rawQuery("SELECT package_name FROM app_category", null)
+            val set = mutableSetOf<String>()
+            cursor.use {
+                while (it.moveToNext()) set.add(it.getString(0))
+            }
+            set
+        } finally {
+            db.close()
+        }
+    }
+
+    /**
      * 批量查询分类（用于拦截引擎的高频判断）
      *
      * @return packageName → category 映射
@@ -119,6 +136,35 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
                 )
             )
         } finally {
+            db.close()
+        }
+    }
+
+    /**
+     * [FIX] 批量插入缺失分类（单次事务，避免 381 个应用逐个开库导致卡顿）
+     *
+     * @param entries 每项为 (packageName, appName, category)
+     */
+    fun insertCategoriesIfAbsentBatch(
+        entries: List<Triple<String, String, String>>,
+        passphrase: ByteArray
+    ) {
+        if (entries.isEmpty()) return
+        val db = dbHelper.getWritable(passphrase)
+        try {
+            db.beginTransaction()
+            val now = (System.currentTimeMillis() / 1000).toString()
+            entries.forEach { (pkg, name, cat) ->
+                db.execSQL(
+                    """INSERT OR IGNORE INTO app_category
+                       (package_name, app_name, category, source, updated_at)
+                       VALUES (?, ?, ?, 'default', ?)""",
+                    arrayOf(pkg, name, cat, now)
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
             db.close()
         }
     }

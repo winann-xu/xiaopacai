@@ -34,19 +34,21 @@ object AppCategoryHelper {
         return try {
             val dao = AppCategoryDao(XiaopacaiApp.instance.database)
             val installed = getInstalledPackages(context)
-            var added = 0
+            // [FIX] 一次性读取已入库包名，避免每个应用单独开库查询
+            val existing = dao.getAllPackageNames(passphrase)
+            val newEntries = mutableListOf<Triple<String, String, String>>()
             installed.forEach { (packageName, appName) ->
                 // 已存在（含 manual）跳过，不覆盖家长设置
-                if (dao.getCategory(packageName, passphrase) == null) {
-                    val category = classifyByRules(packageName, appName)
-                    dao.insertIfAbsent(packageName, appName, category, passphrase)
-                    added++
+                if (packageName !in existing) {
+                    newEntries.add(Triple(packageName, appName, classifyByRules(packageName, appName)))
                 }
             }
-            if (added > 0) {
-                Log.i(TAG, "应用分类初始化完成，新增 $added 条（共 ${installed.size} 个应用）")
+            if (newEntries.isNotEmpty()) {
+                // 单事务批量落库
+                dao.insertCategoriesIfAbsentBatch(newEntries, passphrase)
+                Log.i(TAG, "应用分类初始化完成，新增 ${newEntries.size} 条（共 ${installed.size} 个应用）")
             }
-            added
+            newEntries.size
         } catch (e: Exception) {
             Log.e(TAG, "应用分类初始化失败: ${e.message}")
             0

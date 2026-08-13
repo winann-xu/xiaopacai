@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,6 +36,7 @@ import com.xiaopacai.child.p2p.P2PConnectionState
 import com.xiaopacai.child.p2p.PairingManager
 import com.xiaopacai.child.p2p.PairingState
 import com.xiaopacai.child.BuildConfig
+import com.xiaopacai.child.role.RoleManager
 import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.service.UsageStatsCollector
 import com.xiaopacai.child.ui.settings.AppCategoryActivity
@@ -105,6 +107,10 @@ fun GuardianHomeContent(
     var scanMessage by remember { mutableStateOf<String?>(null) }
     var showMyQr by remember { mutableStateOf(false) }
     var myQrBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    // [REQ] 应用分类设置需家长密码验证
+    var showCategoryPwd by remember { mutableStateOf(false) }
+    var categoryPwd by remember { mutableStateOf("") }
+    var categoryPwdError by remember { mutableStateOf<String?>(null) }
 
     fun handleQrScanResult(text: String) {
         try {
@@ -199,6 +205,63 @@ fun GuardianHomeContent(
             },
             confirmButton = {
                 TextButton(onClick = { showMyQr = false }) { Text("关闭") }
+            }
+        )
+    }
+
+    // [REQ] 应用分类家长密码验证对话框
+    if (showCategoryPwd) {
+        AlertDialog(
+            onDismissRequest = {
+                showCategoryPwd = false
+                categoryPwd = ""
+                categoryPwdError = null
+            },
+            title = { Text("家长验证") },
+            text = {
+                Column {
+                    Text("应用分类涉及守护策略，请输入家长密码",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = categoryPwd,
+                        onValueChange = { categoryPwd = it; categoryPwdError = null },
+                        label = { Text("家长密码") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = PasswordVisualTransformation(),
+                        isError = categoryPwdError != null
+                    )
+                    if (categoryPwdError != null) {
+                        Text(categoryPwdError!!, color = MaterialTheme.colorScheme.error,
+                            fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (RoleManager.verifyParentPassword(context, categoryPwd)) {
+                        showCategoryPwd = false
+                        categoryPwd = ""
+                        try {
+                            context.startActivity(
+                                Intent(context, AppCategoryActivity::class.java)
+                            )
+                        } catch (e: Exception) {
+                            Log.e("GuardianHome", "打开应用分类页失败: ${e.message}")
+                        }
+                    } else {
+                        categoryPwdError = "密码错误"
+                    }
+                }) { Text("确认") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showCategoryPwd = false
+                    categoryPwd = ""
+                    categoryPwdError = null
+                }) { Text("取消") }
             }
         )
     }
@@ -488,13 +551,7 @@ fun GuardianHomeContent(
                     icon = Icons.Default.Category,
                     label = "应用分类",
                     onClick = {
-                        try {
-                            context.startActivity(
-                                Intent(context, AppCategoryActivity::class.java)
-                            )
-                        } catch (e: Exception) {
-                            Log.e("GuardianHome", "打开应用分类页失败: ${e.message}")
-                        }
+                        showCategoryPwd = true
                     }
                 )
                 QuickActionButton(

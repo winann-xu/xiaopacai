@@ -85,6 +85,7 @@ class DebugTriggerActivity : ComponentActivity() {
             "parent_setup" -> parentSetup()
             "parent_relay" -> parentRelayConnect()
             "pair_relay" -> pairRelay()
+            "set_parent_pwd" -> setParentPwd()
                 else -> goHome()
             }
             toast("DebugTrigger: $action ok")
@@ -693,6 +694,16 @@ class DebugTriggerActivity : ComponentActivity() {
             this, com.xiaopacai.child.role.RoleManager.Role.PARENT
         )
         Log.i(TAG, "parent_setup: setPwd=$okPwd setRole=$okRole")
+    }
+
+    /**
+     * 仅设置家长密码（不切换角色），供儿童端验证密码门槛使用。
+     */
+    private fun setParentPwd() {
+        val pwd = intent.getStringExtra("password") ?: "123456"
+        val ok = com.xiaopacai.child.role.RoleManager.setParentPassword(this, pwd)
+        toast("setParentPwd=$ok")
+        Log.i(TAG, "set_parent_pwd: ok=$ok")
     }
 
     private fun goHome() {

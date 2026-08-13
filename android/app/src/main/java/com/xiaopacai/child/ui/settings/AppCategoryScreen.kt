@@ -85,6 +85,14 @@ fun AppCategoryScreen(onBack: () -> Unit) {
     // 应用分类列表（异步加载：先初始化默认分类，再读全量数据）
     var items by remember { mutableStateOf<List<CategoryItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    // [REQ] 搜索过滤：应用多时快速定位
+    var searchText by remember { mutableStateOf("") }
+
+    val filteredItems = items.filter {
+        searchText.isBlank() ||
+            it.appName.contains(searchText, ignoreCase = true) ||
+            it.packageName.contains(searchText, ignoreCase = true)
+    }
 
     // 顶部栏
     Scaffold(
@@ -134,6 +142,18 @@ fun AppCategoryScreen(onBack: () -> Unit) {
                     contentPadding = PaddingValues(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // 搜索框
+                    item {
+                        OutlinedTextField(
+                            value = searchText,
+                            onValueChange = { searchText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            placeholder = { Text("搜索应用名或包名") },
+                            leadingIcon = { Text("🔍") }
+                        )
+                    }
+
                     // 说明卡片
                     item {
                         Card(
@@ -150,7 +170,8 @@ fun AppCategoryScreen(onBack: () -> Unit) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = "共 ${items.size} 个应用",
+                                    text = if (searchText.isBlank()) "共 ${items.size} 个应用"
+                                    else "匹配 ${filteredItems.size} / ${items.size} 个应用",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(top = 4.dp)
@@ -159,7 +180,7 @@ fun AppCategoryScreen(onBack: () -> Unit) {
                         }
                     }
 
-                    items(items, key = { it.packageName }) { item ->
+                    items(filteredItems, key = { it.packageName }) { item ->
                         CategoryRow(
                             item = item,
                             onChange = { newCategory ->
