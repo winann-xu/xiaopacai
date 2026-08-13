@@ -1,6 +1,7 @@
 package com.xiaopacai.child.p2p
 
 import android.util.Log
+import com.xiaopacai.child.XiaopacaiApp
 import kotlinx.coroutines.*
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -79,6 +80,8 @@ class P2PConnectionService {
     private var connectedFingerprint: String? = null  // 实际连接的证书指纹
     private var heartbeatMissCount = 0
     private var reconnectAttempt = 0
+    private var _host: String = ""
+    private var _port: Int = 9527
     private var _deviceId: String = ""
     private var _deviceName: String = ""
     private var _pairingCode: String? = null
@@ -104,16 +107,39 @@ class P2PConnectionService {
         scope: CoroutineScope
     ) {
         this.expectedFingerprint = expectedFingerprint
+        this._host = host
+        this._port = port
         this._deviceId = deviceId
         this._deviceName = deviceName
         this._pairingCode = pairingCode
         this._isRelay = isRelay
         this.reconnectAttempt = 0
 
+        // [REQ] 持久化连接配置，供服务/应用重启后自动重连（局域网与公网中继通用）
+        persistConnectionConfig()
+
         disconnect()  // 断开旧连接
 
         connectionJob = scope.launch(Dispatchers.IO) {
             performConnect(host, port)
+        }
+    }
+
+    /** 持久化连接目标（宿主/端口/配对码/中继模式/指纹/设备ID） */
+    private fun persistConnectionConfig() {
+        try {
+            val prefs = XiaopacaiApp.instance
+                .getSharedPreferences("guardian_prefs", android.content.Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString("relay_host", _host)
+                .putInt("relay_port", _port)
+                .putString("relay_pairing_code", _pairingCode ?: "")
+                .putBoolean("relay_mode", _isRelay)
+                .putString("relay_fingerprint", expectedFingerprint ?: "")
+                .putString("device_id", _deviceId)
+                .apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "持久化连接配置失败: ${e.message}")
         }
     }
 

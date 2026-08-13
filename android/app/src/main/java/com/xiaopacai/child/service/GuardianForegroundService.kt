@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.xiaopacai.child.XiaopacaiApp
 import com.xiaopacai.child.p2p.P2PConnectionService
+import com.xiaopacai.child.p2p.P2PConnectionState
 import com.xiaopacai.child.p2p.SyncManager
 import kotlinx.coroutines.*
 
@@ -142,6 +143,8 @@ class GuardianForegroundService : Service() {
     private fun startSyncManager() {
         // [FIX-LEGACY-a] 使用共享 P2P 连接实例（与 UI 配对共用同一链路）
         val p2pConnection = getP2PConnection()
+        // [REQ] 断线/服务重启后按持久化配置自动重连
+        maybeAutoReconnect(p2pConnection)
         // [FIX-DOWNLINK] 下行消息路由：家长端下发的策略/公告等必须接入 SyncManager 处理，
         // 否则 policy_update/announcement_push 只进连接层缓存、不落库不生效。
         if (syncManager == null) {
@@ -157,6 +160,38 @@ class GuardianForegroundService : Service() {
             }
         }
         syncManager?.start()
+    }
+
+    /**
+     * [REQ] 自动重连：应用/服务重启后，读取上次成功连接的宿主与配对信息，
+     * 若当前未连接则重新建立 P2P（局域网直连或 Web 中继均支持）。
+     */
+    private fun maybeAutoReconnect(p2pConnection: P2PConnectionService) {
+        val state = p2pConnection.connectionState.value
+        if (state == P2PConnectionState.CONNECTED || state == P2PConnectionState.CONNECTING ||
+            state == P2PConnectionState.HANDSHAKING) return
+
+        val prefs = getSharedPreferences("guardian_prefs", MODE_PRIVATE)
+        val host = prefs.getString("relay_host", null)?.takeIf { it.isNotBlank() } ?: return
+        val port = prefs.getInt("relay_port", 9527)
+        val pairingCode = prefs.getString("relay_pairing_code", "")?.takeIf { it.isNotBlank() }
+        val isRelay = prefs.getBoolean("relay_mode", false)
+        val fingerprint = prefs.getString("relay_fingerprint", "")?.takeIf { it.isNotBlank() }
+        val deviceId = prefs.getString("device_id", null)?.takeIf { it.isNotBlank() } ?: return
+
+        Log.i(TAG, "自动重连: $host:$port relay=$isRelay")
+        serviceScope.launch(Dispatchers.IO) {
+            p2pConnection.connect(
+                host = host,
+                port = port,
+                expectedFingerprint = fingerprint,
+                deviceId = deviceId,
+                deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim(),
+                pairingCode = pairingCode,
+                isRelay = isRelay,
+                scope = serviceScope
+            )
+        }
     }
 
     /**
