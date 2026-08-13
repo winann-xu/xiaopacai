@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.xiaopacai.child.data.database.AppCategoryDao
 import com.xiaopacai.child.ui.theme.XiaopacaiTheme
 import com.xiaopacai.child.util.AppCategoryHelper
+import com.xiaopacai.child.util.CategoryTaxonomy
 import com.xiaopacai.child.util.DbPassphraseProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -40,17 +42,11 @@ import kotlinx.coroutines.withContext
  * 首次打开时触发已安装应用扫描，按关键词规则生成默认分类。
  */
 
-/** 可选分类列表（V3 统一口径） */
-private val CATEGORY_OPTIONS = listOf("game", "social", "video", "learning", "other")
+/** 可选分类列表（细粒度） */
+private val CATEGORY_OPTIONS = CategoryTaxonomy.CATEGORY_OPTIONS
 
 /** 分类中文名映射 */
-private val CATEGORY_LABELS = mapOf(
-    "game" to "游戏",
-    "social" to "社交",
-    "video" to "视频",
-    "learning" to "学习",
-    "other" to "其他"
-)
+private val CATEGORY_LABELS = CategoryTaxonomy.CATEGORY_LABELS
 
 /** 应用分类条目（UI 数据模型） */
 private data class CategoryItem(
@@ -87,6 +83,9 @@ fun AppCategoryScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     // [REQ] 搜索过滤：应用多时快速定位
     var searchText by remember { mutableStateOf("") }
+    // [REQ] 一键自动分类状态
+    var autoClassifying by remember { mutableStateOf(false) }
+    var autoClassifyMessage by remember { mutableStateOf<String?>(null) }
 
     val filteredItems = items.filter {
         searchText.isBlank() ||
@@ -152,6 +151,64 @@ fun AppCategoryScreen(onBack: () -> Unit) {
                             placeholder = { Text("搜索应用名或包名") },
                             leadingIcon = { Text("🔍") }
                         )
+                    }
+
+                    // [REQ] 一键自动分类
+                    item {
+                        Button(
+                            onClick = {
+                                autoClassifying = true
+                                autoClassifyMessage = null
+                                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                                    val passphrase = DbPassphraseProvider.getPassphrase(context)
+                                    val count = AppCategoryHelper.autoClassify(context, passphrase)
+                                    // 重新读取列表
+                                    val dao = AppCategoryDao(com.xiaopacai.child.XiaopacaiApp.instance.database)
+                                    val installed = AppCategoryHelper.getInstalledPackages(context)
+                                    val rows = dao.getAll(passphrase)
+                                    val reloaded = rows.mapNotNull { row ->
+                                        val pkg = row["packageName"]?.toString() ?: return@mapNotNull null
+                                        val name = row["appName"]?.toString() ?: pkg
+                                        CategoryItem(
+                                            packageName = pkg,
+                                            appName = name,
+                                            category = row["category"]?.toString() ?: "other",
+                                            source = row["source"]?.toString() ?: "default"
+                                        )
+                                    }.filter { it.packageName in installed }.sortedBy { it.appName }
+                                    withContext(Dispatchers.Main) {
+                                        items = reloaded
+                                        autoClassifying = false
+                                        autoClassifyMessage = "已自动分类 $count 个应用"
+                                    }
+                                }
+                            },
+                            enabled = !autoClassifying,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (autoClassifying) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("自动分类中…")
+                            } else {
+                                Icon(Icons.Default.Bolt, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("一键自动分类（家长手工设置不会被覆盖）")
+                            }
+                        }
+                    }
+
+                    autoClassifyMessage?.let { msg ->
+                        item {
+                            Text(
+                                text = msg,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
 
                     // 说明卡片

@@ -85,6 +85,26 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
     }
 
     /**
+     * 查询家长手工设置过的包名（自动分类时跳过，不覆盖家长设置）
+     */
+    fun getManualPackageNames(passphrase: ByteArray): Set<String> {
+        val db = dbHelper.getReadable(passphrase)
+        return try {
+            val cursor = db.rawQuery(
+                "SELECT package_name FROM app_category WHERE source = 'manual'",
+                null
+            )
+            val set = mutableSetOf<String>()
+            cursor.use {
+                while (it.moveToNext()) set.add(it.getString(0))
+            }
+            set
+        } finally {
+            db.close()
+        }
+    }
+
+    /**
      * 批量查询分类（用于拦截引擎的高频判断）
      *
      * @return packageName → category 映射
@@ -157,6 +177,34 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
             entries.forEach { (pkg, name, cat) ->
                 db.execSQL(
                     """INSERT OR IGNORE INTO app_category
+                       (package_name, app_name, category, source, updated_at)
+                       VALUES (?, ?, ?, 'default', ?)""",
+                    arrayOf(pkg, name, cat, now)
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+            db.close()
+        }
+    }
+
+    /**
+     * 批量写入/替换默认分类（单事务，用于「一键自动分类」）
+     * source 固定为 default，调用前应已过滤掉 manual 项。
+     */
+    fun insertCategoriesOrReplaceBatch(
+        entries: List<Triple<String, String, String>>,
+        passphrase: ByteArray
+    ) {
+        if (entries.isEmpty()) return
+        val db = dbHelper.getWritable(passphrase)
+        try {
+            db.beginTransaction()
+            val now = (System.currentTimeMillis() / 1000).toString()
+            entries.forEach { (pkg, name, cat) ->
+                db.execSQL(
+                    """INSERT OR REPLACE INTO app_category
                        (package_name, app_name, category, source, updated_at)
                        VALUES (?, ?, ?, 'default', ?)""",
                     arrayOf(pkg, name, cat, now)

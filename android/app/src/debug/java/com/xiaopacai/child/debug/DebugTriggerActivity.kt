@@ -86,6 +86,7 @@ class DebugTriggerActivity : ComponentActivity() {
             "parent_relay" -> parentRelayConnect()
             "pair_relay" -> pairRelay()
             "set_parent_pwd" -> setParentPwd()
+            "auto_classify" -> autoClassify()
                 else -> goHome()
             }
             toast("DebugTrigger: $action ok")
@@ -704,6 +705,39 @@ class DebugTriggerActivity : ComponentActivity() {
         val ok = com.xiaopacai.child.role.RoleManager.setParentPassword(this, pwd)
         toast("setParentPwd=$ok")
         Log.i(TAG, "set_parent_pwd: ok=$ok")
+    }
+
+    /**
+     * 执行一键自动分类并抽查若干常见应用（验证规则与批量落库）。
+     */
+    private fun autoClassify() {
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val passphrase = DbPassphraseProvider.getPassphrase(this@DebugTriggerActivity)
+                val count = com.xiaopacai.child.util.AppCategoryHelper
+                    .autoClassify(this@DebugTriggerActivity, passphrase)
+                Log.i(TAG, "auto_classify done: $count")
+                val samples = listOf(
+                    "com.android.chrome" to "Chrome",
+                    "com.tencent.mm" to "微信",
+                    "com.ss.android.ugc.aweme" to "抖音",
+                    "tv.danmaku.bili" to "哔哩哔哩",
+                    "com.netease.cloudmusic" to "网易云音乐",
+                    "com.tencent.mobileqq" to "QQ",
+                    "com.taobao.taobao" to "淘宝",
+                    "com.eg.android.AlipayGphone" to "支付宝"
+                )
+                for ((pkg, name) in samples) {
+                    Log.i(TAG, "classify $pkg($name) -> " +
+                        com.xiaopacai.child.util.CategoryTaxonomy.classify(pkg, name))
+                }
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    toast("已自动分类 $count 个应用")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "auto_classify failed: ${e.message}", e)
+            }
+        }
     }
 
     private fun goHome() {

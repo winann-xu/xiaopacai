@@ -56,6 +56,31 @@ object AppCategoryHelper {
     }
 
     /**
+     * [REQ] 一键自动分类：对所有已安装应用按新规则重新分类。
+     * 家长手工设置（source=manual）的项跳过，不覆盖。
+     *
+     * @return 本次自动分类的应用数量
+     */
+    fun autoClassify(context: Context, passphrase: ByteArray): Int {
+        return try {
+            val dao = AppCategoryDao(XiaopacaiApp.instance.database)
+            val installed = getInstalledPackages(context)
+            val manual = dao.getManualPackageNames(passphrase)
+            val entries = mutableListOf<Triple<String, String, String>>()
+            installed.forEach { (pkg, name) ->
+                if (pkg !in manual) {
+                    entries.add(Triple(pkg, name, CategoryTaxonomy.classify(pkg, name)))
+                }
+            }
+            dao.insertCategoriesOrReplaceBatch(entries, passphrase)
+            entries.size
+        } catch (e: Exception) {
+            Log.e(TAG, "一键自动分类失败: ${e.message}")
+            0
+        }
+    }
+
+    /**
      * 获取已安装应用列表（包名 → 应用名）
      */
     fun getInstalledPackages(context: Context): Map<String, String> {
@@ -80,25 +105,17 @@ object AppCategoryHelper {
     }
 
     /**
-     * 按关键词规则分类（规则来自 UsageStatsCollector.CATEGORY_RULES）
-     *
-     * @return V3 标准分类值（study 映射为 learning）
+     * 按关键词规则分类（细粒度，规则见 CategoryTaxonomy）
      */
     fun classifyByRules(packageName: String, appName: String): String {
-        val searchText = "${packageName.lowercase()} ${appName.lowercase()}"
-        for ((keyword, category) in com.xiaopacai.child.service.UsageStatsCollector.getCategoryRules()) {
-            if (keyword in searchText) {
-                return if (category == "study") "learning" else category
-            }
-        }
-        return "other"
+        return CategoryTaxonomy.classify(packageName, appName)
     }
 
     /**
-     * 将 V3 标准分类值转换为采集器内部口径
-     * learning → study（usage_records/拦截引擎沿用旧口径）
+     * 将细粒度分类映射到引擎粗粒度口径
+     * （game/social/video/study/other），供拦截/限额/汇总使用。
      */
     fun toInternalCategory(category: String): String {
-        return if (category == "learning") "study" else category
+        return CategoryTaxonomy.toEngineCategory(category)
     }
 }

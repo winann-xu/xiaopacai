@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import android.view.inputmethod.InputMethodManager
 import com.xiaopacai.child.XiaopacaiApp
+import com.xiaopacai.child.util.CategoryTaxonomy
 import com.xiaopacai.child.util.DbPassphraseProvider
 import java.text.SimpleDateFormat
 import java.util.*
@@ -61,6 +62,8 @@ class AppInterceptor(private val context: Context) {
             isWhitelisted: Boolean,
             categoryExceeded: Boolean
         ): InterceptResult {
+            // 细粒度分类（如 short_video/browser）映射到引擎粗粒度口径
+            val engineCategory = CategoryTaxonomy.toEngineCategory(category)
             if (isBlacklisted) {
                 return InterceptResult(intercept = true, reason = "blacklist")
             }
@@ -70,11 +73,11 @@ class AppInterceptor(private val context: Context) {
             if (categoryExceeded) {
                 return InterceptResult(intercept = true, reason = "category-limit")
             }
-            if (category == "learning" || category == "study") {
+            if (engineCategory == "learning" || engineCategory == "study") {
                 return InterceptResult(intercept = false, reason = "study")
             }
-            if (category in setOf("game", "social", "video")) {
-                return InterceptResult(intercept = true, reason = "partial-$category")
+            if (engineCategory in setOf("game", "social", "video")) {
+                return InterceptResult(intercept = true, reason = "partial-$engineCategory")
             }
             return InterceptResult(intercept = false, reason = "other")
         }
