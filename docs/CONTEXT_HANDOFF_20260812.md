@@ -237,6 +237,15 @@
 - 证据：修复前截图（快手 149k 色视频画面 + 超限 true + 无拦截日志）；
   修复后日志「拦截应用 + 巡检拦截 com.smile.gifmaker partial-video」，覆盖层出现。
 
+## 2026-08-13 晚：全应用管制验证矩阵 + 小红书规则补齐（Android 097602d）
+- 受管制应用全部正确拦截（真机 partial 超时 347/330）：
+  快手/抖音/抖音极速版/爱奇艺 → partial-video；
+  OPPO 游戏中心/捕鱼游戏 → partial-game；小红书(com.xingin.xhs) → partial-video（新规则）。
+- 非受限应用不误拦：夸克浏览器/淘宝/计算器 ✓。
+- 经验：测试受管制应用必须用 `cmd package resolve-activity` 取真实 LAUNCHER 组件。
+- 发现：紧急公告每次重连会再次全屏置顶（握手补推），测试拦截前需先确认公告；
+  auto_classify 在某次重装后返回 0（分类表 source 状态待查，拦截有规则兜底不受影响）。
+
 ## 2026-08-13 晚：Web 账号与扫码绑定完善（Web 5229471）
 
 ### 问题与设计
