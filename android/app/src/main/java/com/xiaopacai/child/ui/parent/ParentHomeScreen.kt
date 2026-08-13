@@ -64,6 +64,8 @@ fun ParentHomeScreen(
     var localIps by remember { mutableStateOf(emptyList<String>()) }
     // [REQ] 扫码识别到的儿童设备信息（对话框展示）
     var scanChildInfo by remember { mutableStateOf<String?>(null) }
+    // [REQ] 首页快捷入口：孩子手机快速授权指南（电脑 ADB）
+    var showAdbGuide by remember { mutableStateOf(false) }
 
     val childScanLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -174,7 +176,9 @@ fun ParentHomeScreen(
             }
         }
     ) { paddingValues ->
-        Column(
+        if (showAdbGuide) {
+            ParentAdbGuideScreen(onBack = { showAdbGuide = false })
+        } else Column(
             modifier = Modifier.fillMaxSize().padding(paddingValues)
         ) {
             // P2P 状态条
@@ -217,6 +221,36 @@ fun ParentHomeScreen(
                     )
                 }
             )
+
+            // [REQ] 首页快捷入口：孩子手机快速授权指南（家长最容易找到）
+            Card(
+                onClick = { showAdbGuide = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.School, null, Modifier.size(26.dp),
+                        tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("孩子手机快速授权指南",
+                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer)
+                        Text("电脑 ADB 一条命令 · 约 30 秒 · 设置一次永久生效",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.75f))
+                    }
+                    Icon(Icons.Filled.ChevronRight, null,
+                        tint = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.5f))
+                }
+            }
 
             // [DEBUG] 模拟器无真实相机，调试构建提供扫码结果注入入口
             if (BuildConfig.DEBUG) {
