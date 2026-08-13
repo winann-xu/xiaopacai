@@ -133,6 +133,8 @@ fun GuardianHomeContent(
                             deviceId = deviceId,
                             deviceName = "模拟器测试设备",
                             pairingCode = code,
+                            // [REQ] web_relay 二维码 → 经 Web 中继连接（否则服务器不登记中继会话，无法路由）
+                            isRelay = obj.optString("type") == "web_relay",
                             scope = scope
                         )
                     }

@@ -83,6 +83,8 @@ class DebugTriggerActivity : ComponentActivity() {
             "parent_seedannounce" -> parentSeedAnnounce()
             "parent_fulldata" -> parentFullData()
             "parent_setup" -> parentSetup()
+            "parent_relay" -> parentRelayConnect()
+            "pair_relay" -> pairRelay()
                 else -> goHome()
             }
             toast("DebugTrigger: $action ok")
@@ -626,6 +628,62 @@ class DebugTriggerActivity : ComponentActivity() {
         parentSeedAnnounce()
         Log.i(TAG, "parent_fulldata: 全部家长端测试数据注入完成")
         toast("家长端测试数据注入完成:\n1 设备 + 5 策略 + 3 公告")
+    }
+
+    /**
+     * 家长端连接 Web 中继（调试用）：获取配对码 → 注册 → P2P 连接。
+     * 参数：host（默认 127.0.0.1）、port（默认 5001）。
+     */
+    private fun parentRelayConnect() {
+        val host = intent.getStringExtra("host") ?: "127.0.0.1"
+        val port = intent.getIntExtra("port", 5001)
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val (result, pairCode) =
+                    com.xiaopacai.child.ui.parent.connectToWebRelay(this@DebugTriggerActivity, host, port)
+                Log.i(TAG, "parent_relay: $result | pairCode=$pairCode")
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    toast("中继结果: $result")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "parent_relay failed: ${e.message}", e)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    toast("中继失败: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * 儿童端经 Web 中继连接家长端（调试用，替代扫码：相机链路已单独验证）。
+     * 参数：host（默认 192.168.50.11）、port（默认 9527）、pairCode（配对码）。
+     */
+    private fun pairRelay() {
+        val host = intent.getStringExtra("host") ?: "192.168.50.11"
+        val port = intent.getIntExtra("port", 9527)
+        val pairCode = intent.getStringExtra("pairCode") ?: ""
+        val prefs = getSharedPreferences("guardian_prefs", MODE_PRIVATE)
+        val deviceId = prefs.getString("device_id", null) ?: java.util.UUID.randomUUID().toString()
+        val scope = kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()
+        )
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                com.xiaopacai.child.service.GuardianForegroundService.getP2PConnection().connect(
+                    host = host,
+                    port = port,
+                    expectedFingerprint = null,
+                    deviceId = deviceId,
+                    deviceName = "真机儿童端",
+                    pairingCode = pairCode,
+                    isRelay = true,
+                    scope = scope
+                )
+                Log.i(TAG, "pair_relay initiated: $host:$port code=$pairCode device=$deviceId")
+            } catch (e: Exception) {
+                Log.e(TAG, "pair_relay failed: ${e.message}", e)
+            }
+        }
     }
 
     private fun parentSetup() {

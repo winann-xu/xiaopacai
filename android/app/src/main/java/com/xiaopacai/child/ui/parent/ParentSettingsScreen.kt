@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -73,6 +74,10 @@ fun ParentSettingsScreen(
     var webUsername by remember { mutableStateOf("") }
     var webPassword by remember { mutableStateOf("") }
     var webLoggingIn by remember { mutableStateOf(false) }
+    // [REQ] Web 中继配对码/二维码（儿童端扫码经 Web 连接）
+    var relayPairingCode by remember { mutableStateOf<String?>(null) }
+    var relayQrBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var showRelayQr by remember { mutableStateOf(false) }
     var webTokenSaved by remember {
         mutableStateOf(
             context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
@@ -345,9 +350,11 @@ fun ParentSettingsScreen(
                             // 异步连接 Web 中继
                             kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                                 try {
-                                    val result = connectToWebRelay(context, relayHost, relayPort)
+                                    val (result, pairCode) = connectToWebRelay(context, relayHost, relayPort)
                                     withContext(Dispatchers.Main) {
                                         Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
+                                        relayPairingCode = pairCode
+                                        relayQrBitmap = null
                                         relayConnecting = false
                                     }
                                 } catch (e: Exception) {
@@ -365,6 +372,41 @@ fun ParentSettingsScreen(
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         } else {
                             Text(if (relayEnabled) "连接中继" else "测试连接")
+                        }
+                    }
+                    // [REQ] 配对码与二维码：儿童端扫码后经 Web 中继连接本家长端
+                    if (relayPairingCode != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text("儿童端配对码：", fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                Text(relayPairingCode!!, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                                    letterSpacing = 4.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                Spacer(Modifier.height(6.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        relayQrBitmap = QrCodeGenerator.generateWebRelayQrCode(
+                                            host = relayHost,
+                                            port = 9527,
+                                            pairingCode = relayPairingCode!!,
+                                            fingerprint = ""  // Web 自签名证书，儿童端首次信任
+                                        )
+                                        showRelayQr = true
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Filled.QrCode, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("生成二维码，儿童端扫码经 Web 连接")
+                                }
+                            }
                         }
                     }
                 }
@@ -423,6 +465,31 @@ fun ParentSettingsScreen(
             text = { Text(msg) },
             confirmButton = {
                 TextButton(onClick = { scanLoginMessage = null }) { Text("知道了") }
+            }
+        )
+    }
+
+    // === 儿童端经 Web 中继连接二维码 ===
+    if (showRelayQr && relayQrBitmap != null) {
+        AlertDialog(
+            onDismissRequest = { showRelayQr = false },
+            title = { Text("儿童端扫码连接（经 Web 中继）") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    androidx.compose.foundation.Image(
+                        bitmap = relayQrBitmap!!.asImageBitmap(),
+                        contentDescription = "Web 中继配对二维码",
+                        modifier = Modifier.size(280.dp)
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "儿童端打开「连接家长端 → 扫码家长端」，扫描此二维码，即可经 Web 中继自动连接。",
+                        fontSize = 13.sp
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRelayQr = false }) { Text("关闭") }
             }
         )
     }
@@ -617,14 +684,27 @@ private fun generateRecoveryCode(): String {
 
 /**
  * 连接 Web 中继服务（需求3）
+ *
+ * [REQ] 流程修正：先从 Web 获取真实配对码（/api/pairing/generate-code），
+ * 该配对码用于：① relay/register 绑定儿童设备到家长账号；② 家长端中继 P2P 连接；
+ * ③ 展示给儿童端扫码（经 Web 中继连接）。
+ *
+ * @return (提示信息, 配对码)
  */
-private suspend fun connectToWebRelay(context: android.content.Context, host: String, port: Int): String {
+internal suspend fun connectToWebRelay(
+    context: android.content.Context,
+    host: String,
+    port: Int
+): Pair<String, String?> {
+    android.util.Log.i("WebRelay", "connectToWebRelay start: $host:$port")
     // 读取已保存的 Web JWT Token
     val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
     val webToken = prefs.getString(KEY_WEB_TOKEN, null)
     if (webToken.isNullOrBlank()) {
-        return "请先在「Web 账号」中登录获取 Token"
+        android.util.Log.w("WebRelay", "web_token 为空")
+        return "请先在「Web 账号」中登录获取 Token" to null
     }
+    android.util.Log.i("WebRelay", "web_token 存在，长度 ${webToken.length}")
 
     // 如果 P2P 服务未启动，先启动
     if (!ParentP2PListenerService.isRunning) {
@@ -635,8 +715,34 @@ private suspend fun connectToWebRelay(context: android.content.Context, host: St
     // 获取证书指纹
     val fingerprint = ParentP2PListenerService.instance?.getCertificateFingerprint() ?: ""
 
-    // 生成配对码
-    val pairingCode = ParentP2PListenerService.instance?.generatePairingCode() ?: ""
+    // [REQ] 从 Web 获取真实配对码（5 分钟有效，用于绑定儿童设备 + 中继连接）
+    val pairingCode: String
+    try {
+        val url = URL("http://$host:$port/api/pairing/generate-code")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.setRequestProperty("Authorization", "Bearer $webToken")
+        conn.doOutput = true
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+
+        OutputStreamWriter(conn.outputStream).use { it.write("{}") }
+        android.util.Log.i("WebRelay", "pairing generate-code HTTP ${conn.responseCode}")
+
+        if (conn.responseCode in 200..299) {
+            val json = JSONObject(conn.inputStream.bufferedReader().readText())
+            pairingCode = json.optString("pairCode", "")
+            if (pairingCode.isBlank()) {
+                return "Web 未返回配对码" to null
+            }
+        } else {
+            val errorBody = try { conn.errorStream?.bufferedReader()?.readText() } catch (_: Exception) { "" }
+            return "获取配对码失败: HTTP ${conn.responseCode} ${errorBody ?: ""}" to null
+        }
+    } catch (e: Exception) {
+        return "获取配对码请求失败: ${e.message}" to null
+    }
 
     val parentDeviceId = "parent-${android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID).take(8)}"
 
@@ -667,10 +773,10 @@ private suspend fun connectToWebRelay(context: android.content.Context, host: St
             registerResult = "中继注册成功: $response"
         } else {
             val errorBody = try { conn.errorStream?.bufferedReader()?.readText() } catch (_: Exception) { "" }
-            return "中继注册失败: HTTP ${conn.responseCode} ${errorBody ?: ""}"
+            return "中继注册失败: HTTP ${conn.responseCode} ${errorBody ?: ""}" to pairingCode
         }
     } catch (e: Exception) {
-        return "注册请求失败: ${e.message}。检查 Web 服务是否可访问。"
+        return "注册请求失败: ${e.message}。检查 Web 服务是否可访问。" to pairingCode
     }
 
     // 注册成功 → 连接 Web P2P 9527 端口（携带 relay=true + parent 设备 ID）
@@ -687,12 +793,12 @@ private suspend fun connectToWebRelay(context: android.content.Context, host: St
                 isRelay = true,  // 中继模式
                 scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO)
             )
-            return "$registerResult\nP2P 中继连接已发起（端口 9527）"
+            return "$registerResult\nP2P 中继连接已发起（端口 9527）\n配对码: $pairingCode" to pairingCode
         } else {
-            return "$registerResult\nP2P 连接服务未就绪"
+            return "$registerResult\nP2P 连接服务未就绪" to pairingCode
         }
     } catch (e: Exception) {
-        return "$registerResult\nP2P 连接失败: ${e.message}"
+        return "$registerResult\nP2P 连接失败: ${e.message}" to pairingCode
     }
 }
 
