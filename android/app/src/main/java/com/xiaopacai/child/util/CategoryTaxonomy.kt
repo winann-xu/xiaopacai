@@ -48,6 +48,8 @@ object CategoryTaxonomy {
         "小红书" to "short_video",
         "xiaohongshu" to "short_video",
         "xingin" to "short_video",
+        "xhs" to "short_video",
+        "com.xingin" to "short_video",
         "火山小视频" to "short_video",
         "微视" to "short_video",
         "bilibili" to "video",
