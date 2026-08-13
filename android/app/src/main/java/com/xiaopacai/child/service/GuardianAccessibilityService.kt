@@ -2,11 +2,23 @@ package com.xiaopacai.child.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
+import android.content.Context
 import android.content.Intent
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.xiaopacai.child.ui.BlockOverlayActivity
 import com.xiaopacai.child.ui.overlay.AnnouncementOverlayActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * [TASK-D1-02][TASK-D2-03] 小趴菜无障碍服务
@@ -62,6 +74,14 @@ class GuardianAccessibilityService : AccessibilityService() {
     }
 
     private lateinit var interceptor: AppInterceptor
+    private val checkScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var checkJob: Job? = null
+
+    /** 最近一次看到的前台包名（事件通道记录，供巡检兜底） */
+    private var lastForegroundPackage: String? = null
+
+    /** 巡检间隔：即使儿童停在受限应用内不切换，也会周期性拦截 */
+    private val CHECK_INTERVAL_MS = 5000L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -87,7 +107,75 @@ class GuardianAccessibilityService : AccessibilityService() {
         }
         this.serviceInfo = info
 
+        // [FIX] 周期前台巡检：堵住“超时后停留在受限应用内不切换就不拦截”的绕过
+        checkJob = checkScope.launch {
+            while (isActive) {
+                delay(CHECK_INTERVAL_MS)
+                try {
+                    periodicForegroundCheck()
+                } catch (e: Exception) {
+                    Log.w(TAG, "巡检异常: ${e.message}")
+                }
+            }
+        }
+
         Log.i(TAG, "无障碍服务已连接")
+    }
+
+    /**
+     * 每 5 秒检查当前前台应用是否需要拦截。
+     * 解决：仅靠 TYPE_WINDOW_STATE_CHANGED 事件，停留在受限应用内超时后不会触发拦截。
+     */
+    private suspend fun periodicForegroundCheck() {
+        val packageName = withContext(Dispatchers.IO) { getForegroundPackage() } ?: return
+
+        if (packageName == this@GuardianAccessibilityService.packageName) return
+        if (com.xiaopacai.child.ui.overlay.AnnouncementOverlayActivity.hasPendingUrgent()) return
+
+        val result = withContext(Dispatchers.IO) {
+            interceptor.shouldIntercept(packageName)
+        }
+        if (result.intercept) {
+            val now = System.currentTimeMillis()
+            if (packageName == lastBlockedPackage && (now - lastBlockedTime) < DEBOUNCE_MS) return
+            Log.i(TAG, "巡检拦截: $packageName, 原因: ${result.reason}")
+            lastBlockedPackage = packageName
+            lastBlockedTime = now
+            showBlockOverlay(packageName, result.reason)
+        }
+    }
+
+    /**
+     * 获取当前前台应用包名（多级兜底）：
+     * 1) 活跃窗口（getRootInActiveWindow，多数设备可用）
+     * 2) 事件通道最后记录的前台包名
+     * 3) 使用情况统计（UsageStatsManager，需「使用情况访问」权限，最可靠）
+     */
+    private fun getForegroundPackage(): String? {
+        try {
+            getRootInActiveWindow()?.packageName?.toString()?.takeIf { it.isNotBlank() }?.let { return it }
+        } catch (_: Exception) {}
+
+        lastForegroundPackage?.let { return it }
+
+        return try {
+            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val end = System.currentTimeMillis()
+            val events = usm.queryEvents(end - 60_000, end)
+            val ev = UsageEvents.Event()
+            var pkg: String? = null
+            while (events.hasNextEvent()) {
+                events.getNextEvent(ev)
+                if (ev.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND &&
+                    !ev.packageName.isNullOrBlank()) {
+                    pkg = ev.packageName
+                }
+            }
+            pkg
+        } catch (e: Exception) {
+            Log.w(TAG, "查询前台应用失败: ${e.message}")
+            null
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -98,6 +186,7 @@ class GuardianAccessibilityService : AccessibilityService() {
 
         // 获取当前前台应用包名
         val packageName = event.packageName?.toString() ?: return
+        lastForegroundPackage = packageName
 
         // 忽略空包名和自身包名
         if (packageName.isEmpty() || packageName == this@GuardianAccessibilityService.packageName) {
@@ -168,6 +257,8 @@ class GuardianAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        checkJob?.cancel()
+        checkScope.cancel()
         if (instance === this) instance = null
         super.onDestroy()
     }
