@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -45,12 +47,14 @@ class QrScannerActivity : ComponentActivity() {
 
     private val executor = Executors.newSingleThreadExecutor()
     private var lastResult = ""
+    private var cameraStarted = false
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            startCamera()
+            ensureCamera()
         } else {
             Toast.makeText(this, "需要相机权限才能扫码", Toast.LENGTH_LONG).show()
             setResult(RESULT_CANCELED)
@@ -104,25 +108,44 @@ class QrScannerActivity : ComponentActivity() {
             }
         }
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            startCamera()
-        } else {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
-        }
+        // [FIX] 相机启动不能依赖 setContent 后的同步时序：Compose 首帧可能异步，
+        // 此时 previewView 尚未创建，直接 startCamera 会静默失败（黑屏）。
+        ensureCamera()
     }
 
     private var previewView: PreviewView? = null
 
-    private fun startCamera() {
-        val previewView = previewView ?: return
+    /**
+     * 确保相机启动：等待预览视图就绪 + 相机权限就绪，带自动重试。
+     */
+    private fun ensureCamera(retry: Int = 0) {
+        if (cameraStarted || isFinishing) return
+        val pv = previewView
+        if (pv == null) {
+            // Compose 视图尚未创建，稍后重试（最多 40 次 x 50ms = 2s）
+            if (retry < 40) {
+                Log.i(TAG, "预览视图未就绪，重试 $retry")
+                mainHandler.postDelayed({ ensureCamera(retry + 1) }, 50L)
+            } else {
+                Log.e(TAG, "预览视图创建超时，无法启动相机")
+                Toast.makeText(this, "相机初始化超时，请重试", Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+            return
+        }
+        cameraStarted = true
+        Log.i(TAG, "开始绑定相机: ${pv.width}x${pv.height}")
         val providerFuture = ProcessCameraProvider.getInstance(this)
         providerFuture.addListener({
             try {
                 val provider = providerFuture.get()
                 val preview = Preview.Builder().build().also {
-                    it.setSurfaceProvider(previewView.surfaceProvider)
+                    it.setSurfaceProvider(pv.surfaceProvider)
                 }
                 val analysis = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -132,9 +155,11 @@ class QrScannerActivity : ComponentActivity() {
                 }
                 provider.unbindAll()
                 provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                Log.i(TAG, "相机已绑定")
             } catch (e: Exception) {
                 Log.e(TAG, "启动相机失败: ${e.message}", e)
                 Toast.makeText(this, "相机启动失败: ${e.message}", Toast.LENGTH_LONG).show()
+                cameraStarted = false
             }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -245,6 +270,7 @@ class QrScannerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        mainHandler.removeCallbacksAndMessages(null)
         executor.shutdown()
     }
 }
