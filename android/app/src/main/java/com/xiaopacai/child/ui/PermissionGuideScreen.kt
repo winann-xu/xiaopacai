@@ -122,6 +122,28 @@ fun PermissionGuideScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // [REQ] 外部授权自动检测：家长用电脑执行 ADB 命令（或从系统设置手动开）时，
+    // 本页每 2 秒自动刷新状态；全部就绪后无需任何操作，直接进入儿童端。
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(2000)
+            val u = hasUsageStatsPermission(context)
+            val a = isAccessibilityServiceEnabled(context)
+            val n = hasNotificationPermission(context)
+            val b = isIgnoringBatteryOptimizations(context)
+            val s = isAutoStartGranted(context)
+            if (u != usageStatsGranted || a != accessibilityGranted || n != notificationGranted ||
+                b != batteryGranted || s != autoStartGranted
+            ) {
+                usageStatsGranted = u
+                accessibilityGranted = a
+                notificationGranted = n
+                batteryGranted = b
+                autoStartGranted = s
+            }
+        }
+    }
+
     // 全部必需权限就绪后自动跳转
     val allGranted = usageStatsGranted && accessibilityGranted && notificationGranted && batteryGranted
     LaunchedEffect(allGranted) {
@@ -185,6 +207,58 @@ fun PermissionGuideScreen(
             Icon(Icons.Default.Bolt, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(if (autoGuide) "引导中…每项完成后自动跳下一项" else "一键引导（自动跳转每一项）")
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // [REQ] 最快方式：电脑 ADB 一键授权（已在 OPPO/ColorOS 真机验证）
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Computer, null, Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "最快方式：电脑 ADB 一键授权（约 30 秒）",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "手机开启「开发者选项-USB调试」或用「无线调试」连电脑后，把下面命令复制到电脑执行，全部权限即刻开通。本页每 2 秒自动检测，全部开通后自动进入儿童端。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                val adbCmds = buildString {
+                    appendLine("adb shell pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS")
+                    appendLine("adb shell appops set ${context.packageName} GET_USAGE_STATS allow")
+                    appendLine("adb shell dumpsys deviceidle whitelist +${context.packageName}")
+                    appendLine("adb shell settings put secure enabled_accessibility_services ${context.packageName}/.service.GuardianAccessibilityService")
+                    appendLine("adb shell settings put secure accessibility_enabled 1")
+                }.trimEnd()
+                Text(
+                    text = adbCmds,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(onClick = {
+                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("adb", adbCmds))
+                    Toast.makeText(context, "ADB 命令已复制，请粘贴到电脑终端执行", Toast.LENGTH_LONG).show()
+                }) {
+                    Text("复制 ADB 命令")
+                }
+            }
         }
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -263,47 +337,6 @@ fun PermissionGuideScreen(
             )
         }
 
-        // [REQ] 高级：ADB 一键授权（连电脑后复制执行，免去逐项翻设置）
-        Spacer(modifier = Modifier.height(12.dp))
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "高级：ADB 一键授权（需连接电脑）",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "将本机用 USB 连接电脑，开启「开发者选项-USB 调试」后，复制以下命令到电脑执行，可一次性开启使用情况/通知/电池优化/无障碍。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                val adbCmds = buildString {
-                    appendLine("adb shell pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS")
-                    appendLine("adb shell appops set ${context.packageName} GET_USAGE_STATS allow")
-                    appendLine("adb shell dumpsys deviceidle whitelist +${context.packageName}")
-                    appendLine("adb shell settings put secure enabled_accessibility_services ${context.packageName}/.service.GuardianAccessibilityService")
-                    appendLine("adb shell settings put secure accessibility_enabled 1")
-                }.trimEnd()
-                Text(
-                    text = adbCmds,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(onClick = {
-                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-                        as android.content.ClipboardManager
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("adb", adbCmds))
-                    Toast.makeText(context, "ADB 命令已复制，请粘贴到电脑终端执行", Toast.LENGTH_LONG).show()
-                }) {
-                    Text("复制 ADB 命令")
-                }
-            }
-        }
         Spacer(modifier = Modifier.height(32.dp))
     }
 }
@@ -404,6 +437,8 @@ private fun isIgnoringBatteryOptimizations(context: android.content.Context): Bo
 /** 打开厂商自启动设置（小米/华为/OPPO/vivo 等） */
 private fun openAutoStartSettings(context: android.content.Context) {
     val targets = listOf(
+        "com.oplus.battery" to "com.oplus.startupapp.view.StartupAppListActivity",
+        "com.oplus.safecenter" to "com.oplus.startupapp.ui.StartupAppListActivity",
         "com.miui.securitycenter" to "com.miui.permcenter.autostart.AutoStartManagementActivity",
         "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
         "com.coloros.safecenter" to "com.coloros.safecenter.permission.startup.StartupAppListActivity",
