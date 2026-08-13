@@ -229,6 +229,14 @@
   已改为解绑=unpaired（软解绑），握手允许 revoked/unpaired 设备凭新的待确认配对码重新绑定。
 - 实测：被吊销真机用新配对码重绑后 status=online + pairStatus=paired。
 
+## 2026-08-13 晚：超时后停留在受限应用内不被拦截的绕过（Android bbc64ae）
+- 现象（严重 BUG）：真机停在快手不切换，限额用尽后仍可一直刷。
+- 根因：拦截只依赖 TYPE_WINDOW_STATE_CHANGED（前台切换事件），停在原应用内超时不会触发。
+- 修复：无障碍服务新增每 5 秒前台巡检（活跃窗口→事件记录→UsageStatsManager 多级兜底），
+  超时后即使不切应用也会周期性拉起拦截界面。
+- 证据：修复前截图（快手 149k 色视频画面 + 超限 true + 无拦截日志）；
+  修复后日志「拦截应用 + 巡检拦截 com.smile.gifmaker partial-video」，覆盖层出现。
+
 ## 2026-08-13 晚：Web 账号与扫码绑定完善（Web 5229471）
 
 ### 问题与设计
