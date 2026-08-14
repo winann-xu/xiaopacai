@@ -449,6 +449,7 @@ public class P2PListenerService : IDisposable
                 }
 
                 case "usage_report":
+                {
                     if (!handshakeAccepted) return ("", true);  // 未认证：忽略并关闭
                     // 接收儿童端使用时长报告
                     var deviceId = payload.TryGetProperty("deviceId", out var udid)
@@ -457,6 +458,7 @@ public class P2PListenerService : IDisposable
                         ? rec.GetString() ?? "[]" : "[]";
                     var count = _syncService.HandleUsageReport(deviceId, recordsJson);
                     return (_syncService.BuildSyncAck(count), false);
+                }
 
                 case "heartbeat":
                     if (!handshakeAccepted) return ("", true);  // 未认证：不响应心跳
