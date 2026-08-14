@@ -186,39 +186,87 @@ class SyncManager(
     /**
      * 处理公告推送消息
      *
-     * [TASK-OPT-12-P1] 扩展解析 requires_ack（紧急公告需确认）与 acknowledged_at（确认回执时间）。
+     * [TASK-PRELAUNCH-P3] 去重展示（见 docs/adr/0004）：
+     * - 撤回：本地置过期、不展示，保留记录用于重新发布去重
+     * - 已显示且内容哈希未变 → 不弹窗、不通知、不置顶（upsert 内已保留状态）
+     * - 紧急公告已确认 → 不再全屏
+     * - 新公告/内容变化 → 展示并写 displayed_at，上报 announcement_displayed
      */
     private fun handleAnnouncementPush(message: P2PMessage) {
         try {
             val passphrase = getPassphrase()
+            val action = message.payload["action"]?.toString() ?: ""
             val announcementsArray = message.payload["announcements"]?.toString()
                 ?.let { JSONArray(it) } ?: return
 
             var count = 0
+            var shownCount = 0
             for (i in 0 until announcementsArray.length()) {
                 val obj = announcementsArray.getJSONObject(i)
-                announcementDao.upsert(
-                    announcementId = obj.optString("id", UUID.randomUUID().toString()),
+                val id = obj.optString("id", UUID.randomUUID().toString())
+                val priority = obj.optInt("priority", 0)
+
+                // [TASK-PRELAUNCH-P3] 撤回：仅置过期，不展示；行记录保留（重新发布同内容不重复打扰）
+                if (action == "revoke") {
+                    announcementDao.revokeLocally(id, passphrase)
+                    count++
+                    continue
+                }
+
+                val result = announcementDao.upsert(
+                    announcementId = id,
                     title = obj.optString("title", ""),
                     content = obj.optString("content", ""),
-                    priority = obj.optInt("priority", 0),
+                    priority = priority,
                     requiresAck = obj.optBoolean("requires_ack", false),
-                    acknowledgedAt = obj.optLong("acknowledged_at", 0),
+                    contentHash = obj.optString("content_hash", ""),
                     expiresAt = obj.optLong("expires_at", 0),
                     passphrase = passphrase
                 )
-                // [TASK-OPT-4] 公告到达直接展示：紧急公告全屏置顶，其余系统通知直达
-                showAnnouncementImmediately(
-                    id = obj.optString("id", ""),
-                    title = obj.optString("title", "家长公告"),
-                    content = obj.optString("content", ""),
-                    priority = obj.optInt("priority", 0)
-                )
+
+                // 去重判定：内容未变（unchanged）→ 不打扰；紧急已确认 → 不再全屏
+                // （内容变化时 upsert 已重置 acknowledged_at，紧急会重新全屏）
+                val urgentAcked = priority >= 2 && announcementDao.isAcknowledged(id, passphrase)
+                val shouldShow = result != "unchanged" && !urgentAcked
+                if (shouldShow) {
+                    // [TASK-OPT-4] 公告到达直接展示：紧急公告全屏置顶，其余系统通知直达
+                    showAnnouncementImmediately(
+                        id = id,
+                        title = obj.optString("title", "家长公告"),
+                        content = obj.optString("content", ""),
+                        priority = priority
+                    )
+                    announcementDao.markDisplayed(id, passphrase)
+                    sendAnnouncementDisplayed(id)
+                    shownCount++
+                } else {
+                    Log.d(TAG, "公告去重跳过: $id（内容未变=${result == "unchanged"}, 已确认=$urgentAcked）")
+                }
                 count++
             }
-            Log.i(TAG, "已接收 $count 条公告")
+            Log.i(TAG, "已接收 $count 条公告（展示 $shownCount 条，去重/已确认跳过 ${count - shownCount} 条）")
         } catch (e: Exception) {
             Log.e(TAG, "公告推送处理失败: ${e.message}", e)
+        }
+    }
+
+    /**
+     * [TASK-PRELAUNCH-P3] 上报公告已显示事件（announcement_displayed）
+     * Web 侧据此落库 displayed_at；未连接时静默丢弃（送达记录以服务端推送计数为准）
+     */
+    private fun sendAnnouncementDisplayed(announcementId: String) {
+        try {
+            val message = P2PMessage(
+                type = "announcement_displayed",
+                payload = mapOf(
+                    "announcementId" to announcementId,
+                    "displayedAt" to (System.currentTimeMillis() / 1000),
+                    "deviceId" to getDeviceId()
+                )
+            )
+            connectionService.sendMessage(message)
+        } catch (e: Exception) {
+            Log.e(TAG, "上报公告显示事件失败: ${e.message}")
         }
     }
 

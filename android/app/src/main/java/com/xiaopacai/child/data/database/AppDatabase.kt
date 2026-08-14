@@ -14,6 +14,7 @@ import net.sqlcipher.database.SQLiteOpenHelper
  * - Version 1：初始表结构（时长记录、策略缓存、公告缓存、配对信息）
  * - Version 2：[TASK-ROLE-P1] 新增家长端表（device_registry/policies/announcements/parent_usage_summary）
  * - Version 3：[TASK-OPT-12-P1] 新增应用分类表 app_category；announcements 扩展 requires_ack/acknowledged_at 列
+ * - Version 4：[TASK-PRELAUNCH-P3] announcements 扩展去重列（displayed_at/last_push_hash/delivered_count）
  * - 升级时通过 onUpgrade() 执行迁移 SQL
  */
 class AppDatabase private constructor(
@@ -73,6 +74,9 @@ class AppDatabase private constructor(
                 is_read INTEGER NOT NULL DEFAULT 0,     -- 是否已读：0=未读 1=已读
                 requires_ack INTEGER NOT NULL DEFAULT 0,-- [TASK-OPT-12-P1] 是否需要家长确认：0=否 1=是（紧急公告）
                 acknowledged_at INTEGER NOT NULL DEFAULT 0, -- [TASK-OPT-12-P1] 家长确认回执时间戳（0=未确认）
+                displayed_at INTEGER NOT NULL DEFAULT 0,    -- [TASK-PRELAUNCH-P3] 首次显示时间戳（0=未显示，去重依据）
+                last_push_hash TEXT NOT NULL DEFAULT '',    -- [TASK-PRELAUNCH-P3] 最近一次推送的内容哈希（内容未变不重复打扰）
+                delivered_count INTEGER NOT NULL DEFAULT 0, -- [TASK-PRELAUNCH-P3] 累计送达次数
                 created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 expires_at INTEGER NOT NULL DEFAULT 0   -- 过期时间戳（0=永不过期）
             )
@@ -121,6 +125,11 @@ class AppDatabase private constructor(
         // [TASK-OPT-12-P1] V3 新增表/列（应用分类、公告扩展列）
         // ============================================================
         createV3Tables(db)
+
+        // ============================================================
+        // [TASK-PRELAUNCH-P3] V4 新增列（公告去重：显示时间/内容哈希/送达次数）
+        // ============================================================
+        createV4Tables(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase?, oldVersion: Int, newVersion: Int) {
@@ -132,6 +141,10 @@ class AppDatabase private constructor(
         // [TASK-OPT-12-P1] V2 → V3：新增 app_category 表 + announcements 扩展列
         if (oldVersion < 3) {
             createV3Tables(db)
+        }
+        // [TASK-PRELAUNCH-P3] V3 → V4：announcements 去重列
+        if (oldVersion < 4) {
+            createV4Tables(db)
         }
     }
 
@@ -253,6 +266,16 @@ class AppDatabase private constructor(
     }
 
     /**
+     * [TASK-PRELAUNCH-P3] V4：announcements 去重列
+     * displayed_at（首次显示时间）/ last_push_hash（内容哈希）/ delivered_count（送达次数）
+     */
+    private fun createV4Tables(db: SQLiteDatabase) {
+        addColumnIfNotExists(db, "announcements", "displayed_at", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfNotExists(db, "announcements", "last_push_hash", "TEXT NOT NULL DEFAULT ''")
+        addColumnIfNotExists(db, "announcements", "delivered_count", "INTEGER NOT NULL DEFAULT 0")
+    }
+
+    /**
      * [TASK-OPT-12-P1] 列不存在时才执行 ALTER TABLE ADD COLUMN
      *
      * SQLite 不支持 ADD COLUMN IF NOT EXISTS，通过 PRAGMA table_info 判断。
@@ -294,7 +317,7 @@ class AppDatabase private constructor(
 
     companion object {
         private const val DATABASE_NAME = "xiaopacai_guardian.db"
-        private const val DATABASE_VERSION = 3  // [TASK-OPT-12-P1] V3：app_category 表 + announcements 扩展列
+        private const val DATABASE_VERSION = 4  // [TASK-PRELAUNCH-P3] V4：公告去重列（displayed_at/last_push_hash/delivered_count）
 
         @Volatile
         private var INSTANCE: AppDatabase? = null
