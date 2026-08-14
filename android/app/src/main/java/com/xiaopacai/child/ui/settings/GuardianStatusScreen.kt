@@ -298,7 +298,7 @@ private fun buildStatusItems(context: Context): List<GuardianStatusItem> {
         GuardianStatusItem(
             key = "deviceAdmin",
             title = "设备管理器",
-            description = "防卸载核心保护，需在系统设置中激活",
+            description = "防卸载核心保护，需在系统设置中激活\n开启路径：设置 → 安全/密码与安全 → 设备管理应用 → 小趴菜 → 激活",
             ready = GuardianDeviceAdminReceiver.isActive(context),
             guideLabel = "去激活",
             guideAction = { ctx ->
@@ -323,7 +323,7 @@ private fun buildStatusItems(context: Context): List<GuardianStatusItem> {
         GuardianStatusItem(
             key = "accessibility",
             title = "无障碍服务",
-            description = "超时停用拦截的核心通道",
+            description = "超时停用拦截的核心通道\n开启路径：设置 → 无障碍/辅助功能 → 已安装的服务 → 小趴菜 → 打开开关",
             ready = AntiBypassService.isAccessibilityServiceEnabled(context),
             guideLabel = "去开启",
             guideAction = { ctx ->
@@ -334,7 +334,7 @@ private fun buildStatusItems(context: Context): List<GuardianStatusItem> {
         GuardianStatusItem(
             key = "usageStats",
             title = "使用情况访问",
-            description = "采集各应用使用时长的基础权限",
+            description = "采集各应用使用时长的基础权限\n开启路径：设置 → 应用 → 小趴菜 → 权限 → 使用情况访问权限 → 允许",
             ready = AntiBypassService.isUsageStatsPermissionGranted(context),
             guideLabel = "去授权",
             guideAction = { ctx ->
@@ -345,7 +345,7 @@ private fun buildStatusItems(context: Context): List<GuardianStatusItem> {
         GuardianStatusItem(
             key = "bootAutoStart",
             title = "开机自启动",
-            description = "设备重启后自动恢复守护",
+            description = "设备重启后自动恢复守护\n开启路径：设置 → 应用管理 → 小趴菜 → 自启动/开机启动 → 允许（各品牌入口不同，见初始化引导页）",
             ready = hasBootPermission(context),
             guideLabel = "去设置",
             guideAction = { ctx ->
@@ -363,7 +363,7 @@ private fun buildStatusItems(context: Context): List<GuardianStatusItem> {
         GuardianStatusItem(
             key = "battery",
             title = "电池优化",
-            description = "关闭后防止后台守护被杀",
+            description = "关闭后防止后台守护被杀\n开启路径：设置 → 应用 → 小趴菜 → 电池/耗电 → 允许后台运行、不受限制",
             ready = !AntiBypassService.isBatteryOptimizationEnabled(context),
             guideLabel = "去关闭",
             guideAction = { ctx ->

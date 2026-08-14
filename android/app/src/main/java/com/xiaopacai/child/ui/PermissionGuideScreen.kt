@@ -266,6 +266,10 @@ fun PermissionGuideScreen(
             icon = Icons.Default.Timer,
             title = "使用情况访问",
             description = "采集各应用使用时长，用于计算今日使用总量与超时判断。",
+            path = "开启路径：\n" +
+                "通用：设置 → 应用 → 小趴菜 → 权限 → 使用情况访问权限 → 允许\n" +
+                "备选：设置 → 隐私/安全 → 特殊应用权限 → 使用情况访问 → 小趴菜 → 允许\n" +
+                "OPPO/小米/华为：设置 → 应用管理 → 小趴菜 → 权限 → 使用情况访问权限 → 允许",
             isGranted = usageStatsGranted,
             onRequestPermission = {
                 openPermissionSettings(
@@ -280,6 +284,11 @@ fun PermissionGuideScreen(
             icon = Icons.Default.Accessibility,
             title = "无障碍服务",
             description = "识别前台应用、展示守护界面、拦截非白名单应用。",
+            path = "开启路径：\n" +
+                "通用：设置 → 无障碍/辅助功能 → 已安装的服务 → 小趴菜 → 打开开关\n" +
+                "OPPO：设置 → 其他设置 → 无障碍 → 已安装的服务 → 小趴菜 → 开启\n" +
+                "小米：设置 → 更多设置 → 无障碍 → 已下载的应用 → 小趴菜 → 开启\n" +
+                "华为/荣耀：设置 → 辅助功能 → 无障碍 → 已安装的服务 → 小趴菜 → 开启",
             isGranted = accessibilityGranted,
             onRequestPermission = {
                 openPermissionSettings(
@@ -294,6 +303,10 @@ fun PermissionGuideScreen(
             icon = Icons.Default.Notifications,
             title = "通知权限",
             description = "接收家长公告推送与超时提醒（Android 13+ 弹窗确认，最快）。",
+            path = "开启路径：\n" +
+                "通用：设置 → 通知/通知与状态栏 → 应用通知管理 → 小趴菜 → 允许通知\n" +
+                "Android 13+：点击“去开启”直接弹出系统授权窗口 → 选择“允许”\n" +
+                "误点“不允许”后：设置 → 应用 → 小趴菜 → 通知 → 打开全部开关",
             isGranted = notificationGranted,
             onRequestPermission = {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -309,6 +322,10 @@ fun PermissionGuideScreen(
             icon = Icons.Default.BatterySaver,
             title = "忽略电池优化",
             description = "避免系统在后台杀死守护服务（优先弹窗，失败进设置页）。",
+            path = "开启路径：\n" +
+                "通用：设置 → 应用 → 小趴菜 → 电池/耗电 → 允许后台运行、不受限制\n" +
+                "备选：设置 → 电池 → 后台管理/耗电管理 → 小趴菜 → 允许自启动/后台运行\n" +
+                "OPPO：设置 → 电池 → 更多设置 → 耗电管理 → 允许完全后台行为",
             isGranted = batteryGranted,
             onRequestPermission = { requestBatteryOptimization(context) }
         )
@@ -319,6 +336,12 @@ fun PermissionGuideScreen(
             icon = Icons.Default.Power,
             title = "开机自启动（可选）",
             description = "国产 ROM 需额外允许自启动才能开机恢复守护；点击跳转厂商设置。",
+            path = "开启路径：\n" +
+                "通用：设置 → 应用管理 → 小趴菜 → 自启动/开机启动 → 允许\n" +
+                "OPPO/一加/真我：设置 → 应用 → 应用管理 → 小趴菜 → 自启动 → 开启\n" +
+                "小米/红米：设置 → 应用设置 → 授权管理 → 自启动管理 → 允许小趴菜\n" +
+                "华为/荣耀：设置 → 应用 → 应用启动管理 → 小趴菜 → 手动管理 → 允许自启动\n" +
+                "vivo/iQOO：i管家 → 应用管理 → 权限管理 → 自启动 → 允许小趴菜",
             isGranted = autoStartGranted,
             onRequestPermission = { openAutoStartSettings(context) }
         )
@@ -347,6 +370,7 @@ private fun PermissionCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     description: String,
+    path: String,
     isGranted: Boolean,
     onRequestPermission: () -> Unit
 ) {
@@ -371,6 +395,24 @@ private fun PermissionCard(
                 Spacer(Modifier.height(4.dp))
                 Text(description, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (path.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        ),
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Text(
+                            text = path,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth().padding(8.dp)
+                        )
+                    }
+                }
             }
             Spacer(Modifier.width(12.dp))
             if (isGranted) {
