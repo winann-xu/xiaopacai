@@ -217,7 +217,7 @@ class UsageStatsCollector(
 
         // [REQ] 每日限额重置：家长重置后，今日已用 = 系统累计 - 重置时偏移，重新开始计时
         // 注意：usage_records 仍写入原始分钟数，使用报告照常统计重置前浪费的额度
-        val resetOffset = getDailyResetOffset(today)
+        val resetOffset = _resetOffsetMinutes
         _todayTotalMinutes = (rawTotal - resetOffset).coerceAtLeast(0L)
 
         if (usageMap.isEmpty()) {
@@ -304,23 +304,6 @@ class UsageStatsCollector(
         _resetOffsetMinutes = if (offsetDate == today) {
             prefs.getLong(KEY_RESET_OFFSET_MINUTES, 0L).coerceAtLeast(0)
         } else {
-            0L
-        }
-    }
-
-    /**
-     * [REQ] 读取当日限额重置偏移（家长在 Web 端点击“重置当日限额”后写入）
-     * 仅当天生效；跨天后自动失效，重新从系统累计开始
-     */
-    private fun getDailyResetOffset(today: String): Long {
-        return try {
-            val prefs = context.getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE)
-            val resetDate = prefs.getString("daily_reset_date", null)
-            if (resetDate == today) {
-                prefs.getLong("daily_reset_offset_minutes", 0L)
-            } else 0L
-        } catch (e: Exception) {
-            Log.w(TAG, "读取重置偏移失败: ${e.message}")
             0L
         }
     }

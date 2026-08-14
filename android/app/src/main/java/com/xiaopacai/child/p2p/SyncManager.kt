@@ -84,8 +84,6 @@ class SyncManager(
             "announcement_push" -> handleAnnouncementPush(message)
             "limit_reset" -> handleLimitReset(message)
             "sync_ack" -> handleSyncAck(message)
-            // [REQ] 每日限额重置：Web 端“重置当日限额”下发，儿童端重新开始计时
-            "limit_reset" -> handleLimitReset(message)
             "heartbeat_ack" -> { /* 心跳 ACK 由连接层处理 */ }
             else -> Log.d(TAG, "未处理的消息类型: ${message.type}")
         }
@@ -216,35 +214,6 @@ class SyncManager(
             }
         } catch (e: Exception) {
             Log.e(TAG, "策略更新处理失败: ${e.message}", e)
-        }
-    }
-
-    /**
-     * [REQ] 处理每日限额重置指令（Web 端“重置当日限额”）
-     *
-     * 儿童端记录“系统当日累计分钟数”为偏移量，此后今日已用 = 系统累计 - 偏移，
-     * 相当于重新从 0 开始计时；usage_records 仍保留原始记录，使用报告照常统计。
-     */
-    private fun handleLimitReset(message: P2PMessage) {
-        try {
-            val resetAt = (message.payload["resetAt"] as? Number)?.toLong()
-                ?: (message.payload["resetAt"] as? String)?.toLongOrNull()
-                ?: (System.currentTimeMillis() / 1000)
-            val today = dateFormat.format(Date())
-            val rawTotal = UsageStatsHelper.getTodayTotalMinutes(context)
-
-            val prefs = context.getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putString("daily_reset_date", today)
-                .putLong("daily_reset_offset_minutes", rawTotal)
-                .putLong("daily_reset_at", resetAt)
-                .apply()
-            Log.i(TAG, "每日限额已重置: date=$today, offset=$rawTotal 分钟, resetAt=$resetAt")
-
-            // 立即重采一次，让“今日已用/超时状态/拦截”立刻按 0 起算
-            GuardianForegroundService.getCollector()?.collectAndPersist()
-        } catch (e: Exception) {
-            Log.e(TAG, "每日限额重置处理失败: ${e.message}", e)
         }
     }
 
