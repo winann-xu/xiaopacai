@@ -40,6 +40,39 @@ class UsageStatsCollector(
         /** 初始延迟：30 秒（给系统启动留足时间） */
         private const val INITIAL_DELAY_MS = 30 * 1000L
 
+        // [TASK-PRELAUNCH-P4] 限额重置偏移的 SharedPreferences 键（与 SyncManager 共用）
+        const val PREFS_NAME = "guardian_prefs"
+        const val KEY_RESET_OFFSET_MINUTES = "daily_reset_offset_minutes"
+        const val KEY_RESET_OFFSET_DATE = "daily_reset_offset_date"
+
+        /**
+         * [TASK-PRELAUNCH-P4] 供 SyncManager 调用的限额重置入口（静态，解耦服务实例引用）：
+         * 持久化偏移后立即重算“已用/超时”口径（超时锁定同步解除）
+         */
+        @JvmStatic
+        fun applyLimitReset(offsetMinutes: Long, offsetDate: String) {
+            try {
+                val app = XiaopacaiApp.instance
+                val prefs = app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putLong(KEY_RESET_OFFSET_MINUTES, offsetMinutes)
+                    .putString(KEY_RESET_OFFSET_DATE, offsetDate)
+                    .apply()
+            } catch (e: Exception) {
+                Log.e(TAG, "持久化限额重置偏移失败: ${e.message}")
+            }
+            // 立即按新口径重算（采集循环 5 分钟内也会自然重算）
+            instance?.scope?.launch {
+                try { instance?.collectAndPersist() } catch (e: Exception) {
+                    Log.e(TAG, "限额重置后重算失败: ${e.message}")
+                }
+            }
+        }
+
+        /** 当前实例（服务持有；applyLimitReset 通过它触发重算） */
+        @Volatile
+        private var instance: UsageStatsCollector? = null
+
         // === 应用分类规则（包名关键词 → 分类） ===
         private val CATEGORY_RULES = listOf(
             // 游戏类关键词
@@ -104,12 +137,24 @@ class UsageStatsCollector(
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     private var collectJob: Job? = null
 
+    init {
+        instance = this
+    }
+
     /** 当前数据快照（UI 可观察） */
     private val _currentUsage = mutableMapOf<String, Long>()
     val currentUsage: Map<String, Long> get() = _currentUsage.toMap()
 
     private var _todayTotalMinutes: Long = 0
     val todayTotalMinutes: Long get() = _todayTotalMinutes
+
+    // [TASK-PRELAUNCH-P4] 限额重置偏移（家长端“重置当日限额”后“已用”从 0 重新计时）
+    private var _resetOffsetMinutes: Long = 0
+    val resetOffsetMinutes: Long get() = _resetOffsetMinutes
+
+    /** 调整后今日已用 = max(0, 原始累计 − 重置偏移)；超时判断与 UI 展示统一用此口径 */
+    val todayAdjustedMinutes: Long
+        get() = (_todayTotalMinutes - _resetOffsetMinutes).coerceAtLeast(0)
 
     /** 是否处于超时停用状态 */
     private var _isTimeoutActive: Boolean = false
@@ -160,6 +205,9 @@ class UsageStatsCollector(
         val passphrase = getPassphrase()
         val today = dateFormat.format(Date())
         val calendar = Calendar.getInstance()
+
+        // [TASK-PRELAUNCH-P4] 每周期读取限额重置偏移（日期不匹配自动归零）
+        loadResetOffset(today)
 
         // 1. 从 UsageStatsManager 获取原始数据
         val usageMap = UsageStatsHelper.getDailyUsageMinutes(context, calendar)
@@ -220,7 +268,7 @@ class UsageStatsCollector(
             passphrase = passphrase
         )
 
-        // 5. 检查超时状态
+        // 5. 检查超时状态（[TASK-PRELAUNCH-P4] 按调整后口径：重置后立即解除超时）
         checkTimeoutStatus(today, limitMinutes, passphrase)
 
         // 5.5 [REQ] 就寝时段：进入就寝窗口立即整机停用（优先级高于日常限额的 partial）
@@ -231,20 +279,33 @@ class UsageStatsCollector(
             Log.i(TAG, "就寝时段生效：整机停用")
         }
 
-        // 6. 执行超时停用（主动封锁 + 事件记录）
+        // 6. 执行超时停用（主动封锁 + 事件记录；[TASK-PRELAUNCH-P4] 按调整后已用判定）
         timeoutExecutor.checkAndExecute(
             isTimeout = _isTimeoutActive,
             stopMode = _stopMode,
-            usedMinutes = _todayTotalMinutes,
+            usedMinutes = todayAdjustedMinutes,
             limitMinutes = limitMinutes,
             triggerReason = if (sleepActive) {
                 "已到就寝时间，请休息"
             } else null
         )
 
-        Log.d(TAG, "今日总时长: ${_todayTotalMinutes}分钟(系统累计${rawTotal}, 重置偏移${resetOffset}) | " +
+        Log.d(TAG, "今日总时长: ${_todayTotalMinutes}分钟（调整后 ${todayAdjustedMinutes}）| " +
                 "游戏: ${gameMinutes}分钟 | 学习: ${studyMinutes}分钟 | " +
-                "限额: ${limitMinutes}分钟 | 超限: ${_isTimeoutActive}")
+                "限额: ${limitMinutes}分钟 | 超限: ${_isTimeoutActive} | 重置偏移: ${_resetOffsetMinutes}分钟")
+    }
+
+    /**
+     * [TASK-PRELAUNCH-P4] 从 SharedPreferences 读取今日限额重置偏移（日期不匹配归零）
+     */
+    private fun loadResetOffset(today: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val offsetDate = prefs.getString(KEY_RESET_OFFSET_DATE, null)
+        _resetOffsetMinutes = if (offsetDate == today) {
+            prefs.getLong(KEY_RESET_OFFSET_MINUTES, 0L).coerceAtLeast(0)
+        } else {
+            0L
+        }
     }
 
     /**
@@ -362,7 +423,8 @@ class UsageStatsCollector(
             return
         }
 
-        val exceeded = _todayTotalMinutes >= limitMinutes
+        // [TASK-PRELAUNCH-P4] 超时判定用调整后口径（重置限额后立即解除封锁）
+        val exceeded = todayAdjustedMinutes >= limitMinutes
         if (exceeded != _isTimeoutActive) {
             _isTimeoutActive = exceeded
             _stopMode = if (exceeded) getRestrictMode(passphrase) else "none"

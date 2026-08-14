@@ -201,7 +201,8 @@ class GuardianForegroundService : Service() {
         serviceScope.launch {
             while (isActive) {
                 delay(2 * 60 * 1000L)  // 2 分钟
-                val totalMinutes = collector?.todayTotalMinutes ?: 0
+                // [TASK-PRELAUNCH-P4] 通知显示调整后口径（与超时判定/UI 一致）
+                val totalMinutes = collector?.todayAdjustedMinutes ?: 0
                 val isTimeout = collector?.isTimeoutActive ?: false
 
                 val contentText = when {
