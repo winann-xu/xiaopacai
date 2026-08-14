@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import com.xiaopacai.child.XiaopacaiApp
 import com.xiaopacai.child.p2p.P2PConnectionService
 import com.xiaopacai.child.p2p.P2PConnectionState
+import com.xiaopacai.child.R
 import com.xiaopacai.child.p2p.SyncManager
 import kotlinx.coroutines.*
 
@@ -238,7 +239,7 @@ class GuardianForegroundService : Service() {
         val builder = NotificationCompat.Builder(this, channelId)
             .setContentTitle("小趴菜守护运行中")
             .setContentText(contentText)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
+            .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
