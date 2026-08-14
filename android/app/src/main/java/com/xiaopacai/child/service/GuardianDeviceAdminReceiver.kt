@@ -100,11 +100,11 @@ class GuardianDeviceAdminReceiver : DeviceAdminReceiver() {
                 Log.e(TAG, "设备管理器被外部禁用")
             }
             DeviceAdminReceiver.ACTION_DEVICE_ADMIN_DISABLE_REQUESTED -> {
-                // 用户尝试禁用设备管理器 — 阻止此操作
-                Log.w(TAG, "用户尝试禁用设备管理器 — 已阻止")
+                // 用户尝试在系统设置中禁用设备管理器（系统流程由用户自行确认，此处仅提示家长正确通道）
+                Log.w(TAG, "用户尝试禁用设备管理器 — 已提示家长解除通道")
                 Toast.makeText(
                     context,
-                    "⚠️ 请输入家长密码才能关闭保护",
+                    "如确需卸载：请在「守护状态-设备管理器」由家长输入密码解除保护，或到系统设置关闭设备管理器",
                     Toast.LENGTH_LONG
                 ).show()
             }

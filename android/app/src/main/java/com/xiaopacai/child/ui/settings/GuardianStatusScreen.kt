@@ -23,12 +23,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaopacai.child.service.AntiBypassService
 import com.xiaopacai.child.service.DiagnosticsCollector
 import com.xiaopacai.child.service.GuardianDeviceAdminReceiver
 import com.xiaopacai.child.ui.theme.XiaopacaiTheme
+import com.xiaopacai.child.util.ParentPasswordManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -67,7 +69,9 @@ private data class GuardianStatusItem(
     val description: String,
     val ready: Boolean,
     val guideLabel: String,
-    val guideAction: (Context) -> Unit
+    val guideAction: (Context) -> Unit,
+    val manageLabel: String? = null,
+    val manageAction: ((Context) -> Unit)? = null
 )
 
 /**
@@ -78,13 +82,96 @@ private data class GuardianStatusItem(
 fun GuardianStatusScreen(onBack: () -> Unit) {
     val context = LocalContext.current
 
+    // [REQ] 解除设备管理器必须家长密码验证（防儿童自行卸载）
+    var showUnlockAdminDialog by remember { mutableStateOf(false) }
+    var adminPwd by remember { mutableStateOf("") }
+    var adminPwdError by remember { mutableStateOf<String?>(null) }
+
     // 诊断上报状态提示
     var reportMessage by remember { mutableStateOf<String?>(null) }
 
     val coroutineScope = rememberCoroutineScope()
 
-    val items = remember { buildStatusItems(context) }
+    val items = remember {
+        buildStatusItems(
+            context,
+            onRequestUnlockDeviceAdmin = { showUnlockAdminDialog = true }
+        )
+    }
     val readyCount = items.count { it.ready }
+
+    // [REQ] 家长密码验证：解除设备管理器（允许卸载）前必须验证
+    if (showUnlockAdminDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showUnlockAdminDialog = false
+                adminPwd = ""
+                adminPwdError = null
+            },
+            title = { Text("家长验证") },
+            text = {
+                Column {
+                    Text(
+                        "解除设备管理器后才能卸载小趴菜。\n请输入家长密码：",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = adminPwd,
+                        onValueChange = { adminPwd = it; adminPwdError = null },
+                        label = { Text("家长密码") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        isError = adminPwdError != null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (adminPwdError != null) {
+                        Text(
+                            adminPwdError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (ParentPasswordManager.verifyPassword(context, adminPwd)) {
+                        showUnlockAdminDialog = false
+                        adminPwd = ""
+                        adminPwdError = null
+                        try {
+                            val dpm = GuardianDeviceAdminReceiver.getDpm(context)
+                            dpm.removeActiveAdmin(
+                                GuardianDeviceAdminReceiver.getComponentName(context)
+                            )
+                            Toast.makeText(
+                                context,
+                                "设备保护已解除，现在可以卸载应用",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                context,
+                                "解除失败：${e.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    } else {
+                        adminPwdError = "密码错误"
+                    }
+                }) { Text("确认解除") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showUnlockAdminDialog = false
+                    adminPwd = ""
+                    adminPwdError = null
+                }) { Text("取消") }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -283,6 +370,17 @@ private fun GuardianStatusCard(item: GuardianStatusItem) {
                     Text(item.guideLabel, fontSize = 12.sp)
                 }
             }
+
+            // [REQ] 已就绪但提供“管理”操作（如家长解除设备管理器后卸载）
+            if (item.ready && item.manageLabel != null && item.manageAction != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedButton(
+                    onClick = { item.manageAction?.invoke(context) },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text(item.manageLabel, fontSize = 12.sp)
+                }
+            }
         }
     }
 }
@@ -292,7 +390,10 @@ private fun GuardianStatusCard(item: GuardianStatusItem) {
 /**
  * 构建守护状态条目列表
  */
-private fun buildStatusItems(context: Context): List<GuardianStatusItem> {
+private fun buildStatusItems(
+    context: Context,
+    onRequestUnlockDeviceAdmin: () -> Unit
+): List<GuardianStatusItem> {
     return listOf(
         // 1. 设备管理器（防卸载核心）
         GuardianStatusItem(
@@ -317,7 +418,10 @@ private fun buildStatusItems(context: Context): List<GuardianStatusItem> {
                 } catch (e: Exception) {
                     Toast.makeText(ctx, "无法跳转设备管理器设置", Toast.LENGTH_SHORT).show()
                 }
-            }
+            },
+            // [REQ] 已激活时提供“解除保护”：家长密码验证后 removeActiveAdmin，之后可卸载
+            manageLabel = "解除保护",
+            manageAction = { _ -> onRequestUnlockDeviceAdmin() }
         ),
         // 2. 无障碍服务（超时拦截）
         GuardianStatusItem(
