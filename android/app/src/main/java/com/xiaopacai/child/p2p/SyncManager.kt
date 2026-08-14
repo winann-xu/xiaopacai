@@ -253,20 +253,23 @@ class SyncManager(
     /**
      * [TASK-PRELAUNCH-P3] 上报公告已显示事件（announcement_displayed）
      * Web 侧据此落库 displayed_at；未连接时静默丢弃（送达记录以服务端推送计数为准）
+     * [TASK-PRELAUNCH-P3-FIX] 096 同类风险：网络发送统一移入 IO 线程，避免主线程网络异常
      */
     private fun sendAnnouncementDisplayed(announcementId: String) {
-        try {
-            val message = P2PMessage(
-                type = "announcement_displayed",
-                payload = mapOf(
-                    "announcementId" to announcementId,
-                    "displayedAt" to (System.currentTimeMillis() / 1000),
-                    "deviceId" to getDeviceId()
+        scope.launch(Dispatchers.IO) {
+            try {
+                val message = P2PMessage(
+                    type = "announcement_displayed",
+                    payload = mapOf(
+                        "announcementId" to announcementId,
+                        "displayedAt" to (System.currentTimeMillis() / 1000),
+                        "deviceId" to getDeviceId()
+                    )
                 )
-            )
-            connectionService.sendMessage(message)
-        } catch (e: Exception) {
-            Log.e(TAG, "上报公告显示事件失败: ${e.message}")
+                connectionService.sendMessage(message)
+            } catch (e: Exception) {
+                Log.e(TAG, "上报公告显示事件失败: ${e.message}")
+            }
         }
     }
 
