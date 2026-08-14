@@ -100,7 +100,9 @@ class SyncManager(
             val passphrase = getPassphrase()
             val today = dateFormat.format(Date())
             // 偏移 = 收到重置指令时本地已累计的当日分钟数
-            val offset = usageDao.getTodayTotalMinutes(today, passphrase)
+            // [FIX] 用 UsageStatsHelper 实时累计，避免 SQLCipher 连接状态下 DAO 查询
+            // 偶发 SQLiteMisuseException（bad parameter）导致重置链路中断
+            val offset = UsageStatsHelper.getTodayTotalMinutes(context)
 
             // 持久化偏移（跨进程/重启保留；日期不匹配时失效）
             val prefs = context.getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE)
