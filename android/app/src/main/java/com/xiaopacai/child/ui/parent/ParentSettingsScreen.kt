@@ -6,7 +6,10 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -14,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -389,6 +393,35 @@ fun ParentSettingsScreen(
                 }
             }
 
+            // === 网页管理入口（IP + 域名双地址）===
+            SectionTitle("网页管理")
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("在浏览器中打开家长管理后台", fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    WebConsoleLinkRow(
+                        label = "IP 地址",
+                        url = "http://8.217.165.122:5000",
+                        display = "8.217.165.122:5000",
+                        context = context
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    WebConsoleLinkRow(
+                        label = "域名",
+                        url = "https://xpc.winann.com",
+                        display = "xpc.winann.com",
+                        context = context
+                    )
+                }
+            }
+
             // === Web 云端中继（需求3）===
             SectionTitle("Web 云端中继")
 
@@ -727,6 +760,61 @@ fun ParentSettingsScreen(
 }
 
 // ==================== 辅助组件 ====================
+
+/**
+ * 网页管理入口行：标签 + 可点击地址，点击用系统浏览器打开
+ */
+@Composable
+private fun WebConsoleLinkRow(
+        label: String,
+        url: String,
+        display: String,
+        context: android.content.Context
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                .clickable { openBrowser(context, url) }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                label,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(52.dp)
+            )
+            Text(
+                display,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+/**
+ * 用系统浏览器打开网页管理后台
+ */
+private fun openBrowser(context: android.content.Context, url: String) {
+        try {
+            context.startActivity(
+                android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            Toast.makeText(context, "无法打开浏览器：${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
 
 @Composable
 private fun SectionTitle(title: String) {
