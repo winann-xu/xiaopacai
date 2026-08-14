@@ -7,6 +7,7 @@ import com.xiaopacai.child.data.database.AnnouncementDao
 import com.xiaopacai.child.util.DbPassphraseProvider
 import com.xiaopacai.child.data.database.UsageRecordDao
 import com.xiaopacai.child.service.GuardianForegroundService
+import com.xiaopacai.child.service.UsageStatsCollector
 import com.xiaopacai.child.util.UsageStatsHelper
 import kotlinx.coroutines.*
 import org.json.JSONArray
