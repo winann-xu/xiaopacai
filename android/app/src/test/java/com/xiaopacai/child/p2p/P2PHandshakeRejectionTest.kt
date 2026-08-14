@@ -94,4 +94,62 @@ class P2PHandshakeRejectionTest {
         assertEquals("连接被拒绝，请重新配对", rejectionHintText("unknown_code", null))
         assertEquals("连接被拒绝，请重新配对", rejectionHintText("", ""))
     }
+
+    // ==================== [TASK-PRELAUNCH-FIX-RATELIMIT] 限速拒绝 ====================
+
+    @Test
+    fun parseHandshakeRejection_webFrame_ipRateLimited() {
+        val msg = P2PMessage.fromJson(
+            """{"type":"handshake_rejected","error":"尝试次数过多，请稍后再试","error_code":"ip_rate_limited"}"""
+        )
+        val rejection = parseHandshakeRejection(msg)
+        assertEquals("ip_rate_limited", rejection?.code)
+    }
+
+    @Test
+    fun parseHandshakeRejection_blankErrorCode_mapsToIpRateLimited() {
+        // 旧服务端 K3 限速分支是唯一不带 error_code 的拒绝路径（122 信自锁闭环根因），
+        // 空白码防御性映射为 ip_rate_limited，避免客户端按临时失败 1s 重试续期
+        val msg = P2PMessage.fromJson(
+            """{"type":"handshake_rejected","error":"尝试次数过多，请稍后再试","error_code":""}"""
+        )
+        assertEquals("ip_rate_limited", parseHandshakeRejection(msg)?.code)
+
+        val msgNoCode = P2PMessage.fromJson("""{"type":"handshake_rejected","error":"尝试次数过多，请稍后再试"}""")
+        assertEquals("ip_rate_limited", parseHandshakeRejection(msgNoCode)?.code)
+    }
+
+    @Test
+    fun isRateLimitedRejectionCode_onlyIpRateLimited() {
+        assertTrue(isRateLimitedRejectionCode("ip_rate_limited"))
+        assertFalse(isRateLimitedRejectionCode(""))
+        assertFalse(isRateLimitedRejectionCode("unpaired"))
+        assertFalse(isRateLimitedRejectionCode("invalid_pairing_code"))
+    }
+
+    @Test
+    fun ipRateLimited_notInDeterministicCodes() {
+        // 限速是临时性的：必须继续自动重连（长退避），不能按确定性拒绝停止
+        assertFalse(isDeterministicRejectionCode("ip_rate_limited"))
+    }
+
+    @Test
+    fun rejectionHintText_ipRateLimited() {
+        assertEquals("尝试次数过多，请稍后自动重试",
+            rejectionHintText("ip_rate_limited", "尝试次数过多，请稍后再试"))
+    }
+
+    @Test
+    fun rateLimitBackoffDelayMs_exponentialCappedAt10Min() {
+        assertEquals(60_000L, rateLimitBackoffDelayMs(0))
+        assertEquals(120_000L, rateLimitBackoffDelayMs(1))
+        assertEquals(240_000L, rateLimitBackoffDelayMs(2))
+        assertEquals(480_000L, rateLimitBackoffDelayMs(3))
+        // 上限 10 分钟（服务端 5 分钟窗口过期后必然放行，闭环自愈）
+        assertEquals(600_000L, rateLimitBackoffDelayMs(4))
+        assertEquals(600_000L, rateLimitBackoffDelayMs(10))
+        assertEquals(600_000L, rateLimitBackoffDelayMs(Int.MAX_VALUE))
+        // 负步数防御：按 0 处理
+        assertEquals(60_000L, rateLimitBackoffDelayMs(-1))
+    }
 }

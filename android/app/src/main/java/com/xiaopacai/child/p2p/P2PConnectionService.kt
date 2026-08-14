@@ -89,8 +89,11 @@ internal val DETERMINISTIC_REJECTION_CODES = setOf(
 internal fun parseHandshakeRejection(message: P2PMessage): HandshakeRejection? {
     return when (message.type) {
         "handshake_rejected" -> {
-            // Web 服务端：error_code 为错误码，error 为可读原因（均为顶层字段，fromJson 已并入 payload）
-            val code = message.payload["error_code"] as? String ?: ""
+            // Web 服务端：error_code 为错误码，error 为可读原因（均为顶层字段，fromJson 已并入 payload）。
+            // [TASK-PRELAUNCH-FIX-RATELIMIT] 空 error_code 防御性映射为 ip_rate_limited：
+            // 旧服务端所有拒绝分支中唯一不带码的是 K3 限速分支（122 信自锁闭环根因），
+            // 新服务端已补齐显式码；空白码不可能来自其他拒绝路径。
+            val code = (message.payload["error_code"] as? String ?: "").ifBlank { "ip_rate_limited" }
             HandshakeRejection(code, message.payload["error"] as? String ?: "连接被拒绝")
         }
         "error" -> {
@@ -105,6 +108,23 @@ internal fun parseHandshakeRejection(message: P2PMessage): HandshakeRejection? {
 internal fun isDeterministicRejectionCode(code: String): Boolean =
     code.isNotBlank() && code in DETERMINISTIC_REJECTION_CODES
 
+/**
+ * [TASK-PRELAUNCH-FIX-RATELIMIT] IP 级限速拒绝：临时性失败，允许自动重连，
+ * 但必须长指数退避（禁止 1s 短退避把服务端 5 分钟限速窗口反复打满）。
+ */
+internal fun isRateLimitedRejectionCode(code: String): Boolean = code == "ip_rate_limited"
+
+/** 限速退避基础/上限延迟（首 60s，指数翻倍，上限 10 分钟） */
+internal const val RATE_LIMIT_BASE_DELAY_MS = 60_000L
+internal const val RATE_LIMIT_MAX_DELAY_MS = 600_000L
+
+/**
+ * [TASK-PRELAUNCH-FIX-RATELIMIT] 限速退避延迟：首 60s，指数翻倍，上限 10 分钟
+ * （服务端窗口 5 分钟；10 分钟封顶保证窗口过期后必然放行，闭环自愈）
+ */
+internal fun rateLimitBackoffDelayMs(step: Int): Long =
+    minOf(RATE_LIMIT_BASE_DELAY_MS * (1L shl step.coerceIn(0, 30)), RATE_LIMIT_MAX_DELAY_MS)
+
 /** 拒绝原因 → 儿童端配对界面可读文案（code 未知时回退服务端原文） */
 internal fun rejectionHintText(code: String, serverReason: String?): String = when (code) {
     "unpaired" -> "设备尚未配对，请用家长端生成配对二维码后重新扫码"
@@ -113,6 +133,7 @@ internal fun rejectionHintText(code: String, serverReason: String?): String = wh
     "fingerprint_mismatch" -> "证书指纹不匹配，请重新扫码配对"
     "invalid_pairing_code" -> "配对码无效或已过期，请在家长端刷新二维码后重新扫码"
     "missing_device_id" -> "设备信息缺失，请重新扫码配对"
+    "ip_rate_limited" -> "尝试次数过多，请稍后自动重试"
     else -> serverReason?.takeIf { it.isNotBlank() } ?: "连接被拒绝，请重新配对"
 }
 
@@ -234,6 +255,8 @@ class P2PConnectionService {
     private var connectedFingerprint: String? = null  // 实际连接的证书指纹
     private var heartbeatMissCount = 0
     private var reconnectAttempt = 0
+    // [TASK-PRELAUNCH-FIX-RATELIMIT] 限速退避步数（成功连接后归零）
+    private var rateLimitBackoffStep = 0
     private var _host: String = ""
     private var _port: Int = 9527
     private var _deviceId: String = ""
@@ -366,6 +389,14 @@ class P2PConnectionService {
 
             if (firstFrame != null) {
                 val rejection = parseHandshakeRejection(firstFrame)
+                // [TASK-PRELAUNCH-FIX-RATELIMIT] 限速是临时性的：清配对码（旧码多为
+                // 失败根源）、保留连接配置，进入长指数退避自动重连——若按确定性拒绝
+                // 停止重连，用户需手动重扫码；若走 1s 短退避，会把服务端限速窗口
+                // 反复打满形成永久自锁（122 信闭环根因）
+                if (rejection != null && isRateLimitedRejectionCode(rejection.code)) {
+                    handleRateLimitedRejection(rejection, host, port)
+                    return
+                }
                 if (rejection != null && isDeterministicRejectionCode(rejection.code)) {
                     handleDeterministicRejection(rejection)
                     return  // 不进入 receiveLoop，不 scheduleReconnect
@@ -385,6 +416,7 @@ class P2PConnectionService {
 
             _connectionState.value = P2PConnectionState.CONNECTED
             reconnectAttempt = 0  // 重置重连计数
+            rateLimitBackoffStep = 0  // [TASK-PRELAUNCH-FIX-RATELIMIT] 成功即归零退避步数
 
             // 8. 开始接收消息循环
             receiveLoop()
@@ -671,6 +703,40 @@ class P2PConnectionService {
         try { socket?.close() } catch (_: Exception) {}
         socket = null
         _connectionState.value = P2PConnectionState.DISCONNECTED
+    }
+
+    /**
+     * [TASK-PRELAUNCH-FIX-RATELIMIT] 限速拒绝处理：
+     * 清配对码（含持久化副本，旧码多为失败根源）、保留连接配置与自动重连，
+     * 写入拒绝状态供 UI 显示「稍后自动重试」，随后进入长指数退避（首 60s、上限 10 分钟）。
+     * 与确定性拒绝的区别：不停重连、不落 ERROR 终态（冷却后应自动恢复）。
+     */
+    private fun handleRateLimitedRejection(rejection: HandshakeRejection, host: String, port: Int) {
+        Log.w(TAG, "握手被限速（code=${rejection.code}）：${rejection.reason}，进入长退避自动重连")
+        _pairingCode = null
+        clearPersistedPairingCode()
+        _handshakeRejection.value = rejection
+        try { outputStream?.close() } catch (_: Exception) {}
+        try { inputStream?.close() } catch (_: Exception) {}
+        try { socket?.close() } catch (_: Exception) {}
+        socket = null
+        scheduleRateLimitReconnect(host, port)
+    }
+
+    /** [TASK-PRELAUNCH-FIX-RATELIMIT] 限速长退避重连（指数：60s→120s→240s→…→600s 封顶） */
+    private fun scheduleRateLimitReconnect(host: String, port: Int) {
+        val delay = rateLimitBackoffDelayMs(rateLimitBackoffStep)
+        rateLimitBackoffStep++
+
+        _connectionState.value = P2PConnectionState.RECONNECTING
+        Log.i(TAG, "限速退避：将在 ${delay}ms 后重连（第 ${rateLimitBackoffStep} 次）")
+
+        CoroutineScope(Dispatchers.IO).launch {
+            delay(delay)
+            if (_connectionState.value == P2PConnectionState.RECONNECTING) {
+                performConnect(host, port)
+            }
+        }
     }
 
     /** [TASK-PRELAUNCH-FIX-SCAN] 清除加密持久化的配对码（不触碰其余连接配置） */
