@@ -11,6 +11,7 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.xiaopacai.child.MainActivity
+import com.xiaopacai.child.R
 import com.xiaopacai.child.XiaopacaiApp
 import kotlinx.coroutines.*
 
@@ -164,7 +165,7 @@ object AntiBypassService {
             .setStyle(NotificationCompat.BigTextStyle().bigText(
                 "检测到以下安全风险：\n${issues.joinToString("\n") { "• $it" }}\n\n请检查并修复以上问题。"
             ))
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(R.drawable.ic_notification)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
@@ -188,7 +189,7 @@ object AntiBypassService {
                         "无障碍服务被系统移除后，超时拦截将失效（快手/抖音等可正常使用）。\n" +
                         "请点击按钮前往：设置 → 无障碍 → 已安装的服务 → 小趴菜 → 打开开关。"
                     ))
-                    .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                    .setSmallIcon(R.drawable.ic_notification)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setAutoCancel(true)
                     .setContentIntent(pendingIntent)
@@ -220,7 +221,7 @@ object AntiBypassService {
         val notification = NotificationCompat.Builder(context, XiaopacaiApp.CHANNEL_SECURITY)
             .setContentTitle(title)
             .setContentText(message)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(R.drawable.ic_notification)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)

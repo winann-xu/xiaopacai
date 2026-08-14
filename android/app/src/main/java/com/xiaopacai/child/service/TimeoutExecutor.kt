@@ -6,6 +6,7 @@ import android.util.Log
 import com.xiaopacai.child.XiaopacaiApp
 import com.xiaopacai.child.ui.BlockOverlayActivity
 import com.xiaopacai.child.util.DbPassphraseProvider
+import com.xiaopacai.child.R
 import net.sqlcipher.database.SQLiteDatabase
 import java.text.SimpleDateFormat
 import java.util.*
@@ -132,7 +133,7 @@ class TimeoutExecutor(private val context: Context) {
                 .setContentTitle(title)
                 .setContentText(message)
                 .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(message))
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(R.drawable.ic_notification)
                 .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .build()

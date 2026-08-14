@@ -11,6 +11,7 @@ import com.xiaopacai.child.service.UsageStatsCollector
 import com.xiaopacai.child.util.UsageStatsHelper
 import kotlinx.coroutines.*
 import org.json.JSONArray
+import com.xiaopacai.child.R
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
@@ -354,7 +355,7 @@ class SyncManager(
                         .setContentTitle(title)
                         .setContentText(content)
                         .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(content))
-                        .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                        .setSmallIcon(R.drawable.ic_notification)
                         .setPriority(androidx.core.app.NotificationCompat.PRIORITY_MAX)
                         .setCategory(androidx.core.app.NotificationCompat.CATEGORY_CALL)
                         .setVisibility(androidx.core.app.NotificationCompat.VISIBILITY_PUBLIC)
@@ -384,7 +385,7 @@ class SyncManager(
                     .setContentTitle(title)
                     .setContentText(content)
                     .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(content))
-                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setSmallIcon(R.drawable.ic_notification)
                     .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
                     .setAutoCancel(true)
                     .setContentIntent(pendingIntent)
