@@ -55,16 +55,17 @@ class TimeoutExecutor(private val context: Context) {
         isTimeout: Boolean,
         stopMode: String,
         usedMinutes: Long,
-        limitMinutes: Long
+        limitMinutes: Long,
+        triggerReason: String? = null
     ) {
         // 状态未变化则跳过
         if (isTimeout == lastTimeoutState && stopMode == lastStopMode) {
             return
         }
 
-        if (isTimeout && !lastTimeoutState) {
+        if (isTimeout && (!lastTimeoutState || stopMode != lastStopMode)) {
             // 超时触发：锁定设备
-            onTimeoutStarted(stopMode, usedMinutes, limitMinutes)
+            onTimeoutStarted(stopMode, usedMinutes, limitMinutes, triggerReason)
         } else if (!isTimeout && lastTimeoutState) {
             // 超时解除：恢复正常
             onTimeoutEnded(stopMode)
@@ -82,7 +83,12 @@ class TimeoutExecutor(private val context: Context) {
      * - partial：不启动全屏界面，由无障碍服务按"黑名单 + 非白名单"单应用拦截
      * - warn：仅发通知提醒，不拦截
      */
-    private fun onTimeoutStarted(stopMode: String, usedMinutes: Long, limitMinutes: Long) {
+    private fun onTimeoutStarted(
+        stopMode: String,
+        usedMinutes: Long,
+        limitMinutes: Long,
+        triggerReason: String? = null
+    ) {
         Log.w(TAG, "=== 超时停用触发 === 模式: $stopMode, 已用: ${usedMinutes}分钟/${limitMinutes}分钟")
 
         // 1. 记录超时事件到数据库
@@ -94,7 +100,10 @@ class TimeoutExecutor(private val context: Context) {
         when (stopMode) {
             // 2. Full 模式：主动启动全屏封锁界面
             "full" -> {
-                showBlockOverlay("system_timeout", "今日使用时长已达上限（${usedMinutes}/${limitMinutes} 分钟）")
+                showBlockOverlay(
+                    "system_timeout",
+                    triggerReason ?: "今日使用时长已达上限（${usedMinutes}/${limitMinutes} 分钟）"
+                )
             }
             // 3. Partial 模式：发通知提示，单应用拦截交给无障碍服务
             "partial" -> {

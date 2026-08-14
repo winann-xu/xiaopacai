@@ -223,12 +223,23 @@ class UsageStatsCollector(
         // 5. 检查超时状态
         checkTimeoutStatus(today, limitMinutes, passphrase)
 
+        // 5.5 [REQ] 就寝时段：进入就寝窗口立即整机停用（优先级高于日常限额的 partial）
+        val sleepActive = isInSleepWindow(passphrase)
+        if (sleepActive && (!_isTimeoutActive || _stopMode != "full")) {
+            _isTimeoutActive = true
+            _stopMode = "full"
+            Log.i(TAG, "就寝时段生效：整机停用")
+        }
+
         // 6. 执行超时停用（主动封锁 + 事件记录）
         timeoutExecutor.checkAndExecute(
             isTimeout = _isTimeoutActive,
             stopMode = _stopMode,
             usedMinutes = _todayTotalMinutes,
-            limitMinutes = limitMinutes
+            limitMinutes = limitMinutes,
+            triggerReason = if (sleepActive) {
+                "已到就寝时间，请休息"
+            } else null
         )
 
         Log.d(TAG, "今日总时长: ${_todayTotalMinutes}分钟(系统累计${rawTotal}, 重置偏移${resetOffset}) | " +
@@ -291,6 +302,52 @@ class UsageStatsCollector(
             Log.w(TAG, "读取限额失败: ${e.message}")
             0L
         }
+    }
+
+    /**
+     * [REQ] 判断当前时间是否处于就寝时段（policy_cache 的 sleep_time 策略）
+     * 支持跨天窗口（如 23:40-07:00）；时间格式必须为 HH:mm
+     */
+    private fun isInSleepWindow(passphrase: ByteArray): Boolean {
+        return try {
+            val db = XiaopacaiApp.instance.database.getReadable(passphrase)
+            try {
+                val cursor = db.rawQuery(
+                    "SELECT policy_data FROM policy_cache WHERE policy_type = ?",
+                    arrayOf("sleep_time")
+                )
+                cursor.use {
+                    if (!it.moveToFirst()) return false
+                    val json = it.getString(0)
+                    val startPattern = Regex(""""sleepStart"\s*:\s*"(\d{1,2}:\d{2})"""")
+                    val endPattern = Regex(""""sleepEnd"\s*:\s*"(\d{1,2}:\d{2})"""")
+                    val start = startPattern.find(json)?.groupValues?.get(1) ?: return false
+                    val end = endPattern.find(json)?.groupValues?.get(1) ?: return false
+                    val s = parseHm(start) ?: return false
+                    val e = parseHm(end) ?: return false
+                    if (s == e) return false
+
+                    val now = Calendar.getInstance()
+                    val cur = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+                    return if (s < e) cur >= s && cur < e else cur >= s || cur < e
+                }
+            } finally {
+                db.close()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "读取就寝时段失败: ${e.message}")
+            false
+        }
+    }
+
+    /** 解析 HH:mm 为分钟数，失败返回 null */
+    private fun parseHm(text: String): Int? {
+        val parts = text.split(":")
+        if (parts.size != 2) return null
+        val h = parts[0].toIntOrNull() ?: return null
+        val m = parts[1].toIntOrNull() ?: return null
+        if (h !in 0..23 || m !in 0..59) return null
+        return h * 60 + m
     }
 
     /**

@@ -132,6 +132,18 @@ private fun BlockOverlayScreen(
         buttonsVisible = true
     }
 
+    // [REQ] 超时/就寝解除后自动收起锁屏，避免“额度已重置/就寝结束但锁屏还挂着”
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(2000)
+            val collector = GuardianForegroundService.getCollector()
+            if (collector != null && !collector.isTimeoutActive) {
+                onGoHome()
+                return@LaunchedEffect
+            }
+        }
+    }
+
     // 锁图标的缩放动画（回弹效果）
     val iconScale by animateFloatAsState(
         targetValue = if (iconVisible) 1f else 0.3f,
