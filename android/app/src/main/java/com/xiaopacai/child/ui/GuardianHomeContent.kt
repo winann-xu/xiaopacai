@@ -36,6 +36,7 @@ import com.xiaopacai.child.p2p.P2PConnectionState
 import com.xiaopacai.child.p2p.PairingManager
 import com.xiaopacai.child.p2p.PairingState
 import com.xiaopacai.child.p2p.rejectionHintText
+import com.xiaopacai.child.p2p.isRateLimitedRejectionCode
 import com.xiaopacai.child.BuildConfig
 import com.xiaopacai.child.role.RoleManager
 import com.xiaopacai.child.service.GuardianForegroundService
@@ -97,6 +98,8 @@ fun GuardianHomeContent(
     // [TASK-PRELAUNCH-FIX-SCAN] 确定性握手拒绝提示（解绑/换账号/指纹不匹配等）
     val handshakeRejection by sharedConnection.handshakeRejection.collectAsState()
     val rejectionText = handshakeRejection?.let { rejectionHintText(it.code, it.reason) }
+    // [TASK-PRELAUNCH-FIX-RATELIMIT] 限速退避提示（临时性：自动重连中，非错误终态）
+    val isRateLimited = handshakeRejection?.let { isRateLimitedRejectionCode(it.code) } == true
 
     // BUG-0810-10: 关于对话框状态
     var showAboutDialog by remember { mutableStateOf(false) }
@@ -455,6 +458,9 @@ fun GuardianHomeContent(
                         text = when {
                             // [FIX-LEGACY-c] 优先用实时 P2P 连接状态，更精确反映链路状态
                             connectionState == P2PConnectionState.CONNECTED -> "✅ 已连接到家长端"
+                            // [TASK-PRELAUNCH-FIX-RATELIMIT] 限速退避：RECONNECTING 中优先
+                            // 显示等待提示（临时性，冷却后自动恢复）
+                            isRateLimited -> "⏳ ${handshakeRejection?.let { rejectionHintText(it.code, it.reason) } ?: "尝试次数过多，请稍后自动重试"}"
                             connectionState == P2PConnectionState.RECONNECTING -> "◉ 重连中..."
                             connectionState == P2PConnectionState.CONNECTING ||
                                 connectionState == P2PConnectionState.HANDSHAKING -> "正在连接..."
@@ -467,8 +473,12 @@ fun GuardianHomeContent(
                             else -> "点击下方按钮开始扫描局域网中的家长端"
                         },
                         fontSize = 13.sp,
-                        color = if (rejectionText != null) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        // [TASK-PRELAUNCH-FIX-RATELIMIT] 限速为警示色（橙），确定性拒绝为错误色
+                        color = when {
+                            isRateLimited -> Color(0xFFE6A23C)
+                            rejectionText != null -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

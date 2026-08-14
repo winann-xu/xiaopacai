@@ -67,10 +67,13 @@ class PairingManager(private val context: Context) {
         }
         // [TASK-PRELAUNCH-FIX-SCAN] 确定性拒绝 → 配对界面显示错误（不再无限重连）。
         // 无论此前处于 PAIRING 还是 DISCONNECTED→IDLE 的竞态顺序，拒绝都最终落到 ERROR；
-        // 连接服务在下次 connect 时清空拒绝状态，重新扫码即恢复
+        // 连接服务在下次 connect 时清空拒绝状态，重新扫码即恢复。
+        // [TASK-PRELAUNCH-FIX-RATELIMIT] 限速拒绝是临时性的（连接服务自行长退避重连），
+        // 不落 ERROR 终态，UI 由 handshakeRejection 流单独提示
         scope.launch {
             connectionService.handshakeRejection.collect { rejection ->
-                if (rejection != null && _pairingState.value != PairingState.CONNECTED) {
+                if (rejection != null && !isRateLimitedRejectionCode(rejection.code) &&
+                    _pairingState.value != PairingState.CONNECTED) {
                     _pairingState.value = PairingState.ERROR
                 }
             }
