@@ -80,9 +80,39 @@ class SyncManager(
         when (message.type) {
             "policy_update" -> handlePolicyUpdate(message)
             "announcement_push" -> handleAnnouncementPush(message)
+            "limit_reset" -> handleLimitReset(message)
             "sync_ack" -> handleSyncAck(message)
             "heartbeat_ack" -> { /* 心跳 ACK 由连接层处理 */ }
             else -> Log.d(TAG, "未处理的消息类型: ${message.type}")
+        }
+    }
+
+    /**
+     * [TASK-PRELAUNCH-P4] 处理家长端“重置当日限额”指令（limit_reset）
+     * 语义：以收到指令时刻的本地累计时长为偏移，之后“已用”从 0 重新计时；
+     * 原始使用记录/报告不受影响（服务端以原始累计 + 偏移显示调整后口径）
+     */
+    private fun handleLimitReset(message: P2PMessage) {
+        try {
+            val resetAt = (message.payload["resetAt"] as? Number)?.toLong() ?: 0L
+            val passphrase = getPassphrase()
+            val today = dateFormat.format(Date())
+            // 偏移 = 收到重置指令时本地已累计的当日分钟数
+            val offset = usageDao.getTodayTotalMinutes(today, passphrase)
+
+            // 持久化偏移（跨进程/重启保留；日期不匹配时失效）
+            val prefs = context.getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putLong("daily_reset_offset_minutes", offset)
+                .putString("daily_reset_offset_date", today)
+                .apply()
+
+            // 通知采集器立即按新口径重算（超时锁定同步解除）
+            com.xiaopacai.child.service.UsageStatsCollector.applyLimitReset(offset, today)
+
+            Log.i(TAG, "已处理限额重置指令: resetAt=$resetAt, 偏移=${offset}分钟（$today）")
+        } catch (e: Exception) {
+            Log.e(TAG, "限额重置处理失败: ${e.message}", e)
         }
     }
 
@@ -124,11 +154,13 @@ class SyncManager(
         }
 
         // 3. 发送消息
+        // [TASK-PRELAUNCH-P4] 携带今日重置偏移（分钟），服务端据此计算调整后“今日已用”
         val message = P2PMessage(
             type = "usage_report",
             payload = mapOf(
                 "deviceId" to getDeviceId(),
                 "records" to recordsArray.toString(),
+                "dailyResetOffsetMinutes" to getDailyResetOffsetMinutes(),
                 "timestamp" to (System.currentTimeMillis() / 1000)
             )
         )
@@ -367,6 +399,16 @@ class SyncManager(
     }
 
     // ==================== 工具方法 ====================
+
+    /**
+     * [TASK-PRELAUNCH-P4] 读取今日限额重置偏移（分钟）；偏移日期非今日（或未重置）时返回 0
+     */
+    private fun getDailyResetOffsetMinutes(): Long {
+        val prefs = context.getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE)
+        val offsetDate = prefs.getString("daily_reset_offset_date", null) ?: return 0L
+        val today = dateFormat.format(Date())
+        return if (offsetDate == today) prefs.getLong("daily_reset_offset_minutes", 0L) else 0L
+    }
 
     /**
      * 获取设备 ID

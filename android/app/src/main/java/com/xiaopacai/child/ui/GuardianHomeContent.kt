@@ -73,10 +73,12 @@ fun GuardianHomeContent(
     val collector = GuardianForegroundService.getCollector()
 
     // 状态（从采集器初始化，Compose 重组时自动刷新）
-    var todayUsedMinutes by remember { mutableStateOf(collector?.todayTotalMinutes?.toInt() ?: 0) }
+    // [TASK-PRELAUNCH-P4] 已用按调整后口径（重置当日限额后从 0 重新计时）
+    var todayUsedMinutes by remember { mutableStateOf(collector?.todayAdjustedMinutes?.toInt() ?: 0) }
     var dailyLimitMinutes by remember { mutableStateOf(collector?.todayLimitMinutes?.toInt() ?: 120) }
     var stopMode by remember { mutableStateOf(collector?.stopMode ?: "none") }
     var isTimeoutActive by remember { mutableStateOf(collector?.isTimeoutActive ?: false) }
+    var resetOffsetMinutes by remember { mutableStateOf(collector?.resetOffsetMinutes?.toInt() ?: 0) }
 
     // [FIX-LEGACY-c] 使用共享 P2P 连接服务的实时状态，不再硬编码 DISCONNECTED
     val sharedConnection = remember { GuardianForegroundService.getP2PConnection() }
@@ -107,10 +109,12 @@ fun GuardianHomeContent(
             kotlinx.coroutines.delay(30_000L)
             val c = GuardianForegroundService.getCollector()
             if (c != null) {
-                todayUsedMinutes = c.todayTotalMinutes.toInt()
+                // [TASK-PRELAUNCH-P4] 已用按调整后口径
+                todayUsedMinutes = c.todayAdjustedMinutes.toInt()
                 dailyLimitMinutes = c.todayLimitMinutes.toInt().coerceAtLeast(1)
                 stopMode = c.stopMode
                 isTimeoutActive = c.isTimeoutActive
+                resetOffsetMinutes = c.resetOffsetMinutes.toInt()
             }
         }
     }
@@ -227,7 +231,8 @@ fun GuardianHomeContent(
                 usagePercent = usagePercent,
                 isNearLimit = isNearLimit,
                 isTimeoutActive = isTimeoutActive,
-                stopMode = stopMode
+                stopMode = stopMode,
+                resetOffsetMinutes = resetOffsetMinutes
             )
         }
 
@@ -562,7 +567,8 @@ fun RemainingTimeCard(
     usagePercent: Float,
     isNearLimit: Boolean,
     isTimeoutActive: Boolean,
-    stopMode: String
+    stopMode: String,
+    resetOffsetMinutes: Int = 0
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -643,6 +649,19 @@ fun RemainingTimeCard(
                 else
                     MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
             )
+
+            // [TASK-PRELAUNCH-P4] 已重置提示（家长端重置过当日限额）
+            if (resetOffsetMinutes > 0) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "今日限额已重置（重置前 $resetOffsetMinutes 分钟不计入）",
+                    fontSize = 11.sp,
+                    color = if (isTimeoutActive)
+                        Color.White.copy(alpha = 0.6f)
+                    else
+                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)
+                )
+            }
         }
     }
 }
