@@ -2,7 +2,10 @@ using System;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Imaging;
 using Microsoft.Win32;
+using XiaopacaiParent.Services;
+using XiaopacaiParent.Services.P2P;
 
 namespace XiaopacaiParent.Views;
 
@@ -34,6 +37,105 @@ public partial class SettingsView : Page
 
         // 默认端口
         ListenPortTextBox.Text = "9527";
+
+        // [SEC-P1] 显示 P2P 服务器证书指纹（供儿童端扫码/手动配对比对）
+        try
+        {
+            var p2p = ((App)Application.Current).P2PService;
+            CertFingerprintTextBox.Text =
+                p2p?.GetCertificateFingerprint() ?? "（P2P 服务未启动）";
+        }
+        catch
+        {
+            CertFingerprintTextBox.Text = "（读取失败）";
+        }
+    }
+
+    /// <summary>
+    /// [SEC-P1] 生成一次性配对码（5 分钟有效，仅限儿童端首次配对使用一次）
+    /// </summary>
+    private void OnGeneratePairingCodeClick(object sender, RoutedEventArgs e)
+    {
+        var p2p = ((App)Application.Current).P2PService;
+        if (p2p == null)
+        {
+            MessageBox.Show("P2P 监听服务未启动，无法生成配对码", "提示",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var code = p2p.GeneratePairingCode();
+        PairingCodeTextBox.Text = code;
+        PairingCodeHintText.Text = "配对码 5 分钟内有效，仅限儿童端首次配对使用一次";
+    }
+
+    /// <summary>
+    /// [SEC-P1] 显示配对二维码：内含设备 ID、局域网 IP、监听端口、
+    /// 证书真实指纹与一次性配对码，儿童端扫码即自动完成安全配对。
+    /// </summary>
+    private void OnShowPairingQrClick(object sender, RoutedEventArgs e)
+    {
+        var p2p = ((App)Application.Current).P2PService;
+        if (p2p == null)
+        {
+            MessageBox.Show("P2P 监听服务未启动，无法生成配对二维码", "提示",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        try
+        {
+            // 每次展示生成新配对码（旧码作废，防二维码泄露后重放）
+            var code = p2p.GeneratePairingCode();
+            PairingCodeTextBox.Text = code;
+            PairingCodeHintText.Text = "配对码 5 分钟内有效，仅限儿童端首次配对使用一次";
+
+            var dataDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "XiaopacaiParent");
+            var deviceId = DeviceIdentity.GetOrCreateId(dataDir);
+            var fingerprint = p2p.GetCertificateFingerprint() ?? "";
+
+            var png = QRCodeService.GeneratePairingQRCode(
+                deviceId, "小趴菜家长端", 9527, fingerprint, code);
+
+            // 弹出窗口展示二维码
+            var window = new Window
+            {
+                Title = "配对二维码（5 分钟有效）",
+                Width = 380,
+                Height = 460,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = Window.GetWindow(this)
+            };
+
+            var image = new Image { Stretch = System.Windows.Media.Stretch.Uniform };
+            using (var ms = new MemoryStream(png))
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.StreamSource = ms;
+                bmp.EndInit();
+                image.Source = bmp;
+            }
+
+            var stack = new StackPanel { Margin = new Thickness(12) };
+            stack.Children.Add(image);
+            stack.Children.Add(new TextBlock
+            {
+                Text = "儿童端「扫码配对」扫描此码即可自动完成配对",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 8, 0, 0)
+            });
+            window.Content = stack;
+            window.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"生成配对二维码失败: {ex.Message}", "错误",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     /// <summary>

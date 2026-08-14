@@ -49,6 +49,30 @@
                     <Button Content="🔑 重新生成证书" Style="{StaticResource MaterialDesignFlatButton}"
                             HorizontalAlignment="Left"
                             Click="OnRegenerateCertClick" />
+
+                    <Separator Margin="0,12" />
+
+                    <!-- [SEC-P1] 设备配对：一次性配对码 + 证书指纹 -->
+                    <TextBlock Text="设备配对" FontWeight="SemiBold" Margin="0,0,0,4" />
+                    <TextBlock Text="儿童端首次连接需输入一次性配对码；已配对设备凭客户端证书指纹自动认证。"
+                               Foreground="Gray" FontSize="12" Margin="0,0,0,8" />
+                    <TextBlock Text="服务器证书指纹（儿童端扫码/手动配对比对用）"
+                               Foreground="Gray" FontSize="12" Margin="0,0,0,4" />
+                    <TextBox x:Name="CertFingerprintTextBox" IsReadOnly="True"
+                             TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <Button Content="🔢 生成配对码（5 分钟有效）"
+                                Style="{StaticResource MaterialDesignFlatButton}"
+                                Click="OnGeneratePairingCodeClick" />
+                        <TextBox x:Name="PairingCodeTextBox" Width="120" Margin="8,0,0,0"
+                                 VerticalAlignment="Center" IsReadOnly="True" />
+                    </StackPanel>
+                    <TextBlock x:Name="PairingCodeHintText" Text=""
+                               Foreground="Gray" FontSize="12" />
+                    <Button Content="📱 显示配对二维码（儿童端扫码一键配对）"
+                            Style="{StaticResource MaterialDesignFlatButton}"
+                            HorizontalAlignment="Left" Margin="0,8,0,0"
+                            Click="OnShowPairingQrClick" />
                 </StackPanel>
             </Border>
 
