@@ -46,9 +46,6 @@ object ParentPasswordManager {
     private const val MAX_FAILED_ATTEMPTS = 5
     private const val LOCKOUT_DURATION_MS = 5 * 60 * 1000L  // 锁定 5 分钟
 
-    // 默认密码（首次使用，家长应尽快修改）
-    private const val DEFAULT_PASSWORD = "000000"
-
     /**
      * 检查家长密码是否已设置
      */
@@ -126,14 +123,11 @@ object ParentPasswordManager {
             return false
         }
 
-        // 如果没有设置密码，使用默认密码
+        // [SEC-P1] 未设置家长密码时一律拒绝验证（删除默认密码 000000 后门，红线 R4.x）：
+        // 首次使用必须由家长在「家长模式」中显式设置密码后才能进入受保护功能
         if (!isPasswordSet(context)) {
-            val result = password == DEFAULT_PASSWORD
-            if (result) {
-                // 首次使用默认密码，提醒家长修改
-                Log.i(TAG, "使用默认密码登录成功，请提醒家长修改密码")
-            }
-            return result
+            Log.w(TAG, "家长密码尚未设置，拒绝验证（请家长先在家长模式中设置密码）")
+            return false
         }
 
         // 解密存储的盐值和哈希

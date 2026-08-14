@@ -139,12 +139,15 @@ fun GuardianHomeContent(
                         GuardianForegroundService.getP2PConnection().connect(
                             host = host,
                             port = port,
+                            // [SEC-P1] 二维码携带可信指纹（Web 3.0 已下发）时固定比对；
+                            // 旧服务端二维码无指纹时仅扫码引导流程允许 TOFU（红线 R3.x）
                             expectedFingerprint = fp.ifBlank { null },
                             deviceId = deviceId,
                             deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim(),
                             pairingCode = code,
                             // [REQ] web_relay 二维码 → 经 Web 中继连接（否则服务器不登记中继会话，无法路由）
                             isRelay = obj.optString("type") == "web_relay",
+                            allowTofu = fp.isBlank(),
                             scope = scope
                         )
                     }
@@ -659,7 +662,7 @@ fun GuardianHomeContent(
                         discoveredParents.forEach { parent ->
                             OutlinedButton(
                                 onClick = {
-                                    pairingManager.connectToParent(parent, pairingCode.ifEmpty { "000000" })
+                                    pairingManager.connectToParent(parent, pairingCode)
                                     showPairingDialog = false
                                 },
                                 modifier = Modifier.fillMaxWidth(),
@@ -713,8 +716,8 @@ fun GuardianHomeContent(
                     OutlinedTextField(
                         value = pairingCode,
                         onValueChange = { pairingCode = it },
-                        label = { Text("配对码（6 位数字）") },
-                        placeholder = { Text("000000") },
+                        label = { Text("配对码（6 位数字，家长端生成时填写）") },
+                        placeholder = { Text("留空则等待家长端生成配对码") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -726,7 +729,7 @@ fun GuardianHomeContent(
                         val port = manualPort.toIntOrNull() ?: 9527
                         if (manualHost.isNotBlank()) {
                             val parent = pairingManager.addManualParent(manualHost, port)
-                            pairingManager.connectToParent(parent, pairingCode.ifEmpty { "000000" })
+                            pairingManager.connectToParent(parent, pairingCode)
                         }
                         showPairingDialog = false
                     }

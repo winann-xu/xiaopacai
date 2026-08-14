@@ -2,6 +2,7 @@ package com.xiaopacai.child.p2p
 
 import android.util.Log
 import com.xiaopacai.child.XiaopacaiApp
+import com.xiaopacai.child.util.KeyStoreManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -180,6 +181,8 @@ class P2PConnectionService {
     private var _deviceName: String = ""
     private var _pairingCode: String? = null
     private var _isRelay: Boolean = false  // 是否通过 Web 云端中继连接
+    // [SEC-P1] 是否允许空指纹 TOFU 首连（仅扫码引导流程；见 connect() 注释）
+    private var _allowTofu: Boolean = false
     // [SEC-K2] 中继会话令牌（家长端握手凭据，注册时签发，重连时重复使用）
     private var _sessionToken: String? = null
 
@@ -192,6 +195,9 @@ class P2PConnectionService {
      * @param deviceName 本机设备名称
      * @param pairingCode 配对码（6 位数字，家长端要求时提供）
      * @param sessionToken [SEC-K2] 中继会话令牌（家长端经 /api/relay/register 获得，握手必带）
+     * @param allowTofu [SEC-P1] 是否允许空指纹首连（TOFU）。仅扫码引导流程允许
+     *        （二维码本身携带可信指纹时也应传入非空 expectedFingerprint 固定比对）；
+     *        手动 IP/发现/自动重连等非扫码路径必须传 false，空指纹直接拒绝。
      */
     suspend fun connect(
         host: String,
@@ -202,6 +208,7 @@ class P2PConnectionService {
         pairingCode: String? = null,
         isRelay: Boolean = false,
         sessionToken: String? = null,
+        allowTofu: Boolean = false,
         scope: CoroutineScope
     ) {
         this.expectedFingerprint = expectedFingerprint
@@ -212,6 +219,7 @@ class P2PConnectionService {
         this._pairingCode = pairingCode
         this._isRelay = isRelay
         this._sessionToken = sessionToken
+        this._allowTofu = allowTofu
         this.reconnectAttempt = 0
 
         // [REQ] 持久化连接配置，供服务/应用重启后自动重连（局域网与公网中继通用）
@@ -232,12 +240,15 @@ class P2PConnectionService {
             prefs.edit()
                 .putString("relay_host", _host)
                 .putInt("relay_port", _port)
-                .putString("relay_pairing_code", _pairingCode ?: "")
+                // [SEC-P1] 配对码/会话令牌为握手凭据，经 AndroidKeyStore AES-GCM 加密后落盘（红线 R4.1）
+                .putString("relay_pairing_code",
+                    _pairingCode?.takeIf { it.isNotBlank() }?.let { KeyStoreManager.encryptPrefsValue(it) } ?: "")
                 .putBoolean("relay_mode", _isRelay)
                 .putString("relay_fingerprint", expectedFingerprint ?: "")
                 .putString("device_id", _deviceId)
-                // [SEC-K2] 会话令牌随配置持久化，服务/应用重启后重连仍可携带
-                .putString("relay_session_token", _sessionToken ?: "")
+                // [SEC-K2][SEC-P1] 会话令牌随配置持久化（加密存储），服务/应用重启后重连仍可携带
+                .putString("relay_session_token",
+                    _sessionToken?.takeIf { it.isNotBlank() }?.let { KeyStoreManager.encryptPrefsValue(it) } ?: "")
                 .apply()
         } catch (e: Exception) {
             Log.w(TAG, "持久化连接配置失败: ${e.message}")
@@ -347,9 +358,15 @@ class P2PConnectionService {
         connectedFingerprint = actualFingerprint
 
         return when {
-            // 首次配对：接受并记录
+            // [SEC-P1] 首次连接（无期望指纹）：
+            // - 扫码引导（allowTofu=true，且旧服务端二维码未携带指纹）允许 TOFU 并立即持久化；
+            // - 手动 IP / 发现 / 自动重连等非扫码路径一律拒绝，防首连中间人（红线 R3.x）。
             expectedFingerprint.isNullOrEmpty() -> {
-                Log.i(TAG, "首次配对，证书指纹: $actualFingerprint")
+                if (!_allowTofu) {
+                    Log.e(TAG, "未提供期望指纹且非扫码引导流程，拒绝首连（防中间人）")
+                    return false
+                }
+                Log.i(TAG, "扫码引导首连（TOFU），证书指纹: $actualFingerprint")
                 expectedFingerprint = actualFingerprint
                 // [SEC-R3.3] TOFU 采纳后立即持久化，重启/下次连接继续固定比对
                 persistServerFingerprint(actualFingerprint)
@@ -395,8 +412,8 @@ class P2PConnectionService {
             "deviceType" to "android",
             "timestamp" to System.currentTimeMillis() / 1000
         )
-        // 仅在提供了配对码时携带，避免空串触发家长端校验
-        _pairingCode?.let { payload["pairingCode"] = it }
+        // 仅在提供了非空配对码时携带，避免空串触发家长端校验
+        _pairingCode?.takeIf { it.isNotBlank() }?.let { payload["pairingCode"] = it }
         // [TASK-OPT-12-P4-DEEPEN] Web 云端中继模式：携带 relay 标志
         if (_isRelay) {
             payload["relay"] = true

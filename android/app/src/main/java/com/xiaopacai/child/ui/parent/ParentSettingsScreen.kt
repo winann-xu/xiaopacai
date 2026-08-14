@@ -20,11 +20,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xiaopacai.child.p2p.P2PConnectionService
 import com.xiaopacai.child.p2p.ParentP2PListenerService
 import com.xiaopacai.child.BuildConfig
 import com.xiaopacai.child.ui.scan.QrScannerActivity
 import com.xiaopacai.child.role.RoleManager
 import com.xiaopacai.child.XiaopacaiApp
+import com.xiaopacai.child.util.KeyStoreManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -38,6 +40,70 @@ import java.security.SecureRandom
 // Web 中继 JWT Token 存储
 private const val WEB_PREFS_NAME = "xiaopacai_web_prefs"
 private const val KEY_WEB_TOKEN = "web_token"
+
+/**
+ * [SEC-P1] 判断主机是否为局域网/本机地址。
+ * HTTP 明文仅限局域网（红线 R6.x）；公网主机一律强制 HTTPS。
+ */
+private fun isLanHost(host: String): Boolean {
+    if (host == "localhost" || host == "::1" || host.endsWith(".local")) return true
+    val parts = host.split(".")
+    if (parts.size != 4 || parts.any { it.toIntOrNull() == null }) return false
+    val a = parts[0].toInt()
+    val b = parts[1].toInt()
+    return a == 127 || a == 10 ||
+        (a == 192 && b == 168) ||
+        (a == 172 && b in 16..31) ||
+        (a == 169 && b == 254)
+}
+
+/**
+ * [SEC-P1] HTTPS 优先执行 HTTP 请求：
+ * - 先尝试 https；
+ * - 仅当主机是局域网地址且失败原因为 SSL 握手失败（对端为明文 HTTP 服务）时，
+ *   回退到 http 重试一次（其他异常不回退，避免 POST 重复提交）；
+ * - 公网主机仅 https，杜绝明文传输凭据（红线 R6.x）。
+ */
+private fun <T> httpWithHttpsFirst(host: String, port: Int, block: (base: String) -> T): T {
+    val candidates = if (isLanHost(host))
+        listOf("https://$host:$port", "http://$host:$port")
+    else
+        listOf("https://$host:$port")
+    var sslFailed = false
+    for (base in candidates) {
+        try {
+            return block(base)
+        } catch (e: javax.net.ssl.SSLException) {
+            sslFailed = true
+            android.util.Log.w("WebRelay", "HTTPS 请求失败(SSL)，尝试下一候选: ${e.message}")
+        }
+    }
+    throw IllegalStateException("HTTPS 连接失败" + if (sslFailed) "（服务端未启用 HTTPS）" else "")
+}
+
+/**
+ * [SEC-P1] HTTPS 优先 + 局域网回退的 JSON POST。
+ * @return Triple(状态码, 响应体, 错误体)
+ */
+private fun httpPostJson(
+    host: String, port: Int, path: String, body: String, token: String?
+): Triple<Int, String, String> {
+    return httpWithHttpsFirst(host, port) { base ->
+        val conn = URL("$base$path").openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Content-Type", "application/json")
+        if (token != null) conn.setRequestProperty("Authorization", "Bearer $token")
+        conn.doOutput = true
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+        OutputStreamWriter(conn.outputStream).use { it.write(body) }
+        val code = conn.responseCode
+        val resp = if (code in 200..299) conn.inputStream.bufferedReader().readText() else ""
+        val err = if (code in 200..299) ""
+            else try { conn.errorStream?.bufferedReader()?.readText() ?: "" } catch (_: Exception) { "" }
+        Triple(code, resp, err)
+    }
+}
 
 /**
  * [TASK-OPT-12-P3] 家长端设置页（含忘记密码/恢复码/Web中继）
@@ -110,8 +176,12 @@ fun ParentSettingsScreen(
                 } catch (_: Exception) {}
             }
             val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+            // [SEC-P1] JWT 以 KeyStore 加密存储（"enc:" 前缀），读取时解密
             val token = prefs.getString(KEY_WEB_TOKEN, null)
-            if (token.isNullOrBlank()) {
+                ?.takeIf { it.isNotBlank() }
+                ?.let { KeyStoreManager.decryptPrefsValue(it) }
+                ?.takeIf { it.isNotBlank() }
+            if (token == null) {
                 scanLoginMessage = "请先用账号密码登录获取 Token，再扫码确认 Web 登录"
                 return
             }
@@ -697,10 +767,13 @@ internal suspend fun connectToWebRelay(
     port: Int
 ): Pair<String, String?> {
     android.util.Log.i("WebRelay", "connectToWebRelay start: $host:$port")
-    // 读取已保存的 Web JWT Token
+    // 读取已保存的 Web JWT Token（[SEC-P1] KeyStore 加密存储，读取时解密）
     val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
     val webToken = prefs.getString(KEY_WEB_TOKEN, null)
-    if (webToken.isNullOrBlank()) {
+        ?.takeIf { it.isNotBlank() }
+        ?.let { KeyStoreManager.decryptPrefsValue(it) }
+        ?.takeIf { it.isNotBlank() }
+    if (webToken == null) {
         android.util.Log.w("WebRelay", "web_token 为空")
         return "请先在「Web 账号」中登录获取 Token" to null
     }
@@ -718,27 +791,18 @@ internal suspend fun connectToWebRelay(
     // [REQ] 从 Web 获取真实配对码（5 分钟有效，用于绑定儿童设备 + 中继连接）
     val pairingCode: String
     try {
-        val url = URL("http://$host:$port/api/pairing/generate-code")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.setRequestProperty("Authorization", "Bearer $webToken")
-        conn.doOutput = true
-        conn.connectTimeout = 10000
-        conn.readTimeout = 10000
+        // [SEC-P1] HTTPS 优先（局域网可回退明文），凭据不再明文走公网
+        val (code, respBody, errBody) = httpPostJson(host, port, "/api/pairing/generate-code", "{}", webToken)
+        android.util.Log.i("WebRelay", "pairing generate-code HTTP $code")
 
-        OutputStreamWriter(conn.outputStream).use { it.write("{}") }
-        android.util.Log.i("WebRelay", "pairing generate-code HTTP ${conn.responseCode}")
-
-        if (conn.responseCode in 200..299) {
-            val json = JSONObject(conn.inputStream.bufferedReader().readText())
+        if (code in 200..299) {
+            val json = JSONObject(respBody)
             pairingCode = json.optString("pairCode", "")
             if (pairingCode.isBlank()) {
                 return "Web 未返回配对码" to null
             }
         } else {
-            val errorBody = try { conn.errorStream?.bufferedReader()?.readText() } catch (_: Exception) { "" }
-            return "获取配对码失败: HTTP ${conn.responseCode} ${errorBody ?: ""}" to null
+            return "获取配对码失败: HTTP $code $errBody" to null
         }
     } catch (e: Exception) {
         return "获取配对码请求失败: ${e.message}" to null
@@ -750,36 +814,30 @@ internal suspend fun connectToWebRelay(
     // [SEC-K2] 注册成功后解析会话令牌，P2P 握手必须携带（服务端与 relay_sessions 比对）
     val registerResult: String
     var sessionToken: String? = null
+    // [SEC-P1] 服务端经 JWT 通道下发的 P2P 指纹：固定中继 TLS 证书比对（红线 R3.x）
+    var serverFingerprint: String? = null
     try {
-        val url = URL("http://$host:$port/api/relay/register")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.setRequestProperty("Authorization", "Bearer $webToken")
-        conn.doOutput = true
-        conn.connectTimeout = 10000
-        conn.readTimeout = 10000
-
         val body = JSONObject().apply {
             put("deviceId", parentDeviceId)
             put("role", "parent")
             put("fingerprint", fingerprint)
             put("pairingCode", pairingCode)
-            put("listenPort", 9527)
+            put("listenPort", 9527L)
         }
 
-        OutputStreamWriter(conn.outputStream).use { it.write(body.toString()) }
+        // [SEC-P1] HTTPS 优先（局域网可回退明文）
+        val (code, respBody, errBody) = httpPostJson(host, port, "/api/relay/register", body.toString(), webToken)
 
-        if (conn.responseCode in 200..299) {
-            val response = conn.inputStream.bufferedReader().readText()
-            sessionToken = JSONObject(response).optString("sessionToken", "").takeIf { it.isNotBlank() }
-            registerResult = "中继注册成功: $response"
+        if (code in 200..299) {
+            val response = JSONObject(respBody)
+            sessionToken = response.optString("sessionToken", "").takeIf { it.isNotBlank() }
+            serverFingerprint = response.optString("serverFingerprint", "").takeIf { it.isNotBlank() }
+            registerResult = "中继注册成功: $respBody"
             if (sessionToken == null) {
                 return "中继注册响应缺少会话令牌（服务端版本过旧？）" to pairingCode
             }
         } else {
-            val errorBody = try { conn.errorStream?.bufferedReader()?.readText() } catch (_: Exception) { "" }
-            return "中继注册失败: HTTP ${conn.responseCode} ${errorBody ?: ""}" to pairingCode
+            return "中继注册失败: HTTP $code $errBody" to pairingCode
         }
     } catch (e: Exception) {
         return "注册请求失败: ${e.message}。检查 Web 服务是否可访问。" to pairingCode
@@ -789,19 +847,26 @@ internal suspend fun connectToWebRelay(
     try {
         val p2pConnection = com.xiaopacai.child.service.GuardianForegroundService.getP2PConnection()
         if (p2pConnection != null) {
-            // [SEC-R3.3] 固定 Web 服务端证书指纹：首次信任（TOFU），后续连接比对已持久化指纹
+            // [SEC-P1] 固定 Web 服务端证书指纹（红线 R3.x）：
+            // 优先用注册响应（JWT 鉴权通道）下发的指纹；无则回退本地持久化指纹；
+            // 两者皆无 → 拒绝首连（禁止 TOFU），提示升级服务端
             val knownServerFingerprint = context
                 .getSharedPreferences("guardian_prefs", android.content.Context.MODE_PRIVATE)
                 .getString("relay_fingerprint", "")?.takeIf { it.isNotBlank() }
+            val expectedFingerprint = serverFingerprint ?: knownServerFingerprint
+            if (expectedFingerprint == null) {
+                return "$registerResult\n服务端未提供 P2P 指纹，已拒绝首连（请升级 Web 服务端）" to pairingCode
+            }
             p2pConnection.connect(
                 host = host,
                 port = 9527,  // Web P2P TLS 监听端口
-                expectedFingerprint = knownServerFingerprint,  // 首次为 null（TOFU 记录），后续固定比对
+                expectedFingerprint = expectedFingerprint,
                 deviceId = parentDeviceId,
                 deviceName = "家长端-${android.os.Build.MODEL}",
                 pairingCode = pairingCode,
                 isRelay = true,  // 中继模式
                 sessionToken = sessionToken,
+                allowTofu = false,  // [SEC-P1] 非扫码路径禁止 TOFU
                 scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO)
             )
             return "$registerResult\nP2P 中继连接已发起（端口 9527）\n配对码: $pairingCode" to pairingCode
@@ -818,38 +883,29 @@ internal suspend fun connectToWebRelay(
  */
 private suspend fun loginToWeb(context: android.content.Context, host: String, port: Int, username: String, password: String): String {
     return try {
-        val url = URL("http://$host:$port/api/auth/login")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.doOutput = true
-        conn.connectTimeout = 10000
-        conn.readTimeout = 10000
-
         val body = JSONObject().apply {
             put("username", username)
             put("password", password)
         }
 
-        OutputStreamWriter(conn.outputStream).use { it.write(body.toString()) }
+        // [SEC-P1] HTTPS 优先（局域网可回退明文），登录凭据不落明文链路
+        val (code, respBody, errBody) = httpPostJson(host, port, "/api/auth/login", body.toString(), null)
 
-        if (conn.responseCode in 200..299) {
-            val response = conn.inputStream.bufferedReader().readText()
-            val json = JSONObject(response)
+        if (code in 200..299) {
+            val json = JSONObject(respBody)
             val accessToken = json.optString("accessToken", "")
             if (accessToken.isNotBlank()) {
-                // 保存 Token 到 SharedPreferences
+                // [SEC-P1] Token 以 KeyStore AES-GCM 加密后落盘（红线 R4.1）
                 val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
-                prefs.edit().putString(KEY_WEB_TOKEN, accessToken).apply()
+                prefs.edit().putString(KEY_WEB_TOKEN, KeyStoreManager.encryptPrefsValue(accessToken)).apply()
                 "登录成功，Token 已保存"
             } else {
                 "登录响应缺少 accessToken"
             }
-        } else if (conn.responseCode == 401) {
+        } else if (code == 401) {
             "登录失败: 用户名或密码错误"
         } else {
-            val errorBody = try { conn.errorStream?.bufferedReader()?.readText() } catch (_: Exception) { "" }
-            "登录失败: HTTP ${conn.responseCode} ${errorBody ?: ""}"
+            "登录失败: HTTP $code $errBody"
         }
     } catch (e: Exception) {
         "登录请求失败: ${e.message}"

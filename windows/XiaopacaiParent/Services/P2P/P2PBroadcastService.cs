@@ -117,9 +117,9 @@ public class P2PBroadcastService : IDisposable
             version = "1.0",
             deviceId = _deviceId,
             port = _tcpPort,
-            fingerprint = _certFingerprint.Length >= 16
-                ? _certFingerprint[..16]
-                : _certFingerprint
+            // [SEC-P1] 广播完整 64 位指纹（证书指纹是公开值，非秘密）：
+            // 儿童端首次配对即以广播指纹固定比对（红线 R3.x），截断会导致指纹比对永不匹配
+            fingerprint = _certFingerprint
         };
 
         var json = JsonSerializer.Serialize(payload);

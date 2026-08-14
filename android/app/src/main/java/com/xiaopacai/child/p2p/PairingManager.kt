@@ -109,17 +109,27 @@ class PairingManager(private val context: Context) {
     fun connectToParent(parent: DiscoveredParent, pairingCode: String) {
         _pairingState.value = PairingState.PAIRING
 
-        // 从数据库读取已保存的证书指纹
+        // 从数据库读取已保存的证书指纹；无历史时回退发现广播携带的指纹
         val savedFingerprint = getSavedFingerprint(parent.deviceId)
+        val expectedFingerprint = savedFingerprint ?: parent.fingerprint.ifBlank { null }
+
+        // [SEC-P1] 非扫码路径禁止空指纹首连（红线 R3.x）：
+        // 无历史指纹且发现广播未携带指纹时直接报错，不进行 TOFU 首连
+        if (expectedFingerprint == null) {
+            Log.e(TAG, "拒绝首连：家长端未提供证书指纹（请确认家长端已开启广播/展示指纹，或改用扫码配对）")
+            _pairingState.value = PairingState.ERROR
+            return
+        }
 
         scope.launch {
             connectionService.connect(
                 host = parent.host,
                 port = parent.port,
-                expectedFingerprint = savedFingerprint,
+                expectedFingerprint = expectedFingerprint,
                 deviceId = getLocalDeviceId(),
                 deviceName = getLocalDeviceName(),
                 pairingCode = pairingCode,
+                allowTofu = false,  // [SEC-P1] 手动/发现路径禁止 TOFU
                 scope = scope
             )
 

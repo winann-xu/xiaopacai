@@ -228,6 +228,32 @@ object KeyStoreManager {
     }
 
     /**
+     * [SEC-P1] 加密要写入 SharedPreferences 的敏感值（带 "enc:" 前缀标记）
+     *
+     * 调用方存储带标记密文；读取方用 [decryptPrefsValue] 解回明文。
+     * 旧版本存的明文不带前缀，读取时按明文透传（读取侧迁移兼容）。
+     */
+    fun encryptPrefsValue(plainText: String): String {
+        return "enc:" + encryptForStorage(plainText)
+    }
+
+    /**
+     * [SEC-P1] 解密带标记的 SharedPreferences 值；无标记（历史明文）直接透传。
+     * 解密失败返回空串（视为未存储，触发上层重新登录/注册流程）。
+     */
+    fun decryptPrefsValue(stored: String): String {
+        if (!stored.startsWith(ENC_PREFIX)) return stored
+        return try {
+            decryptFromStorage(stored.removePrefix(ENC_PREFIX))
+        } catch (e: Exception) {
+            android.util.Log.w("KeyStoreManager", "敏感值解密失败（密钥变更？）: ${e.message}")
+            ""
+        }
+    }
+
+    private const val ENC_PREFIX = "enc:"
+
+    /**
      * 获取或创建用于 SharedPreferences 加密的 AES 密钥
      */
     private fun getOrCreateEncryptionKey(): SecretKey {
