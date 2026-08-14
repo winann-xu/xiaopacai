@@ -33,10 +33,25 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            // [TASK-PRELAUNCH-APK] 签名密钥从用户级 gradle.properties 读取（不入库）
+            val storePath = providers.gradleProperty("XPC_KEYSTORE").orNull
+            if (!storePath.isNullOrBlank()) {
+                storeFile = file(storePath)
+                storePassword = providers.gradleProperty("XPC_STORE_PASS").get()
+                keyAlias = providers.gradleProperty("XPC_KEY_ALIAS").getOrElse("xiaopacai")
+                keyPassword = providers.gradleProperty("XPC_KEY_PASS").get()
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // [TASK-PRELAUNCH-APK] A1：Release 发布包正式签名（密钥不入库，从环境变量读取）
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -63,6 +78,17 @@ android {
         compose = true  // 启用 Jetpack Compose
         buildConfig = true  // 生成 BuildConfig（调试模式测试入口用）
     }
+
+    // [TASK-PRELAUNCH-APK] B2：按 ABI 拆分，避免单包携带 4 份 SQLCipher 原生库
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = false
+        }
+    }
+
 
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.5"
