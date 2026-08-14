@@ -174,9 +174,19 @@ class GuardianForegroundService : Service() {
         val prefs = getSharedPreferences("guardian_prefs", MODE_PRIVATE)
         val host = prefs.getString("relay_host", null)?.takeIf { it.isNotBlank() } ?: return
         val port = prefs.getInt("relay_port", 9527)
-        val pairingCode = prefs.getString("relay_pairing_code", "")?.takeIf { it.isNotBlank() }
+        // [SEC-P1] 配对码/会话令牌以 KeyStore 加密存储（"enc:" 前缀），读取时解密；
+        // 历史明文无前缀，decryptPrefsValue 直接透传（读取侧迁移兼容）
+        val pairingCode = prefs.getString("relay_pairing_code", "")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { com.xiaopacai.child.util.KeyStoreManager.decryptPrefsValue(it) }
+            ?.takeIf { it.isNotBlank() }
         val isRelay = prefs.getBoolean("relay_mode", false)
         val fingerprint = prefs.getString("relay_fingerprint", "")?.takeIf { it.isNotBlank() }
+        // [SEC-K2] 家长端中继会话令牌随配置恢复，重连握手仍需携带
+        val sessionToken = prefs.getString("relay_session_token", "")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { com.xiaopacai.child.util.KeyStoreManager.decryptPrefsValue(it) }
+            ?.takeIf { it.isNotBlank() }
         val deviceId = prefs.getString("device_id", null)?.takeIf { it.isNotBlank() } ?: return
 
         Log.i(TAG, "自动重连: $host:$port relay=$isRelay")
@@ -189,6 +199,7 @@ class GuardianForegroundService : Service() {
                 deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim(),
                 pairingCode = pairingCode,
                 isRelay = isRelay,
+                sessionToken = sessionToken,
                 scope = serviceScope
             )
         }

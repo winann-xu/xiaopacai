@@ -168,6 +168,74 @@ public class DatabaseService : IDisposable
         return connection;
     }
 
+    /// <summary>
+    /// [SEC-P1] 获取已注册设备的证书指纹（P2P 指纹绑定，红线 R3.x）
+    /// </summary>
+    /// <param name="deviceId">设备唯一标识</param>
+    /// <returns>64 位小写十六进制 SHA-256 指纹；未注册返回 null</returns>
+    public string? GetDeviceFingerprint(string deviceId)
+    {
+        using var connection = GetConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT cert_fingerprint FROM devices WHERE device_id = $id LIMIT 1;";
+        cmd.Parameters.AddWithValue("$id", deviceId);
+
+        var result = cmd.ExecuteScalar() as string;
+        return string.IsNullOrEmpty(result) ? null : result;
+    }
+
+    /// <summary>
+    /// [SEC-P1] 注册/更新设备（首次配对绑定证书指纹）
+    ///
+    /// 新设备插入；已存在设备更新设备名、证书指纹与最后在线时间
+    /// （重新配对场景：儿童端数据重置后证书变化，凭配对码换绑新指纹）。
+    /// </summary>
+    /// <param name="deviceId">设备唯一标识</param>
+    /// <param name="deviceName">设备名称</param>
+    /// <param name="certFingerprint">客户端证书 SHA-256 指纹（64 位小写十六进制）</param>
+    public void UpsertDevice(string deviceId, string deviceName, string certFingerprint)
+    {
+        using var connection = GetConnection();
+
+        using (var update = connection.CreateCommand())
+        {
+            update.CommandText = @"
+                UPDATE devices
+                SET device_name = $name,
+                    cert_fingerprint = $fp,
+                    last_online_at = strftime('%s', 'now'),
+                    updated_at = strftime('%s', 'now')
+                WHERE device_id = $id;";
+            update.Parameters.AddWithValue("$name", deviceName);
+            update.Parameters.AddWithValue("$fp", certFingerprint);
+            update.Parameters.AddWithValue("$id", deviceId);
+
+            if (update.ExecuteNonQuery() > 0) return;  // 已存在：更新完成
+        }
+
+        // 新设备：插入
+        using var insert = connection.CreateCommand();
+        insert.CommandText = @"
+            INSERT INTO devices
+            (device_id, device_name, device_type, cert_fingerprint, last_online_at, paired_at, is_active)
+            VALUES ($id, $name, 'android', $fp, strftime('%s', 'now'), strftime('%s', 'now'), 1);";
+        insert.Parameters.AddWithValue("$id", deviceId);
+        insert.Parameters.AddWithValue("$name", deviceName);
+        insert.Parameters.AddWithValue("$fp", certFingerprint);
+        insert.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// [SEC-P1] 检查 devices 表是否为空（用于旧库迁移时判断目标库是否已初始化）
+    /// </summary>
+    public bool HasAnyDevices()
+    {
+        using var connection = GetConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM devices;";
+        return Convert.ToInt64(cmd.ExecuteScalar()) > 0;
+    }
+
     public void Dispose()
     {
         // SQLite 连接由调用方管理，此处无需额外清理

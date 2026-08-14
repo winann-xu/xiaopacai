@@ -78,6 +78,19 @@ public static class CryptoService
     }
 
     /// <summary>
+    /// [SEC-P1] 恒定时间字符串比较（防时序侧信道，红线 R3.x 指纹/配对码比对用）
+    /// </summary>
+    /// <param name="a">字符串 A</param>
+    /// <param name="b">字符串 B</param>
+    /// <returns>true 如果两者完全相等</returns>
+    public static bool FixedTimeStringEquals(string a, string b)
+    {
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(a),
+            Encoding.UTF8.GetBytes(b));
+    }
+
+    /// <summary>
     /// 生成一次性配对码
     /// 6 位数字，用于家长端与儿童端的初始配对
     /// </summary>

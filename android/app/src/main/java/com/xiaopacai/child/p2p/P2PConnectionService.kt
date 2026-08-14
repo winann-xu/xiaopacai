@@ -2,19 +2,30 @@ package com.xiaopacai.child.p2p
 
 import android.util.Log
 import com.xiaopacai.child.XiaopacaiApp
+import com.xiaopacai.child.util.KeyStoreManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import okhttp3.*
 import okio.ByteString.Companion.toByteString
+import org.bouncycastle.asn1.x500.X500Name
+import org.bouncycastle.asn1.x509.BasicConstraints
+import org.bouncycastle.asn1.x509.ExtendedKeyUsage
+import org.bouncycastle.asn1.x509.Extension
+import org.bouncycastle.asn1.x509.KeyPurposeId
+import org.bouncycastle.asn1.x509.KeyUsage
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import java.io.*
+import java.math.BigInteger
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.ByteBuffer
-import java.security.MessageDigest
-import java.security.SecureRandom
+import java.security.*
 import java.security.cert.X509Certificate
+import java.security.spec.ECGenParameterSpec
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.*
 
@@ -59,6 +70,90 @@ class P2PConnectionService {
         private const val HEARTBEAT_TIMEOUT_COUNT = 3
         private const val RECONNECT_BASE_DELAY_MS = 1_000L
         private const val RECONNECT_MAX_DELAY_MS = 60_000L
+
+        /**
+         * [SEC-K1] 获取客户端身份证书指纹（SHA-256 十六进制，64 字符）。
+         * 该指纹即 TLS 握手提交的客户端证书指纹，服务端以此固定设备身份；
+         * 家长端中继注册（/api/relay/register）也提交同一指纹完成绑定。
+         */
+        @JvmStatic
+        fun getClientCertificateFingerprint(): String {
+            val (_, certChain) = getOrCreateClientCertificate()
+            return computeSha256Hex(certChain[0].encoded)
+        }
+
+        private fun computeSha256Hex(derEncoded: ByteArray): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val hash = digest.digest(derEncoded)
+            return hash.joinToString("") { "%02x".format(it) }
+        }
+
+        /**
+         * [SEC-K1] 获取或生成客户端身份证书（EC P-256 + BouncyCastle 自签名，PKCS12 落盘）。
+         *
+         * 不使用 AndroidKeyStore（同 ParentP2PListenerService 原因：Conscrypt 握手
+         * 签名路径与 AndroidKeyStore 密钥不兼容）。证书持久化保证重启后指纹稳定，
+         * 服务端 TOFU/固定比对不因重装外原因失效。
+         */
+        private fun getOrCreateClientCertificate(): Pair<PrivateKey, Array<X509Certificate>> {
+            val pfxFile = File(XiaopacaiApp.instance.filesDir, "p2p_client.pfx")
+            val pwdFile = File(XiaopacaiApp.instance.filesDir, "p2p_client.pwd")
+
+            // 1) 已有持久化证书：加载
+            if (pfxFile.exists() && pwdFile.exists()) {
+                try {
+                    val pwd = pwdFile.readText().trim()
+                    val ks = KeyStore.getInstance("PKCS12")
+                    FileInputStream(pfxFile).use { ks.load(it, pwd.toCharArray()) }
+                    val entry = ks.getEntry("p2p_client", KeyStore.PasswordProtection(pwd.toCharArray()))
+                        as KeyStore.PrivateKeyEntry
+                    return Pair(entry.privateKey, entry.certificateChain as Array<X509Certificate>)
+                } catch (e: Exception) {
+                    Log.w(TAG, "加载客户端身份证书失败，重新生成: ${e.message}")
+                }
+            }
+
+            // 2) 生成 EC P-256 密钥 + 自签名客户端证书（clientAuth EKU）
+            val keyPair = KeyPairGenerator.getInstance("EC").apply {
+                initialize(ECGenParameterSpec("secp256r1"))
+            }.generateKeyPair()
+            val cert = generateSelfSignedClientCertificate(keyPair)
+
+            // 3) 持久化 PKCS12
+            try {
+                val pwd = java.util.UUID.randomUUID().toString()
+                val ks = KeyStore.getInstance("PKCS12")
+                ks.load(null, null)
+                ks.setKeyEntry("p2p_client", keyPair.private, pwd.toCharArray(), arrayOf(cert))
+                FileOutputStream(pfxFile).use { ks.store(it, pwd.toCharArray()) }
+                pwdFile.writeText(pwd)
+            } catch (e: Exception) {
+                Log.w(TAG, "持久化客户端身份证书失败: ${e.message}")
+            }
+            Log.i(TAG, "已生成客户端身份证书: ${computeSha256Hex(cert.encoded)}")
+            return Pair(keyPair.private, arrayOf(cert))
+        }
+
+        private fun generateSelfSignedClientCertificate(keyPair: KeyPair): X509Certificate {
+            val now = System.currentTimeMillis()
+            val subject = X500Name("CN=Xiaopacai Client")
+            val builder = JcaX509v3CertificateBuilder(
+                subject,
+                BigInteger.valueOf(now),
+                java.util.Date(now - 86400_000L),
+                java.util.Date(now + 10L * 365 * 24 * 3600 * 1000),
+                subject,
+                keyPair.public
+            )
+            builder.addExtension(Extension.basicConstraints, true, BasicConstraints(false))
+            builder.addExtension(
+                Extension.keyUsage, true,
+                KeyUsage(KeyUsage.digitalSignature)
+            )
+            builder.addExtension(Extension.extendedKeyUsage, true, ExtendedKeyUsage(KeyPurposeId.id_kp_clientAuth))
+            val signer = JcaContentSignerBuilder("SHA256withECDSA").build(keyPair.private)
+            return JcaX509CertificateConverter().getCertificate(builder.build(signer))
+        }
     }
 
     /** 连接状态 */
@@ -86,6 +181,10 @@ class P2PConnectionService {
     private var _deviceName: String = ""
     private var _pairingCode: String? = null
     private var _isRelay: Boolean = false  // 是否通过 Web 云端中继连接
+    // [SEC-P1] 是否允许空指纹 TOFU 首连（仅扫码引导流程；见 connect() 注释）
+    private var _allowTofu: Boolean = false
+    // [SEC-K2] 中继会话令牌（家长端握手凭据，注册时签发，重连时重复使用）
+    private var _sessionToken: String? = null
 
     /**
      * 连接到家长端
@@ -95,6 +194,10 @@ class P2PConnectionService {
      * @param deviceId 本机设备 ID
      * @param deviceName 本机设备名称
      * @param pairingCode 配对码（6 位数字，家长端要求时提供）
+     * @param sessionToken [SEC-K2] 中继会话令牌（家长端经 /api/relay/register 获得，握手必带）
+     * @param allowTofu [SEC-P1] 是否允许空指纹首连（TOFU）。仅扫码引导流程允许
+     *        （二维码本身携带可信指纹时也应传入非空 expectedFingerprint 固定比对）；
+     *        手动 IP/发现/自动重连等非扫码路径必须传 false，空指纹直接拒绝。
      */
     suspend fun connect(
         host: String,
@@ -104,6 +207,8 @@ class P2PConnectionService {
         deviceName: String,
         pairingCode: String? = null,
         isRelay: Boolean = false,
+        sessionToken: String? = null,
+        allowTofu: Boolean = false,
         scope: CoroutineScope
     ) {
         this.expectedFingerprint = expectedFingerprint
@@ -113,6 +218,8 @@ class P2PConnectionService {
         this._deviceName = deviceName
         this._pairingCode = pairingCode
         this._isRelay = isRelay
+        this._sessionToken = sessionToken
+        this._allowTofu = allowTofu
         this.reconnectAttempt = 0
 
         // [REQ] 持久化连接配置，供服务/应用重启后自动重连（局域网与公网中继通用）
@@ -125,7 +232,7 @@ class P2PConnectionService {
         }
     }
 
-    /** 持久化连接目标（宿主/端口/配对码/中继模式/指纹/设备ID） */
+    /** 持久化连接目标（宿主/端口/配对码/中继模式/指纹/设备ID/会话令牌） */
     private fun persistConnectionConfig() {
         try {
             val prefs = XiaopacaiApp.instance
@@ -133,10 +240,15 @@ class P2PConnectionService {
             prefs.edit()
                 .putString("relay_host", _host)
                 .putInt("relay_port", _port)
-                .putString("relay_pairing_code", _pairingCode ?: "")
+                // [SEC-P1] 配对码/会话令牌为握手凭据，经 AndroidKeyStore AES-GCM 加密后落盘（红线 R4.1）
+                .putString("relay_pairing_code",
+                    _pairingCode?.takeIf { it.isNotBlank() }?.let { KeyStoreManager.encryptPrefsValue(it) } ?: "")
                 .putBoolean("relay_mode", _isRelay)
                 .putString("relay_fingerprint", expectedFingerprint ?: "")
                 .putString("device_id", _deviceId)
+                // [SEC-K2][SEC-P1] 会话令牌随配置持久化（加密存储），服务/应用重启后重连仍可携带
+                .putString("relay_session_token",
+                    _sessionToken?.takeIf { it.isNotBlank() }?.let { KeyStoreManager.encryptPrefsValue(it) } ?: "")
                 .apply()
         } catch (e: Exception) {
             Log.w(TAG, "持久化连接配置失败: ${e.message}")
@@ -192,7 +304,8 @@ class P2PConnectionService {
 
     /**
      * 创建 TLS Socket（双向认证）
-     * 由于是自签名证书，信任所有服务器证书，但记录指纹用于配对校验
+     * 由于是自签名证书，信任所有服务器证书，但记录指纹用于配对校验。
+     * [SEC-K1] 同时提交本机客户端身份证书（mTLS），服务端以证书指纹固定设备身份。
      */
     private fun createTlsSocket(socket: Socket): SSLSocket {
         val trustManager = object : X509TrustManager {
@@ -201,8 +314,16 @@ class P2PConnectionService {
             override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
         }
 
+        // [SEC-K1] 客户端身份证书（持久化，指纹稳定）
+        val (privateKey, certChain) = getOrCreateClientCertificate()
+        val keyStore = KeyStore.getInstance("PKCS12")
+        keyStore.load(null, null)
+        keyStore.setKeyEntry("p2p_client", privateKey, charArrayOf(), certChain)
+        val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
+        kmf.init(keyStore, charArrayOf())
+
         val sslContext = SSLContext.getInstance("TLSv1.3")
-        sslContext.init(null, arrayOf(trustManager), SecureRandom())
+        sslContext.init(kmf.keyManagers, arrayOf(trustManager), SecureRandom())
 
         val sslSocket = sslContext.socketFactory.createSocket(
             socket,
@@ -237,10 +358,18 @@ class P2PConnectionService {
         connectedFingerprint = actualFingerprint
 
         return when {
-            // 首次配对：接受并记录
+            // [SEC-P1] 首次连接（无期望指纹）：
+            // - 扫码引导（allowTofu=true，且旧服务端二维码未携带指纹）允许 TOFU 并立即持久化；
+            // - 手动 IP / 发现 / 自动重连等非扫码路径一律拒绝，防首连中间人（红线 R3.x）。
             expectedFingerprint.isNullOrEmpty() -> {
-                Log.i(TAG, "首次配对，证书指纹: $actualFingerprint")
+                if (!_allowTofu) {
+                    Log.e(TAG, "未提供期望指纹且非扫码引导流程，拒绝首连（防中间人）")
+                    return false
+                }
+                Log.i(TAG, "扫码引导首连（TOFU），证书指纹: $actualFingerprint")
                 expectedFingerprint = actualFingerprint
+                // [SEC-R3.3] TOFU 采纳后立即持久化，重启/下次连接继续固定比对
+                persistServerFingerprint(actualFingerprint)
                 true
             }
             // 后续连接：比对指纹
@@ -251,6 +380,17 @@ class P2PConnectionService {
                 }
                 match
             }
+        }
+    }
+
+    /** [SEC-R3.3] 持久化服务端证书指纹（TOFU 采纳时调用，与 relay_fingerprint 键一致） */
+    private fun persistServerFingerprint(fingerprint: String) {
+        try {
+            XiaopacaiApp.instance
+                .getSharedPreferences("guardian_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("relay_fingerprint", fingerprint).apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "持久化服务端证书指纹失败: ${e.message}")
         }
     }
 
@@ -272,12 +412,14 @@ class P2PConnectionService {
             "deviceType" to "android",
             "timestamp" to System.currentTimeMillis() / 1000
         )
-        // 仅在提供了配对码时携带，避免空串触发家长端校验
-        _pairingCode?.let { payload["pairingCode"] = it }
+        // 仅在提供了非空配对码时携带，避免空串触发家长端校验
+        _pairingCode?.takeIf { it.isNotBlank() }?.let { payload["pairingCode"] = it }
         // [TASK-OPT-12-P4-DEEPEN] Web 云端中继模式：携带 relay 标志
         if (_isRelay) {
             payload["relay"] = true
         }
+        // [SEC-K2] 家长端中继握手凭据（服务端与 relay_sessions 比对）
+        _sessionToken?.let { payload["sessionToken"] = it }
         val message = P2PMessage(
             type = MessageType.HANDSHAKE.value,
             payload = payload

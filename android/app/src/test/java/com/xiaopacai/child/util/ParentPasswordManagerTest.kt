@@ -111,19 +111,20 @@ class ParentPasswordManagerTest {
         assertFalse(ParentPasswordManager.isValidPasswordFormat(""))
     }
 
-    // ==================== verifyPassword (default password logic) ====================
+    // ==================== verifyPassword（[SEC-P1] 默认密码已删除，未设置一律拒绝） ====================
 
     @Test
-    fun `verifyPassword - default password works when not set`() {
-        // 密码未设置 + 未锁定 → 使用默认密码 "000000"
+    fun `verifyPassword - 密码未设置时任何密码都被拒绝`() {
+        // [SEC-P1] 删除默认密码 000000 后门（红线 R4.x）：
+        // 未设置家长密码时一律拒绝验证，强制家长首次使用显式设置密码
         `when`(mockPrefs.contains("parent_password_hash")).thenReturn(false)
         `when`(mockPrefs.getLong("password_lockout_until", 0L)).thenReturn(0L)
 
-        assertTrue(ParentPasswordManager.verifyPassword(mockContext, "000000"))
+        assertFalse(ParentPasswordManager.verifyPassword(mockContext, "000000"))
     }
 
     @Test
-    fun `verifyPassword - wrong password fails with default`() {
+    fun `verifyPassword - 密码未设置时任意密码都被拒绝`() {
         `when`(mockPrefs.contains("parent_password_hash")).thenReturn(false)
         `when`(mockPrefs.getLong("password_lockout_until", 0L)).thenReturn(0L)
 
@@ -149,13 +150,13 @@ class ParentPasswordManagerTest {
     }
 
     @Test
-    fun `verifyPassword - lockout expired`() {
-        // 锁定已过期，应允许尝试验证
+    fun `verifyPassword - lockout expired 但密码未设置仍拒绝`() {
+        // [SEC-P1] 锁定过期只代表允许尝试验证；密码未设置时仍拒绝（默认密码后门已删除）
         `when`(mockPrefs.contains("parent_password_hash")).thenReturn(false)
         `when`(mockPrefs.getLong("password_lockout_until", 0L))
             .thenReturn(System.currentTimeMillis() - 1000)  // 1秒前已过期
 
-        assertTrue(ParentPasswordManager.verifyPassword(mockContext, "000000"))
+        assertFalse(ParentPasswordManager.verifyPassword(mockContext, "000000"))
     }
 
     // ==================== resetFailedAttempts ====================

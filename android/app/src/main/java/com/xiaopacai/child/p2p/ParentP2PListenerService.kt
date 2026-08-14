@@ -68,6 +68,9 @@ class ParentP2PListenerService : Service() {
         private const val MAX_PAIRING_ATTEMPTS = 5
         private const val PAIRING_LOCKOUT_MS = 5 * 60 * 1000L
 
+        // [SEC-P1] 并发连接上限：防未认证连接耗尽线程/内存（红线 R5.x 资源保护）
+        private const val MAX_CONNECTIONS = 20
+
         @Volatile
         var instance: ParentP2PListenerService? = null
 
@@ -106,6 +109,8 @@ class ParentP2PListenerService : Service() {
     private val deviceStreams = ConcurrentHashMap<String, DataOutputStream>()
     /** 儿童端连接任务（每个连接一个协程） */
     private val clientJobs = ConcurrentHashMap<String, Job>()
+    /** [SEC-P1] 当前活动连接数（含未完成握手的连接），用于连接上限控制 */
+    @Volatile private var activeConnections = 0
 
     /** 当前配对码 */
     @Volatile private var currentPairingCode: String? = null
@@ -280,6 +285,13 @@ class ParentP2PListenerService : Service() {
                         val clientSocket = serverSocket!!.accept()
                         Log.i(TAG, "新连接: ${clientSocket.inetAddress.hostAddress}")
 
+                        // [SEC-P1] 连接上限：超过则立即关闭，防连接耗尽
+                        if (activeConnections >= MAX_CONNECTIONS) {
+                            Log.w(TAG, "连接数已达上限($MAX_CONNECTIONS)，拒绝新连接: ${clientSocket.inetAddress.hostAddress}")
+                            try { clientSocket.close() } catch (_: Exception) {}
+                            continue
+                        }
+
                         launch {
                             handleClient(clientSocket, sslCtx)
                         }
@@ -311,6 +323,9 @@ class ParentP2PListenerService : Service() {
     private suspend fun handleClient(socket: Socket, sslCtx: SSLContext) {
         var clientId = "unknown-${System.currentTimeMillis()}"
         val clientJob = coroutineContext[Job]
+        activeConnections++
+        // [SEC-P1] 握手门控：handshake 认证通过前，忽略其他一切消息
+        var handshakeAccepted = false
 
         try {
             socket.soTimeout = READ_TIMEOUT_MS
@@ -349,13 +364,26 @@ class ParentP2PListenerService : Service() {
 
                     Log.d(TAG, "收到: ${message.type} 来自 ${socket.inetAddress.hostAddress}")
 
-                    val response = handleMessage(message, clientId, clientCertFingerprint)
+                    // [SEC-P1] 握手认证通过前拒绝处理任何非握手消息（红线 R3.x 零认证窗口）
+                    if (message.type != "handshake" && !handshakeAccepted) {
+                        Log.w(TAG, "握手未完成，忽略消息: ${message.type} (${socket.inetAddress.hostAddress})")
+                        continue
+                    }
+
+                    val response: P2PMessage?
+                    if (message.type == "handshake") {
+                        val (resp, accepted) = handleHandshake(message, clientId, clientCertFingerprint)
+                        handshakeAccepted = accepted
+                        response = resp
+                    } else {
+                        response = handleMessage(message, clientId, clientCertFingerprint)
+                    }
                     if (response != null) {
                         sendMessage(output, response)
                     }
 
                     // 更新 clientId（handshake 消息中获取）
-                    if (message.type == "handshake") {
+                    if (message.type == "handshake" && handshakeAccepted) {
                         clientId = message.payload["deviceId"]?.toString() ?: clientId
                         deviceStreams[clientId] = output
                         // 记录设备
@@ -381,6 +409,7 @@ class ParentP2PListenerService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "客户端处理异常: ${e.message}")
         } finally {
+            activeConnections--
             // 标记设备离线
             connectedDevices.remove(clientId)
             deviceStreams.remove(clientId)
@@ -451,7 +480,7 @@ class ParentP2PListenerService : Service() {
         certFingerprint: String
     ): P2PMessage? {
         return when (message.type) {
-            "handshake" -> handleHandshake(message, deviceId, certFingerprint)
+            "handshake" -> handleHandshake(message, deviceId, certFingerprint).first
             "usage_report" -> handleUsageReport(message, deviceId)
             "announcement_push" -> handleAnnouncementFromChild(message, deviceId)
             "heartbeat" -> handleHeartbeat()
@@ -467,34 +496,60 @@ class ParentP2PListenerService : Service() {
     }
 
     /**
-     * 处理设备握手
-     * 包含配对码校验（如有启用）和策略下发。
+     * 处理设备握手（[SEC-P1] 认证门控，红线 R3.x）
+     *
+     * 认证规则：
+     * 1. 已注册设备：本次连接证书指纹必须与注册指纹一致（设备身份以证书指纹为锚点，
+     *    防伪造设备冒用他人 deviceId 劫持策略/数据流）；
+     * 2. 新设备：首次连接必须携带家长端生成的有效配对码（配对窗口外拒绝一切未认证连接，
+     *    消除"无配对码时任意客户端可接入"的零认证窗口）；
+     * 3. 认证通过后注册/更新设备并下发策略。
+     *
+     * @return (响应消息, 是否认证通过)
      */
     private fun handleHandshake(
         message: P2PMessage,
         deviceId: String,
         certFingerprint: String
-    ): P2PMessage {
+    ): Pair<P2PMessage, Boolean> {
         val payload = message.payload
-
-        // 配对码校验（仅当家长端已生成配对码时）
+        val deviceName = payload["deviceName"]?.toString() ?: "未知设备"
+        // 用握手包中的真实设备 ID（参数 deviceId 是连接临时 ID，会导致每次重连重复注册）
+        val realDeviceId = payload["deviceId"]?.toString()?.takeIf { it.isNotBlank() } ?: deviceId
         val pairingCode = payload["pairingCode"]?.toString()
-        if (pairingCode != null && currentPairingCode != null) {
-            if (!verifyPairingCode(pairingCode)) {
-                Log.w(TAG, "配对码校验失败: 设备=$deviceId")
-                return P2PMessage(
+
+        fun reject(reason: String): Pair<P2PMessage, Boolean> {
+            Log.w(TAG, "握手拒绝: 设备=$realDeviceId, 原因=$reason")
+            return Pair(
+                P2PMessage(
                     type = "handshake_response",
                     payload = mapOf(
                         "status" to "rejected",
-                        "reason" to "配对码错误或已过期"
+                        "reason" to reason
                     )
+                ),
+                false
+            )
+        }
+
+        // [SEC-P1] 规则 1/2：已注册设备指纹比对，新设备必须有效配对码
+        val registeredFingerprint = getRegisteredFingerprint(realDeviceId)
+        if (registeredFingerprint != null) {
+            if (!MessageDigest.isEqual(
+                    registeredFingerprint.toByteArray(Charsets.UTF_8),
+                    certFingerprint.toByteArray(Charsets.UTF_8)
+                )
+            ) {
+                return reject("设备身份指纹与已注册值不符")
+            }
+        } else {
+            if (pairingCode.isNullOrBlank() || !verifyPairingCode(pairingCode)) {
+                return reject(
+                    if (pairingCode.isNullOrBlank()) "首次连接需要家长端生成的配对码"
+                    else "配对码错误或已过期"
                 )
             }
         }
-
-        val deviceName = payload["deviceName"]?.toString() ?: "未知设备"
-        // 用握手包中的真实设备 ID（参数 deviceId 是连接临时 ID，会导致每次重连重复注册）
-        val realDeviceId = payload["deviceId"]?.toString() ?: deviceId
 
         // 注册/更新设备
         connectedDevices[realDeviceId] = ChildDeviceInfo(
@@ -515,14 +570,17 @@ class ParentP2PListenerService : Service() {
         Log.i(TAG, "设备握手成功: $realDeviceId ($deviceName)")
         updateNotification("监听中", "端口 $DEFAULT_PORT | 已连接 ${connectedDevices.size} 台设备")
 
-        return P2PMessage(
-            type = "policy_update",
-            payload = mapOf(
-                "deviceId" to realDeviceId,
-                "policies" to policies.toString(),
-                "status" to "accepted",
-                "timestamp" to (System.currentTimeMillis() / 1000)
-            )
+        return Pair(
+            P2PMessage(
+                type = "policy_update",
+                payload = mapOf(
+                    "deviceId" to realDeviceId,
+                    "policies" to policies.toString(),
+                    "status" to "accepted",
+                    "timestamp" to (System.currentTimeMillis() / 1000)
+                )
+            ),
+            true
         )
     }
 
@@ -726,6 +784,29 @@ class ParentP2PListenerService : Service() {
     }
 
     // ==================== 数据库操作 ====================
+
+    /**
+     * [SEC-P1] 查询已注册设备的证书指纹（设备身份锚点，红线 R3.x）
+     * @return 注册指纹；设备未注册或指纹为空时返回 null
+     */
+    private fun getRegisteredFingerprint(deviceId: String): String? {
+        return try {
+            val db = XiaopacaiApp.instance.database.getReadable(getPassphrase())
+            try {
+                db.rawQuery(
+                    "SELECT cert_fingerprint FROM device_registry WHERE device_id = ?",
+                    arrayOf(deviceId)
+                ).use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0)?.takeIf { it.isNotBlank() } else null
+                }
+            } finally {
+                db.close()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "查询设备注册指纹失败: ${e.message}")
+            null
+        }
+    }
 
     /**
      * 持久化儿童端设备信息

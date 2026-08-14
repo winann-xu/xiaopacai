@@ -30,7 +30,7 @@ data class DiscoveredParent(
     val serviceName: String,    // 服务名称
     val host: String,           // IP 地址
     val port: Int,              // 服务端口
-    val fingerprint: String,    // 证书指纹（前 16 字符）
+    val fingerprint: String,    // 证书指纹（[SEC-P1] 完整 64 位 SHA-256，用于首连固定比对）
     val discoveryMethod: String // 发现方式: "mdns" / "udp" / "manual"
 )
 
