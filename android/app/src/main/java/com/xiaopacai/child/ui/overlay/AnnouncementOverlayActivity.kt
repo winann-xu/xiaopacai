@@ -151,20 +151,42 @@ class AnnouncementOverlayActivity : ComponentActivity() {
         }
 
         // 通过 P2P 链路上报回执（未连接时静默丢弃，下次公告重推会再提示）
-        try {
-            val p2p = GuardianForegroundService.getP2PConnection()
-            val message = P2PMessage(
-                type = "announcement_ack",
-                payload = mapOf(
-                    "announcementId" to announcementId,
-                    "acknowledgedAt" to (System.currentTimeMillis() / 1000),
-                    "deviceId" to getLocalDeviceId()
-                )
+        // [TASK-PRELAUNCH-P3-FIX] 096：主线程直发网络 I/O 会抛 NetworkOnMainThreadException，
+        // 改为后台线程发送 + 3 次退避重试（离线缓存待发归 P4 待办）
+        Thread {
+            sendAckWithRetry(announcementId)
+        }.start()
+    }
+
+    /**
+     * [TASK-PRELAUNCH-P3-FIX] 后台发送 announcement_ack，失败退避重试 3 次（1s/3s）
+     * 全部失败则放弃（Web 重推时儿童端去重不再打扰；回执补发缓存列入 P4）
+     */
+    private fun sendAckWithRetry(announcementId: String) {
+        val message = P2PMessage(
+            type = "announcement_ack",
+            payload = mapOf(
+                "announcementId" to announcementId,
+                "acknowledgedAt" to (System.currentTimeMillis() / 1000),
+                "deviceId" to getLocalDeviceId()
             )
-            p2p.sendMessage(message)
-        } catch (e: Exception) {
-            android.util.Log.e(TAG, "上报公告回执失败: ${e.message}")
+        )
+        val delaysMs = longArrayOf(0L, 1_000L, 3_000L)
+        for (delayMs in delaysMs) {
+            try {
+                if (delayMs > 0) Thread.sleep(delayMs)
+                val p2p = GuardianForegroundService.getP2PConnection()
+                val sent = p2p.sendMessage(message)
+                if (sent) {
+                    android.util.Log.i(TAG, "公告回执已上报: $announcementId")
+                    return
+                }
+                android.util.Log.w(TAG, "公告回执发送返回失败，稍后重试: $announcementId")
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "上报公告回执失败（将重试）: ${e.message}")
+            }
         }
+        android.util.Log.w(TAG, "公告回执 3 次重试后仍失败，放弃（重推去重兜底）: $announcementId")
     }
 
     /**
