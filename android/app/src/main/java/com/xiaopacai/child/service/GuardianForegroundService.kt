@@ -177,6 +177,8 @@ class GuardianForegroundService : Service() {
         val pairingCode = prefs.getString("relay_pairing_code", "")?.takeIf { it.isNotBlank() }
         val isRelay = prefs.getBoolean("relay_mode", false)
         val fingerprint = prefs.getString("relay_fingerprint", "")?.takeIf { it.isNotBlank() }
+        // [SEC-K2] 家长端中继会话令牌随配置恢复，重连握手仍需携带
+        val sessionToken = prefs.getString("relay_session_token", "")?.takeIf { it.isNotBlank() }
         val deviceId = prefs.getString("device_id", null)?.takeIf { it.isNotBlank() } ?: return
 
         Log.i(TAG, "自动重连: $host:$port relay=$isRelay")
@@ -189,6 +191,7 @@ class GuardianForegroundService : Service() {
                 deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim(),
                 pairingCode = pairingCode,
                 isRelay = isRelay,
+                sessionToken = sessionToken,
                 scope = serviceScope
             )
         }

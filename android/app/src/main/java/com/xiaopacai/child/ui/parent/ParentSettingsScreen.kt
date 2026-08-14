@@ -712,8 +712,8 @@ internal suspend fun connectToWebRelay(
         kotlinx.coroutines.delay(500) // 等待监听启动
     }
 
-    // 获取证书指纹
-    val fingerprint = ParentP2PListenerService.instance?.getCertificateFingerprint() ?: ""
+    // [SEC-K2] 获取客户端身份证书指纹（TLS 握手提交的 mTLS 证书，服务端以此绑定家长端身份）
+    val fingerprint = P2PConnectionService.getClientCertificateFingerprint()
 
     // [REQ] 从 Web 获取真实配对码（5 分钟有效，用于绑定儿童设备 + 中继连接）
     val pairingCode: String
@@ -747,7 +747,9 @@ internal suspend fun connectToWebRelay(
     val parentDeviceId = "parent-${android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID).take(8)}"
 
     // 向 Web 服务发起中继注册（使用 /api/relay/register + JWT Authorization）
+    // [SEC-K2] 注册成功后解析会话令牌，P2P 握手必须携带（服务端与 relay_sessions 比对）
     val registerResult: String
+    var sessionToken: String? = null
     try {
         val url = URL("http://$host:$port/api/relay/register")
         val conn = url.openConnection() as HttpURLConnection
@@ -770,7 +772,11 @@ internal suspend fun connectToWebRelay(
 
         if (conn.responseCode in 200..299) {
             val response = conn.inputStream.bufferedReader().readText()
+            sessionToken = JSONObject(response).optString("sessionToken", "").takeIf { it.isNotBlank() }
             registerResult = "中继注册成功: $response"
+            if (sessionToken == null) {
+                return "中继注册响应缺少会话令牌（服务端版本过旧？）" to pairingCode
+            }
         } else {
             val errorBody = try { conn.errorStream?.bufferedReader()?.readText() } catch (_: Exception) { "" }
             return "中继注册失败: HTTP ${conn.responseCode} ${errorBody ?: ""}" to pairingCode
@@ -779,18 +785,23 @@ internal suspend fun connectToWebRelay(
         return "注册请求失败: ${e.message}。检查 Web 服务是否可访问。" to pairingCode
     }
 
-    // 注册成功 → 连接 Web P2P 9527 端口（携带 relay=true + parent 设备 ID）
+    // 注册成功 → 连接 Web P2P 9527 端口（携带 relay=true + parent 设备 ID + 会话令牌）
     try {
         val p2pConnection = com.xiaopacai.child.service.GuardianForegroundService.getP2PConnection()
         if (p2pConnection != null) {
+            // [SEC-R3.3] 固定 Web 服务端证书指纹：首次信任（TOFU），后续连接比对已持久化指纹
+            val knownServerFingerprint = context
+                .getSharedPreferences("guardian_prefs", android.content.Context.MODE_PRIVATE)
+                .getString("relay_fingerprint", "")?.takeIf { it.isNotBlank() }
             p2pConnection.connect(
                 host = host,
                 port = 9527,  // Web P2P TLS 监听端口
-                expectedFingerprint = null,  // Web 自签名证书，首次信任
+                expectedFingerprint = knownServerFingerprint,  // 首次为 null（TOFU 记录），后续固定比对
                 deviceId = parentDeviceId,
                 deviceName = "家长端-${android.os.Build.MODEL}",
                 pairingCode = pairingCode,
                 isRelay = true,  // 中继模式
+                sessionToken = sessionToken,
                 scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO)
             )
             return "$registerResult\nP2P 中继连接已发起（端口 9527）\n配对码: $pairingCode" to pairingCode
