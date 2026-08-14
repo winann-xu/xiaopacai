@@ -43,6 +43,14 @@ data class P2PMessage(
             payloadObj.keys().forEach { key ->
                 payload[key] = payloadObj.get(key)
             }
+            // [TASK-PRELAUNCH-FIX-SCAN] Web 服务端拒绝帧（handshake_rejected）的
+            // error / error_code 为顶层字段且无 payload；并入 payload 便于统一解析。
+            // payload 内同名键优先（不与现有帧冲突）
+            obj.keys().forEach { key ->
+                if (key != "type" && key != "payload" && !payload.containsKey(key)) {
+                    payload[key] = obj.get(key)
+                }
+            }
 
             return P2PMessage(type, payload)
         }

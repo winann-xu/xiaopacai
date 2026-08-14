@@ -35,6 +35,7 @@ import com.xiaopacai.child.p2p.DiscoveredParent
 import com.xiaopacai.child.p2p.P2PConnectionState
 import com.xiaopacai.child.p2p.PairingManager
 import com.xiaopacai.child.p2p.PairingState
+import com.xiaopacai.child.p2p.rejectionHintText
 import com.xiaopacai.child.BuildConfig
 import com.xiaopacai.child.role.RoleManager
 import com.xiaopacai.child.service.GuardianForegroundService
@@ -93,6 +94,9 @@ fun GuardianHomeContent(
     // [FIX-LEGACY-c] 使用共享 P2P 连接服务的实时状态，不再硬编码 DISCONNECTED
     val sharedConnection = remember { GuardianForegroundService.getP2PConnection() }
     val connectionState by sharedConnection.connectionState.collectAsState()
+    // [TASK-PRELAUNCH-FIX-SCAN] 确定性握手拒绝提示（解绑/换账号/指纹不匹配等）
+    val handshakeRejection by sharedConnection.handshakeRejection.collectAsState()
+    val rejectionText = handshakeRejection?.let { rejectionHintText(it.code, it.reason) }
 
     // BUG-0810-10: 关于对话框状态
     var showAboutDialog by remember { mutableStateOf(false) }
@@ -454,6 +458,8 @@ fun GuardianHomeContent(
                             connectionState == P2PConnectionState.RECONNECTING -> "◉ 重连中..."
                             connectionState == P2PConnectionState.CONNECTING ||
                                 connectionState == P2PConnectionState.HANDSHAKING -> "正在连接..."
+                            // [TASK-PRELAUNCH-FIX-SCAN] 确定性拒绝：优先展示具体原因
+                            rejectionText != null -> "❌ $rejectionText"
                             pairingState == PairingState.SCANNING -> "正在扫描局域网..."
                             pairingState == PairingState.FOUND_PARENT -> "已发现 ${discoveredParents.size} 台家长端"
                             pairingState == PairingState.PAIRING -> "正在配对..."
@@ -461,7 +467,8 @@ fun GuardianHomeContent(
                             else -> "点击下方按钮开始扫描局域网中的家长端"
                         },
                         fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (rejectionText != null) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -22,6 +22,7 @@ import java.io.*
 import java.math.BigInteger
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.nio.ByteBuffer
 import java.security.*
 import java.security.cert.X509Certificate
@@ -60,6 +61,59 @@ enum class MessageType(val value: String) {
     DIAGNOSTICS_REPORT("diagnostics_report"),
     HEARTBEAT("heartbeat"),
     ERROR("error")
+}
+
+/**
+ * [TASK-PRELAUNCH-FIX-SCAN] 握手确定性拒绝信息
+ * @param code 错误码（unpaired / revoked / device_owned_by_other /
+ *        fingerprint_mismatch / invalid_pairing_code / missing_device_id 等）
+ * @param reason 服务端给出的可读原因（可为空）
+ */
+data class HandshakeRejection(val code: String, val reason: String)
+
+/**
+ * [TASK-PRELAUNCH-FIX-SCAN] 确定性拒绝错误码集合：此类拒绝重试无意义
+ * （需家长端操作或重新扫码），儿童端必须停止自动重连，回配对界面提示原因。
+ * 其余错误（网络异常、服务端关闭、限速）按临时性失败处理，继续退避重连。
+ */
+internal val DETERMINISTIC_REJECTION_CODES = setOf(
+    "unpaired",                // 设备无归属且无有效配对码
+    "revoked",                 // 已被家长端解绑
+    "device_owned_by_other",   // 归属其他账号（换绑被拒）
+    "fingerprint_mismatch",    // 证书指纹不匹配
+    "invalid_pairing_code",    // 配对码无效/过期（重试同一旧码必然再失败）
+    "missing_device_id"        // Windows 家长端：设备信息缺失
+)
+
+/** 从握手后的首个响应帧解析拒绝信息；非拒绝帧（policy_update 等）返回 null */
+internal fun parseHandshakeRejection(message: P2PMessage): HandshakeRejection? {
+    return when (message.type) {
+        "handshake_rejected" -> {
+            // Web 服务端：error_code 为错误码，error 为可读原因（均为顶层字段，fromJson 已并入 payload）
+            val code = message.payload["error_code"] as? String ?: ""
+            HandshakeRejection(code, message.payload["error"] as? String ?: "连接被拒绝")
+        }
+        "error" -> {
+            // Windows 家长端：payload.message 即错误码（fingerprint_mismatch / missing_device_id 等）
+            val code = message.payload["message"] as? String ?: ""
+            HandshakeRejection(code, message.payload["message"] as? String ?: "连接被拒绝")
+        }
+        else -> null
+    }
+}
+
+internal fun isDeterministicRejectionCode(code: String): Boolean =
+    code.isNotBlank() && code in DETERMINISTIC_REJECTION_CODES
+
+/** 拒绝原因 → 儿童端配对界面可读文案（code 未知时回退服务端原文） */
+internal fun rejectionHintText(code: String, serverReason: String?): String = when (code) {
+    "unpaired" -> "设备尚未配对，请用家长端生成配对二维码后重新扫码"
+    "revoked" -> "设备已被家长端解绑，请重新扫码配对"
+    "device_owned_by_other" -> "设备已被其他账号绑定，请联系原账号解绑后重试"
+    "fingerprint_mismatch" -> "证书指纹不匹配，请重新扫码配对"
+    "invalid_pairing_code" -> "配对码无效或已过期，请在家长端刷新二维码后重新扫码"
+    "missing_device_id" -> "设备信息缺失，请重新扫码配对"
+    else -> serverReason?.takeIf { it.isNotBlank() } ?: "连接被拒绝，请重新配对"
 }
 
 class P2PConnectionService {
@@ -164,6 +218,11 @@ class P2PConnectionService {
     private val _receivedMessages = MutableStateFlow<List<P2PMessage>>(emptyList())
     val receivedMessages: StateFlow<List<P2PMessage>> = _receivedMessages
 
+    // [TASK-PRELAUNCH-FIX-SCAN] 最近一次确定性握手拒绝（null=无）；UI 据此提示原因。
+    // 新连接开始时清空，确定性拒绝时写入，成功后保持 null
+    private val _handshakeRejection = MutableStateFlow<HandshakeRejection?>(null)
+    val handshakeRejection: StateFlow<HandshakeRejection?> = _handshakeRejection
+
     private var socket: Socket? = null
     private var outputStream: DataOutputStream? = null
     private var inputStream: DataInputStream? = null
@@ -221,6 +280,8 @@ class P2PConnectionService {
         this._sessionToken = sessionToken
         this._allowTofu = allowTofu
         this.reconnectAttempt = 0
+        // [TASK-PRELAUNCH-FIX-SCAN] 新连接开始即清除上一次的拒绝提示
+        _handshakeRejection.value = null
 
         // [REQ] 持久化连接配置，供服务/应用重启后自动重连（局域网与公网中继通用）
         persistConnectionConfig()
@@ -286,13 +347,46 @@ class P2PConnectionService {
             _connectionState.value = P2PConnectionState.HANDSHAKING
             sendHandshake()
 
-            // 6. 启动心跳
+            // [TASK-PRELAUNCH-FIX-SCAN] 6. 等待握手结果（首个响应帧，约 5 秒）：
+            // - 确定性拒绝（handshake_rejected / error + 已知错误码）→ 清配对码、
+            //   停止自动重连、回配对界面提示原因（生产事故根因：旧码重试风暴打满 K3 限速）
+            // - 成功帧（policy_update 等）→ 按原流程 CONNECTED，帧补入消息流供 SyncManager 处理
+            // - 超时/空帧（旧版家长端无握手回执）→ 按原流程 CONNECTED
+            socket!!.soTimeout = 5_000
+            val firstFrame = try {
+                readMessage()
+            } catch (e: SocketTimeoutException) {
+                Log.d(TAG, "握手响应超时，按成功处理（旧版家长端可能无回执）")
+                null
+            } catch (e: Exception) {
+                Log.d(TAG, "读取握手响应失败，按成功处理: ${e.message}")
+                null
+            }
+            socket!!.soTimeout = 0
+
+            if (firstFrame != null) {
+                val rejection = parseHandshakeRejection(firstFrame)
+                if (rejection != null && isDeterministicRejectionCode(rejection.code)) {
+                    handleDeterministicRejection(rejection)
+                    return  // 不进入 receiveLoop，不 scheduleReconnect
+                }
+                // 成功帧：与 receiveLoop 同路径处理（heartbeat_ack 重置计数，其余补入消息流）
+                if (firstFrame.type == "heartbeat_ack") heartbeatMissCount = 0
+                _receivedMessages.value = _receivedMessages.value + firstFrame
+            }
+
+            // [TASK-PRELAUNCH-FIX-SCAN] D3 根因消除：握手成功后清除配对码（含加密持久化副本），
+            // 之后的重连/自动重连不再携带旧配对码，仅凭证书指纹与中继会话令牌放行
+            _pairingCode = null
+            clearPersistedPairingCode()
+
+            // 7. 启动心跳
             startHeartbeat()
 
             _connectionState.value = P2PConnectionState.CONNECTED
             reconnectAttempt = 0  // 重置重连计数
 
-            // 7. 开始接收消息循环
+            // 8. 开始接收消息循环
             receiveLoop()
 
         } catch (e: Exception) {
@@ -561,6 +655,34 @@ class P2PConnectionService {
     }
 
     // === 生命周期 ===
+
+    /**
+     * [TASK-PRELAUNCH-FIX-SCAN] 确定性握手拒绝处理：
+     * 清除配对码（含持久化副本）、关闭连接、写入拒绝状态供 UI 提示，且不调度重连。
+     * 用户需在家长端操作（解绑/生成新配对码）后重新扫码，重试旧凭据无意义。
+     */
+    private fun handleDeterministicRejection(rejection: HandshakeRejection) {
+        Log.w(TAG, "握手被拒（确定性，code=${rejection.code}）：${rejection.reason}，停止自动重连")
+        _pairingCode = null
+        clearPersistedPairingCode()
+        _handshakeRejection.value = rejection
+        try { outputStream?.close() } catch (_: Exception) {}
+        try { inputStream?.close() } catch (_: Exception) {}
+        try { socket?.close() } catch (_: Exception) {}
+        socket = null
+        _connectionState.value = P2PConnectionState.DISCONNECTED
+    }
+
+    /** [TASK-PRELAUNCH-FIX-SCAN] 清除加密持久化的配对码（不触碰其余连接配置） */
+    private fun clearPersistedPairingCode() {
+        try {
+            XiaopacaiApp.instance
+                .getSharedPreferences("guardian_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("relay_pairing_code", "").apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "清除持久化配对码失败: ${e.message}")
+        }
+    }
 
     /** 断开连接 */
     fun disconnect() {

@@ -15,6 +15,7 @@ import net.sqlcipher.database.SQLiteOpenHelper
  * - Version 2：[TASK-ROLE-P1] 新增家长端表（device_registry/policies/announcements/parent_usage_summary）
  * - Version 3：[TASK-OPT-12-P1] 新增应用分类表 app_category；announcements 扩展 requires_ack/acknowledged_at 列
  * - Version 4：[TASK-PRELAUNCH-P3] announcements 扩展去重列（displayed_at/last_push_hash/delivered_count）
+ * - Version 5：[TASK-PRELAUNCH-PARENT-RESET] 新增家长端审计日志表 parent_audit_log（换账号清理审计）
  * - 升级时通过 onUpgrade() 执行迁移 SQL
  */
 class AppDatabase private constructor(
@@ -130,6 +131,11 @@ class AppDatabase private constructor(
         // [TASK-PRELAUNCH-P3] V4 新增列（公告去重：显示时间/内容哈希/送达次数）
         // ============================================================
         createV4Tables(db)
+
+        // ============================================================
+        // [TASK-PRELAUNCH-PARENT-RESET] V5 新增表（家长端审计日志）
+        // ============================================================
+        createV5Tables(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase?, oldVersion: Int, newVersion: Int) {
@@ -145,6 +151,10 @@ class AppDatabase private constructor(
         // [TASK-PRELAUNCH-P3] V3 → V4：announcements 去重列
         if (oldVersion < 4) {
             createV4Tables(db)
+        }
+        // [TASK-PRELAUNCH-PARENT-RESET] V4 → V5：家长端审计日志表
+        if (oldVersion < 5) {
+            createV5Tables(db)
         }
     }
 
@@ -276,6 +286,22 @@ class AppDatabase private constructor(
     }
 
     /**
+     * [TASK-PRELAUNCH-PARENT-RESET] V5：家长端审计日志表
+     * 记录换账号清理等敏感动作（不含敏感明文，仅动作与摘要）
+     */
+    private fun createV5Tables(db: SQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS parent_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action TEXT NOT NULL,                     -- 动作标识（account_reset 等）
+                detail TEXT NOT NULL DEFAULT '',          -- 摘要（不含密码/令牌等敏感明文）
+                created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            )
+        """.trimIndent())
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_parent_audit_created ON parent_audit_log(created_at)")
+    }
+
+    /**
      * [TASK-OPT-12-P1] 列不存在时才执行 ALTER TABLE ADD COLUMN
      *
      * SQLite 不支持 ADD COLUMN IF NOT EXISTS，通过 PRAGMA table_info 判断。
@@ -317,7 +343,7 @@ class AppDatabase private constructor(
 
     companion object {
         private const val DATABASE_NAME = "xiaopacai_guardian.db"
-        private const val DATABASE_VERSION = 4  // [TASK-PRELAUNCH-P3] V4：公告去重列（displayed_at/last_push_hash/delivered_count）
+        private const val DATABASE_VERSION = 5  // [TASK-PRELAUNCH-PARENT-RESET] V5：家长端审计日志表（parent_audit_log）
 
         @Volatile
         private var INSTANCE: AppDatabase? = null

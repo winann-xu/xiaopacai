@@ -197,6 +197,21 @@ object ParentPasswordManager {
     }
 
     /**
+     * [TASK-PRELAUNCH-PARENT-RESET] 清除家长密码（换账号清理专用）。
+     * 调用方必须先完成密码验证（ParentAccountReset.resetAccount 内保证），
+     * 清除后下次进入家长端走首次设置密码流程（"新账号绑定"状态）。
+     */
+    fun clearPassword(context: Context) {
+        getSecurePrefs(context).edit()
+            .remove(KEY_PASSWORD_HASH)
+            .remove(KEY_PASSWORD_SALT)
+            .putInt(KEY_FAILED_ATTEMPTS, 0)
+            .putLong(KEY_LOCKOUT_UNTIL, 0)
+            .apply()
+        Log.i(TAG, "家长密码已清除（换账号清理）")
+    }
+
+    /**
      * 使用 PBKDF2-HMAC-SHA256 派生密码哈希
      */
     private fun derivePasswordHash(password: String, salt: ByteArray): String {

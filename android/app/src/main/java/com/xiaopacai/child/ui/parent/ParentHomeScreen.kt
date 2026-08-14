@@ -945,7 +945,14 @@ private fun SettingsTab(onLogout: () -> Unit) {
     var showWebRelay by remember { mutableStateOf(false) }
 
     if (showWebRelay) {
-        ParentSettingsScreen(onBack = { showWebRelay = false })
+        ParentSettingsScreen(
+            onBack = { showWebRelay = false },
+            // [TASK-PRELAUNCH-PARENT-RESET] 换账号清理完成 → 返回登录页（新账号绑定状态）
+            onAccountReset = {
+                showWebRelay = false
+                onLogout()
+            }
+        )
     } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { Text("设置", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp)) }
 
