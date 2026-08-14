@@ -492,4 +492,101 @@ object ParentDao {
         }
         return arr
     }
+
+    // ==================== [TASK-PRELAUNCH-PARENT-RESET] 换账号清理 ====================
+
+    /**
+     * 清除家长端全部业务数据（device_registry / parent_policies /
+     * parent_announcements / parent_usage_summary 四张表）。
+     * 保留 parent_audit_log 与儿童端表（usage_records 等），儿童端数据不受影响。
+     */
+    fun clearAllParentData(context: Context) {
+        try {
+            val db = getDb(context)
+            db.execSQL("DELETE FROM device_registry")
+            db.execSQL("DELETE FROM parent_policies")
+            db.execSQL("DELETE FROM parent_announcements")
+            db.execSQL("DELETE FROM parent_usage_summary")
+            db.close()
+            Log.i(TAG, "家长端业务数据已清除（四张表）")
+        } catch (e: Exception) {
+            Log.e(TAG, "清除家长端数据失败: ${e.message}")
+            throw e
+        }
+    }
+
+    /**
+     * 用 Web 拉取的公告全量覆盖本地 parent_announcements（先清后插，杜绝旧账号残留）。
+     *
+     * @param items GET /api/announcements 返回的 JSON 数组（字段与 Web DTO 一致）
+     * @return 写入条数
+     */
+    fun replaceAllAnnouncements(context: Context, items: JSONArray): Int {
+        val db = getDb(context)
+        return try {
+            db.beginTransaction()
+            db.execSQL("DELETE FROM parent_announcements")
+            val now = System.currentTimeMillis() / 1000
+            var count = 0
+            for (i in 0 until items.length()) {
+                val o = items.optJSONObject(i) ?: continue
+                val serverId = o.optLong("id", 0)
+                val title = o.optString("title", "")
+                val content = o.optString("content", "")
+                val priority = o.optInt("priority", 0)
+                val status = o.optString("status", "draft")
+                val targetDeviceId = o.opt("targetDeviceId")?.toString() ?: ""
+                val validFrom = parseIsoToEpochSeconds(o.optString("validFrom", ""))
+                val validUntil = parseIsoToEpochSeconds(o.optString("validUntil", ""))
+                val createdAt = parseIsoToEpochSeconds(o.optString("createdAt", ""))
+                    .takeIf { it > 0 } ?: now
+                // 前缀 web- 与家长端本地自建公告（UUID）区分，避免 ID 冲突
+                db.execSQL("""
+                    INSERT OR REPLACE INTO parent_announcements
+                    (announcement_id, title, content, priority, status, target_device_id,
+                     valid_from, valid_until, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(), arrayOf(
+                    "web-$serverId", title, content, priority, status, targetDeviceId,
+                    validFrom, validUntil, createdAt, now
+                ))
+                count++
+            }
+            db.setTransactionSuccessful()
+            Log.i(TAG, "公告已全量覆盖：$count 条")
+            count
+        } catch (e: Exception) {
+            Log.e(TAG, "覆盖公告失败: ${e.message}")
+            throw e
+        } finally {
+            db.endTransaction()
+            db.close()
+        }
+    }
+
+    /** ISO 8601 时间串 → epoch 秒；解析失败返回 0 */
+    private fun parseIsoToEpochSeconds(iso: String): Long {
+        if (iso.isBlank()) return 0
+        return try {
+            java.time.Instant.parse(iso).epochSecond
+        } catch (e: Exception) {
+            0
+        }
+    }
+
+    /**
+     * 写入家长端审计日志（不含密码/令牌等敏感明文）
+     */
+    fun insertAuditLog(context: Context, action: String, detail: String) {
+        try {
+            val db = getDb(context)
+            db.execSQL(
+                "INSERT INTO parent_audit_log (action, detail) VALUES (?, ?)",
+                arrayOf(action, detail)
+            )
+            db.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "写审计日志失败: ${e.message}")
+        }
+    }
 }

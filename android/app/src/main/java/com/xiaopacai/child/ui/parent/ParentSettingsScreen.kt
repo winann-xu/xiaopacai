@@ -27,10 +27,13 @@ import com.xiaopacai.child.ui.scan.QrScannerActivity
 import com.xiaopacai.child.role.RoleManager
 import com.xiaopacai.child.XiaopacaiApp
 import com.xiaopacai.child.util.KeyStoreManager
+import com.xiaopacai.child.util.ParentAccountReset
+import com.xiaopacai.child.data.database.ParentDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -118,7 +121,9 @@ private fun httpPostJson(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ParentSettingsScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    // [TASK-PRELAUNCH-PARENT-RESET] 换账号清理完成后回调（返回登录页/新账号绑定状态）
+    onAccountReset: () -> Unit
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -211,8 +216,8 @@ fun ParentSettingsScreen(
     // P2P
     var isServiceRunning by remember { mutableStateOf(ParentP2PListenerService.isRunning) }
 
-    // 数据清除
-    var showClearData by remember { mutableStateOf(false) }
+    // [TASK-PRELAUNCH-PARENT-RESET] 换账号清理（家长密码验证）
+    var showAccountReset by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -292,12 +297,17 @@ fun ParentSettingsScreen(
                                 webLoggingIn = true
                                 kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                                     try {
-                                        val result = loginToWeb(context, relayHost, relayPort, webUsername, webPassword)
+                                        var result = loginToWeb(context, relayHost, relayPort, webUsername, webPassword)
+                                        if (result.startsWith("登录成功")) {
+                                            webPassword = ""  // 清空密码
+                                            // [TASK-PRELAUNCH-PARENT-RESET] 新账号登录绑定后：
+                                            // 全量拉取并覆盖为新账号的公告（不残留旧账号数据）
+                                            result += "\n" + pullAccountAnnouncements(context, relayHost, relayPort)
+                                        }
                                         withContext(Dispatchers.Main) {
                                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                                             if (result.startsWith("登录成功")) {
                                                 webTokenSaved = true
-                                                webPassword = ""  // 清空密码
                                             }
                                             webLoggingIn = false
                                         }
@@ -500,14 +510,14 @@ fun ParentSettingsScreen(
                 }
             )
 
-            // === 数据管理 ===
-            SectionTitle("数据管理")
+            // === [TASK-PRELAUNCH-PARENT-RESET] 账号与数据管理 ===
+            SectionTitle("账号与数据")
 
             SettingsCard(
                 icon = Icons.Filled.DeleteForever,
-                title = "清除全部数据",
-                subtitle = "策略、公告、报告、配对信息将被永久删除",
-                onClick = { showClearData = true },
+                title = "清除账号绑定与本地数据",
+                subtitle = "需家长密码验证；清除登录凭据、中继绑定与本地数据，回到新账号绑定状态",
+                onClick = { showAccountReset = true },
                 contentColor = MaterialTheme.colorScheme.error
             )
 
@@ -652,43 +662,66 @@ fun ParentSettingsScreen(
         )
     }
 
-    // === 数据清除确认 ===
-    if (showClearData) {
-        var confirmText by remember { mutableStateOf("") }
+    // === [TASK-PRELAUNCH-PARENT-RESET] 换账号清理确认（家长密码验证，失败不可清除）===
+    if (showAccountReset) {
+        var resetPassword by remember { mutableStateOf("") }
+        var resetError by remember { mutableStateOf<String?>(null) }
+        var resetBusy by remember { mutableStateOf(false) }
+        var resetDone by remember { mutableStateOf(false) }
 
         AlertDialog(
-            onDismissRequest = { showClearData = false; confirmText = "" },
-            title = { Text("清除全部数据") },
+            onDismissRequest = { if (!resetBusy && !resetDone) showAccountReset = false },
+            title = { Text("清除账号绑定与本地数据") },
             text = {
                 Column {
-                    Text("此操作将永久删除所有家长端数据。请输入「确认删除」以继续：", fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(confirmText, { confirmText = it }, Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("确认删除") })
+                    if (resetDone) {
+                        Text("已清除登录凭据、绑定关系与本地数据。将返回登录页，请绑定新账号并设置新家长密码。",
+                            fontSize = 14.sp)
+                    } else {
+                        Text("此操作将清除：Web 登录凭据、中继绑定、设备注册、公告、策略与使用记录。需验证家长密码，失败不可清除。",
+                            fontSize = 14.sp)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = resetPassword,
+                            onValueChange = { resetPassword = it; resetError = null },
+                            label = { Text("家长密码") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation()
+                        )
+                        if (resetError != null) Text(resetError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    if (confirmText == "确认删除") {
-                        try {
-                            val db = XiaopacaiApp.instance.database.getWritable(
-                                com.xiaopacai.child.util.DbPassphraseProvider.getPassphrase(context))
-                            db.execSQL("DELETE FROM device_registry")
-                            db.execSQL("DELETE FROM parent_policies")
-                            db.execSQL("DELETE FROM parent_announcements")
-                            db.execSQL("DELETE FROM parent_usage_summary")
-                            db.close()
-                            Toast.makeText(context, "数据已清除", Toast.LENGTH_SHORT).show()
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "清除失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                        }
-                        showClearData = false; confirmText = ""
-                    }
-                }, enabled = confirmText == "确认删除",
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                    Text("确认删除")
+                if (resetDone) {
+                    TextButton(onClick = { showAccountReset = false; onAccountReset() }) { Text("返回登录") }
+                } else {
+                    TextButton(
+                        onClick = {
+                            if (resetPassword.isEmpty()) { resetError = "请输入家长密码"; return@TextButton }
+                            resetBusy = true
+                            kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+                                val result = ParentAccountReset.resetAccount(context, resetPassword)
+                                withContext(Dispatchers.Main) {
+                                    resetBusy = false
+                                    when (result) {
+                                        is ParentAccountReset.ResetResult.Success -> resetDone = true
+                                        is ParentAccountReset.ResetResult.Failed -> resetError = result.reason
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !resetBusy,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) { Text(if (resetBusy) "清除中…" else "验证并清除") }
                 }
             },
-            dismissButton = { TextButton(onClick = { showClearData = false; confirmText = "" }) { Text("取消") } }
+            dismissButton = {
+                if (!resetDone) {
+                    TextButton(onClick = { showAccountReset = false }, enabled = !resetBusy) { Text("取消") }
+                }
+            }
         )
     }
 }
@@ -909,6 +942,61 @@ private suspend fun loginToWeb(context: android.content.Context, host: String, p
         }
     } catch (e: Exception) {
         "登录请求失败: ${e.message}"
+    }
+}
+
+/**
+ * [SEC-P1] HTTPS 优先 + 局域网回退的 JSON GET。
+ * @return Triple(状态码, 响应体, 错误体)
+ */
+private fun httpGetJson(
+    host: String, port: Int, path: String, token: String?
+): Triple<Int, String, String> {
+    return httpWithHttpsFirst(host, port) { base ->
+        val conn = URL("$base$path").openConnection() as HttpURLConnection
+        conn.requestMethod = "GET"
+        if (token != null) conn.setRequestProperty("Authorization", "Bearer $token")
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+        val code = conn.responseCode
+        val resp = if (code in 200..299) conn.inputStream.bufferedReader().readText() else ""
+        val err = if (code in 200..299) ""
+            else try { conn.errorStream?.bufferedReader()?.readText() ?: "" } catch (_: Exception) { "" }
+        Triple(code, resp, err)
+    }
+}
+
+/**
+ * [TASK-PRELAUNCH-PARENT-RESET] 新账号绑定后全量拉取公告并覆盖本地表：
+ * GET /api/announcements（Bearer 新账号 JWT）→ 先清空 parent_announcements 再插入，
+ * 杜绝旧账号公告残留。父端自建策略（parent_policies）属本地创作数据，
+ * 换账号清理时已清空，由新账号重新建立，不做服务端拉取。
+ *
+ * @return 用户可见的结果提示
+ */
+internal suspend fun pullAccountAnnouncements(
+    context: android.content.Context,
+    host: String,
+    port: Int
+): String {
+    val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+    val token = prefs.getString(KEY_WEB_TOKEN, null)
+        ?.takeIf { it.isNotBlank() }
+        ?.let { KeyStoreManager.decryptPrefsValue(it) }
+        ?.takeIf { it.isNotBlank() }
+    if (token == null) return "公告同步跳过：未获取到 Token"
+
+    return try {
+        val (code, respBody, errBody) = httpGetJson(host, port, "/api/announcements", token)
+        if (code in 200..299) {
+            val arr = JSONArray(respBody)
+            val count = ParentDao.replaceAllAnnouncements(context, arr)
+            "已同步新账号公告 $count 条"
+        } else {
+            "公告同步失败: HTTP $code ${errBody.take(80)}"
+        }
+    } catch (e: Exception) {
+        "公告同步失败: ${e.message}"
     }
 }
 
