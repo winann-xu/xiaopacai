@@ -73,6 +73,12 @@ class UsageStatsCollector(
         @Volatile
         private var instance: UsageStatsCollector? = null
 
+        /**
+         * [FIX-100] 供 SyncManager 读取调整后今日已用（分钟）；实例未启动时为 null
+         */
+        @JvmStatic
+        fun todayAdjustedMinutesOrNull(): Long? = instance?.todayAdjustedMinutes
+
         // === 应用分类规则（包名关键词 → 分类） ===
         private val CATEGORY_RULES = listOf(
             // 游戏类关键词

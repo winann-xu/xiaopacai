@@ -159,12 +159,14 @@ class SyncManager(
 
         // 3. 发送消息
         // [TASK-PRELAUNCH-P4] 携带今日重置偏移（分钟），服务端据此计算调整后“今日已用”
+        // [FIX-100] 同时携带儿童端自算的调整后已用，Web 展示/ack 优先采用（最准确口径）
         val message = P2PMessage(
             type = "usage_report",
             payload = mapOf(
                 "deviceId" to getDeviceId(),
                 "records" to recordsArray.toString(),
                 "dailyResetOffsetMinutes" to getDailyResetOffsetMinutes(),
+                "todayAdjustedMinutes" to getTodayAdjustedMinutes(),
                 "timestamp" to (System.currentTimeMillis() / 1000)
             )
         )
@@ -412,6 +414,16 @@ class SyncManager(
         val offsetDate = prefs.getString("daily_reset_offset_date", null) ?: return 0L
         val today = dateFormat.format(Date())
         return if (offsetDate == today) prefs.getLong("daily_reset_offset_minutes", 0L) else 0L
+    }
+
+    /**
+     * [FIX-100] 儿童端自算的调整后今日已用（分钟）：
+     * 优先取采集器实例值（与主页/超时判定同口径）；实例未就绪时用实时累计 − 偏移兜底
+     */
+    private fun getTodayAdjustedMinutes(): Long {
+        UsageStatsCollector.todayAdjustedMinutesOrNull()?.let { return it }
+        val offset = getDailyResetOffsetMinutes()
+        return (UsageStatsHelper.getTodayTotalMinutes(context) - offset).coerceAtLeast(0L)
     }
 
     /**
