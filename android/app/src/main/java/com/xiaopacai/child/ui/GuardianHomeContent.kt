@@ -59,7 +59,7 @@ import org.json.JSONObject
  */
 
 /**
- * 模拟公告数据（后续从 P2P 同步获取）
+ * 公告数据（从 P2P 同步获取，本地数据库缓存）
  */
 data class Announcement(
     val id: String,
@@ -67,7 +67,8 @@ data class Announcement(
     val content: String,
     val time: String,
     val priority: Int,  // 0=普通 1=重要 2=紧急
-    val isRead: Boolean  // [FIX] 列表展示最近公告（含已确认），弹窗仅未读
+    // [TASK-PRELAUNCH-P3] 紧急公告回执状态（列表标注已确认/未确认）
+    val acknowledged: Boolean = false
 )
 
 @Composable
@@ -306,11 +307,14 @@ fun GuardianHomeContent(
             try {
                 val passphrase = com.xiaopacai.child.util.DbPassphraseProvider.getPassphrase(context)
                 val db = com.xiaopacai.child.XiaopacaiApp.instance.database.getReadable(passphrase)
+                // [TASK-PRELAUNCH-P3] 紧急公告（priority>=2）无论已读与否都保留在列表（已确认后仍保留记录）；
+                // 普通公告仍只展示未读（读后从列表消失）
                 val cursor = db.rawQuery(
-                    """SELECT announcement_id, title, content, priority, created_at, is_read
+                    """SELECT announcement_id, title, content, priority, created_at, acknowledged_at
                        FROM announcements
-                       WHERE (expires_at = 0 OR expires_at > ?)
-                       ORDER BY priority DESC, created_at DESC LIMIT 3""",
+                       WHERE (priority >= 2 OR is_read = 0)
+                       AND (expires_at = 0 OR expires_at > ?)
+                       ORDER BY priority DESC, created_at DESC LIMIT 10""",
                     arrayOf((System.currentTimeMillis() / 1000).toString())
                 )
                 val list = mutableListOf<Announcement>()
@@ -323,7 +327,7 @@ fun GuardianHomeContent(
                             priority = it.getInt(3),
                             time = java.text.SimpleDateFormat("MM/dd HH:mm", java.util.Locale.getDefault())
                                 .format(java.util.Date(it.getLong(4) * 1000)),
-                            isRead = it.getInt(5) == 1
+                            acknowledged = it.getLong(5) > 0
                         ))
                     }
                 }
@@ -333,7 +337,7 @@ fun GuardianHomeContent(
                 // [TASK-OPT-12-P2] 挑选一条未展示过的普通公告弹窗（紧急公告走全屏覆盖层）
                 if (announcementToShow == null) {
                     val candidate = list.firstOrNull {
-                        it.priority < 2 && !it.isRead && it.id !in shownAnnouncementIds
+                        it.priority < 2 && it.id !in shownAnnouncementIds
                     }
                     if (candidate != null) {
                         announcementToShow = candidate
@@ -898,6 +902,7 @@ fun TimeoutBanner(stopMode: String) {
 /**
  * 公告卡片
  * 显示家长推送的公告信息
+ * [TASK-PRELAUNCH-P3] 紧急公告（priority>=2）带"紧急"红标与已确认/未确认状态，确认后仍保留记录
  */
 @Composable
 fun AnnouncementCard(announcement: Announcement) {
@@ -924,6 +929,21 @@ fun AnnouncementCard(announcement: Announcement) {
                         .background(priorityColor)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
+                // [TASK-PRELAUNCH-P3] 紧急标识
+                if (announcement.priority >= 2) {
+                    Surface(
+                        color = Color(0xFFE53935),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "紧急",
+                            fontSize = 11.sp,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
                 Text(
                     text = announcement.title,
                     fontWeight = FontWeight.SemiBold,
@@ -943,6 +963,20 @@ fun AnnouncementCard(announcement: Announcement) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 3
             )
+            // [TASK-PRELAUNCH-P3] 紧急公告回执状态（已确认后仍保留记录）
+            if (announcement.priority >= 2) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (announcement.acknowledged) "✅ 已确认" else "⚠️ 未确认",
+                        fontSize = 12.sp,
+                        fontWeight = if (announcement.acknowledged) FontWeight.Normal else FontWeight.SemiBold,
+                        color = if (announcement.acknowledged)
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        else Color(0xFFE53935)
+                    )
+                }
+            }
         }
     }
 }

@@ -14,7 +14,13 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
     /**
      * 插入或更新公告（UPSERT by announcement_id）
      *
-     * [TASK-OPT-12-P1] 新增 requiresAck / acknowledgedAt 参数（公告协议扩展），默认值保持旧行为兼容。
+     * [TASK-PRELAUNCH-P3] 改为合并式更新（见 docs/adr/0004，Web 侧对应实现）：
+     * - 内容哈希不变 → 保留 is_read/acknowledged_at/displayed_at，仅更新有效期与送达次数（不重复打扰）
+     * - 内容哈希变化 → 更新正文并重置显示/确认状态（允许重新提示）
+     * - 旧库无哈希记录（last_push_hash=''）：已读/已确认视为内容未变；未读视为首次送达
+     *
+     * @param contentHash 服务端下发的内容哈希（sha256 前 16 hex，可能为空）
+     * @return "new"（新公告，应展示）/ "changed"（内容变化，应重新提示）/ "unchanged"（去重命中，不展示）
      */
     fun upsert(
         announcementId: String,
@@ -23,27 +29,143 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
         priority: Int = 0,
         expiresAt: Long = 0,
         requiresAck: Boolean = false,
-        acknowledgedAt: Long = 0,
+        contentHash: String = "",
         passphrase: ByteArray
-    ): Long {
+    ): String {
         val db = dbHelper.getWritable(passphrase)
         return try {
+            // 服务端未带哈希时本地兜底计算（title|content|priority）
+            val hash = contentHash.ifBlank {
+                computeLocalHash(title, content, priority)
+            }
+
+            // 读取既有行：is_read/acknowledged_at/displayed_at/last_push_hash
+            var existed = false
+            var existingRead = 0
+            var existingAcked = 0L
+            var existingDisplayed = 0L
+            var existingHash = ""
+            db.rawQuery(
+                """SELECT is_read, acknowledged_at, displayed_at, last_push_hash
+                   FROM announcements WHERE announcement_id = ?""",
+                arrayOf(announcementId)
+            ).use { c ->
+                if (c.moveToFirst()) {
+                    existed = true
+                    existingRead = c.getInt(0)
+                    existingAcked = c.getLong(1)
+                    existingDisplayed = c.getLong(2)
+                    existingHash = c.getString(3)
+                }
+            }
+
+            if (!existed) {
+                // 新公告：完整插入，默认未读未显示
+                val values = ContentValues().apply {
+                    put("announcement_id", announcementId)
+                    put("title", title)
+                    put("content", content)
+                    put("priority", priority)
+                    put("is_read", 0)
+                    put("requires_ack", if (requiresAck) 1 else 0)
+                    put("acknowledged_at", 0)
+                    put("displayed_at", 0)
+                    put("last_push_hash", hash)
+                    put("delivered_count", 1)
+                    put("expires_at", expiresAt)
+                }
+                db.insertWithOnConflict(
+                    "announcements",
+                    null,
+                    values,
+                    SQLiteDatabase.CONFLICT_REPLACE
+                )
+                return "new"
+            }
+
+            // 旧库迁移边界：无哈希记录的行，以已读/已确认状态推断内容未变
+            val hashChanged = existingHash.isNotEmpty() && existingHash != hash
+            val legacyUnseen = existingHash.isEmpty() &&
+                    existingRead == 0 && existingAcked == 0L
+
+            if (hashChanged || legacyUnseen) {
+                // 内容变化（或旧库未读视为首次送达）：更新正文并重置状态，允许重新提示
+                val values = ContentValues().apply {
+                    put("title", title)
+                    put("content", content)
+                    put("priority", priority)
+                    put("is_read", 0)
+                    put("requires_ack", if (requiresAck) 1 else 0)
+                    put("acknowledged_at", 0)   // 旧内容的确认对新内容不生效
+                    put("displayed_at", 0)      // 重置显示标记，允许重新弹窗/置顶
+                    put("last_push_hash", hash)
+                    put("delivered_count", existingCount(db, announcementId) + 1)
+                    put("expires_at", expiresAt)
+                }
+                db.update("announcements", values, "announcement_id = ?", arrayOf(announcementId))
+                return "changed"
+            }
+
+            // 去重命中：内容未变，仅更新有效期与送达次数，保留全部状态
             val values = ContentValues().apply {
-                put("announcement_id", announcementId)
-                put("title", title)
-                put("content", content)
-                put("priority", priority)
-                put("is_read", 0)  // 新公告默认未读
-                put("requires_ack", if (requiresAck) 1 else 0)
-                put("acknowledged_at", acknowledgedAt)
+                put("last_push_hash", hash)     // 旧库行补记哈希
+                put("delivered_count", existingCount(db, announcementId) + 1)
                 put("expires_at", expiresAt)
             }
-            db.insertWithOnConflict(
-                "announcements",
-                null,
-                values,
-                SQLiteDatabase.CONFLICT_REPLACE
+            db.update("announcements", values, "announcement_id = ?", arrayOf(announcementId))
+            return "unchanged"
+        } finally {
+            db.close()
+        }
+    }
+
+    /**
+     * [TASK-PRELAUNCH-P3] 查询送达次数（合并更新时自增用）
+     */
+    private fun existingCount(db: SQLiteDatabase, announcementId: String): Int {
+        db.rawQuery(
+            "SELECT delivered_count FROM announcements WHERE announcement_id = ?",
+            arrayOf(announcementId)
+        ).use { c -> return if (c.moveToFirst()) c.getInt(0) else 0 }
+    }
+
+    /**
+     * [TASK-PRELAUNCH-P3] 本地兜底内容哈希（与 Web ComputeContentHash 同口径：title\ncontent\npriority）
+     */
+    private fun computeLocalHash(title: String, content: String, priority: Int): String {
+        val raw = "$title\n$content\n$priority"
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
+        return digest.take(8).joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * [TASK-PRELAUNCH-P3] 标记公告已显示（仅首次写入，重复推送不覆盖首次显示时间）
+     */
+    fun markDisplayed(announcementId: String, passphrase: ByteArray) {
+        val db = dbHelper.getWritable(passphrase)
+        try {
+            val now = System.currentTimeMillis() / 1000
+            db.execSQL(
+                """UPDATE announcements SET displayed_at =
+                   CASE WHEN displayed_at = 0 THEN ? ELSE displayed_at END
+                   WHERE announcement_id = ?""",
+                arrayOf(now.toString(), announcementId)
             )
+        } finally {
+            db.close()
+        }
+    }
+
+    /**
+     * [TASK-PRELAUNCH-P3] 撤回公告：置过期（从活动列表消失），保留行记录用于去重
+     * 重新发布同一内容时哈希不变 → 不再重复打扰；记录仍保留已读/已确认状态
+     */
+    fun revokeLocally(announcementId: String, passphrase: ByteArray) {
+        val db = dbHelper.getWritable(passphrase)
+        try {
+            val now = System.currentTimeMillis() / 1000
+            val values = ContentValues().apply { put("expires_at", now) }
+            db.update("announcements", values, "announcement_id = ?", arrayOf(announcementId))
         } finally {
             db.close()
         }
