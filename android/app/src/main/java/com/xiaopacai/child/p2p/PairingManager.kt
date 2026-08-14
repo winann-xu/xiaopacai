@@ -65,6 +65,16 @@ class PairingManager(private val context: Context) {
                 }
             }
         }
+        // [TASK-PRELAUNCH-FIX-SCAN] 确定性拒绝 → 配对界面显示错误（不再无限重连）。
+        // 无论此前处于 PAIRING 还是 DISCONNECTED→IDLE 的竞态顺序，拒绝都最终落到 ERROR；
+        // 连接服务在下次 connect 时清空拒绝状态，重新扫码即恢复
+        scope.launch {
+            connectionService.handshakeRejection.collect { rejection ->
+                if (rejection != null && _pairingState.value != PairingState.CONNECTED) {
+                    _pairingState.value = PairingState.ERROR
+                }
+            }
+        }
     }
 
     /** P2P-FIX: 暴露发现的家长端列表供 UI 使用 */
