@@ -170,6 +170,36 @@ object AntiBypassService {
             .setContentIntent(pendingIntent)
             .build()
 
+        // [FIX] 无障碍被系统移除后，家长需要在设置里手动重新开启：
+        // 额外推送一条带“去开启无障碍”快捷按钮的通知，减少“权限悄悄掉了却不知道”的窗口期。
+        if (issues.any { it.contains("无障碍") }) {
+            try {
+                val a11yIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                val a11yPendingIntent = PendingIntent.getActivity(
+                    context, 2002, a11yIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                val a11yNotification = NotificationCompat.Builder(context, XiaopacaiApp.CHANNEL_SECURITY)
+                    .setContentTitle("无障碍服务已关闭，拦截已失效")
+                    .setContentText("点击下方按钮，前往系统设置重新开启小趴菜无障碍服务")
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(
+                        "无障碍服务被系统移除后，超时拦截将失效（快手/抖音等可正常使用）。\n" +
+                        "请点击按钮前往：设置 → 无障碍 → 已安装的服务 → 小趴菜 → 打开开关。"
+                    ))
+                    .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setAutoCancel(true)
+                    .setContentIntent(pendingIntent)
+                    .addAction(0, "去开启无障碍", a11yPendingIntent)
+                    .build()
+                notificationManager.notify(SECURITY_NOTIFY_ID + 2, a11yNotification)
+            } catch (e: Exception) {
+                Log.e(TAG, "推送无障碍快捷修复通知失败: ${e.message}")
+            }
+        }
+
         notificationManager.notify(SECURITY_NOTIFY_ID, notification)
     }
 

@@ -179,6 +179,16 @@ class GuardianAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        try {
+            doHandleAccessibilityEvent(event)
+        } catch (e: Exception) {
+            // [FIX] 事件回调绝不允许向上抛异常：否则进程崩溃，系统会把本服务从
+            // “已启用无障碍服务”中移除，导致超时拦截整条链路失效。
+            Log.e(TAG, "无障碍事件处理异常（已拦截，避免服务崩溃）: ${e.message}", e)
+        }
+    }
+
+    private fun doHandleAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
 
         // 仅处理窗口状态变化事件

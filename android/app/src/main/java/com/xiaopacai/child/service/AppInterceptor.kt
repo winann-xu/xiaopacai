@@ -131,6 +131,20 @@ class AppInterceptor(private val context: Context) {
      * @return InterceptResult 拦截结果（是否拦截 + 原因描述）
      */
     fun shouldIntercept(packageName: String): InterceptResult {
+        return try {
+            doShouldIntercept(packageName)
+        } catch (e: Exception) {
+            // [FIX] 拦截判断绝不允许抛异常：任何数据库/密钥异常都会导致无障碍服务进程崩溃，
+            // 进而被系统从“已启用无障碍服务”中移除，整个拦截链路失效（用户反馈“超时后快手仍可用”）。
+            Log.e(TAG, "拦截判断异常，按超时兜底处理: ${e.message}")
+            fallbackIntercept(packageName)
+        }
+    }
+
+    /**
+     * 实际拦截判断（外层包 try/catch，异常时走保守兜底）
+     */
+    private fun doShouldIntercept(packageName: String): InterceptResult {
         // [FIX] 守护应用自身永不拦截：超时停用期间家长/用户仍需能进入权限引导、设置等自身页面，
         // 否则引导页被 BlockOverlay 覆盖形成“点去开启无反应”的死锁
         if (packageName == context.packageName) {
@@ -190,6 +204,42 @@ class AppInterceptor(private val context: Context) {
     /**
      * 检查是否在黑名单中
      */
+    /**
+     * 保守兜底：即使数据库/密钥异常，只要采集器判定超时，仍按 partial/full 规则拦截娱乐应用，
+     * 避免“异常时全部放行”的绕过（宁可多拦，不可漏拦）。
+     */
+    private fun fallbackIntercept(packageName: String): InterceptResult {
+        try {
+            if (packageName == context.packageName) {
+                return InterceptResult(intercept = false, reason = "守护应用自身")
+            }
+            if (packageName in SYSTEM_PACKAGES || packageName in LAUNCHER_PACKAGES ||
+                packageName == defaultHomePackage) {
+                return InterceptResult(intercept = false, reason = "系统/桌面")
+            }
+            val collector = GuardianForegroundService.getCollector()
+            val isTimeout = collector?.isTimeoutActive ?: false
+            val stopMode = collector?.stopMode ?: "none"
+            if (!isTimeout) return InterceptResult(intercept = false, reason = "正常使用")
+            if (stopMode == "full") {
+                return InterceptResult(intercept = true, reason = "超时停用（整机锁定）")
+            }
+            if (stopMode == "partial") {
+                val engine = CategoryTaxonomy.toEngineCategory(
+                    CategoryTaxonomy.classify(packageName, "")
+                )
+                if (engine in setOf("game", "social", "video")) {
+                    return InterceptResult(intercept = true, reason = "partial-$engine")
+                }
+                return InterceptResult(intercept = false, reason = "其他")
+            }
+            return InterceptResult(intercept = false, reason = "正常使用")
+        } catch (e: Exception) {
+            Log.e(TAG, "兜底拦截也失败: ${e.message}")
+            return InterceptResult(intercept = false, reason = "正常使用")
+        }
+    }
+
     private fun isInBlacklist(packageName: String, passphrase: ByteArray): Boolean {
         return try {
             val db = XiaopacaiApp.instance.database.getReadable(passphrase)
