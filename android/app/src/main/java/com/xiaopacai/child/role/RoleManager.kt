@@ -2,8 +2,6 @@ package com.xiaopacai.child.role
 
 import android.content.Context
 import android.util.Log
-import com.xiaopacai.child.util.KeyStoreManager
-import com.xiaopacai.child.util.ParentPasswordManager
 
 /**
  * [TASK-ROLE-P1] 角色管理器
@@ -11,10 +9,12 @@ import com.xiaopacai.child.util.ParentPasswordManager
  * 管理同一 APP 内的双角色（child/parent）：
  * - 首次启动：角色未设定，进入引导页
  * - 儿童端：免密直进守护界面（现有逻辑）
- * - 家长端：PBKDF2 密码登录
- * - 角色切换：需家长密码校验（防儿童绕过）
+ * - 家长端：云端账号（邮箱+密码）验证后进入（[TASK-ACCOUNT-V1] ADR 0009）
+ * - 角色切换：调用方必须先完成云端验证（SystemGateDialog / 家长登录页），
+ *   验证通过后直接调用 [setCurrentRole] 切换角色。
  *
- * 角色与密码存储在本地加密偏好中，密码永不明文。
+ * [TASK-ACCOUNT-V1] 本地家长密码体系（PBKDF2）已退役，角色状态仅存本地偏好，
+ * 家长身份验证统一由 CloudAccountManager 云端完成，密码永不落盘。
  */
 object RoleManager {
 
@@ -47,7 +47,7 @@ object RoleManager {
     }
 
     /**
-     * 设置当前角色（仅在角色引导或合法切换时调用）
+     * 设置当前角色（[TASK-ACCOUNT-V1] 仅在云端验证通过后调用）
      */
     fun setCurrentRole(context: Context, role: Role) {
         getPrefs(context).edit()
@@ -67,81 +67,7 @@ object RoleManager {
     }
 
     /**
-     * 切换到家长端（需要密码校验）
-     *
-     * @param password 家长密码
-     * @return true 切换成功
-     */
-    fun switchToParent(context: Context, password: String): Boolean {
-        if (!ParentPasswordManager.verifyPassword(context, password)) {
-            Log.w(TAG, "家长密码校验失败，拒绝切换到家长端")
-            return false
-        }
-        setCurrentRole(context, Role.PARENT)
-        Log.i(TAG, "已切换到家长端")
-        return true
-    }
-
-    /**
-     * 切换到儿童端（需要密码校验，防止孩子随意退出家长端）
-     *
-     * @param password 家长密码
-     * @return true 切换成功
-     */
-    fun switchToChild(context: Context, password: String): Boolean {
-        if (!ParentPasswordManager.verifyPassword(context, password)) {
-            Log.w(TAG, "家长密码校验失败，拒绝切换到儿童端")
-            return false
-        }
-        setCurrentRole(context, Role.CHILD)
-        Log.i(TAG, "已切换到儿童端")
-        return true
-    }
-
-    /**
-     * 检查家长密码是否已设置
-     */
-    fun isParentPasswordSet(context: Context): Boolean {
-        return ParentPasswordManager.isPasswordSet(context)
-    }
-
-    /**
-     * 设置家长密码（PBKDF2，≥10万次迭代）
-     *
-     * @param newPassword 新密码
-     * @return true 设置成功
-     */
-    fun setParentPassword(context: Context, newPassword: String): Boolean {
-        return ParentPasswordManager.setPassword(context, newPassword, null)
-    }
-
-    /**
-     * 修改家长密码
-     *
-     * @param oldPassword 旧密码
-     * @param newPassword 新密码
-     * @return true 修改成功
-     */
-    fun changeParentPassword(context: Context, oldPassword: String, newPassword: String): Boolean {
-        return ParentPasswordManager.setPassword(context, newPassword, oldPassword)
-    }
-
-    /**
-     * 验证家长密码
-     */
-    fun verifyParentPassword(context: Context, password: String): Boolean {
-        return ParentPasswordManager.verifyPassword(context, password)
-    }
-
-    /**
-     * 验证密码格式（6-16位数字或字母）
-     */
-    fun isValidPasswordFormat(password: String): Boolean {
-        return ParentPasswordManager.isValidPasswordFormat(password)
-    }
-
-    /**
-     * 获取加密 SharedPreferences
+     * 获取 SharedPreferences
      */
     private fun getPrefs(context: Context): android.content.SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

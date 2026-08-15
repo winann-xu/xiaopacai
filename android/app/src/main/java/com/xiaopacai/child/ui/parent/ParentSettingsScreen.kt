@@ -24,9 +24,9 @@ import com.xiaopacai.child.p2p.P2PConnectionService
 import com.xiaopacai.child.p2p.ParentP2PListenerService
 import com.xiaopacai.child.BuildConfig
 import com.xiaopacai.child.ui.scan.QrScannerActivity
-import com.xiaopacai.child.role.RoleManager
-import com.xiaopacai.child.XiaopacaiApp
-import com.xiaopacai.child.util.KeyStoreManager
+import com.xiaopacai.child.util.CloudAccountManager
+import com.xiaopacai.child.util.httpGetJson
+import com.xiaopacai.child.util.httpPostJson
 import com.xiaopacai.child.util.ParentAccountReset
 import com.xiaopacai.child.data.database.ParentDao
 import kotlinx.coroutines.Dispatchers
@@ -38,84 +38,15 @@ import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
-import java.security.SecureRandom
-
-// Web 中继 JWT Token 存储
-private const val WEB_PREFS_NAME = "xiaopacai_web_prefs"
-private const val KEY_WEB_TOKEN = "web_token"
 
 /**
- * [SEC-P1] 判断主机是否为局域网/本机地址。
- * HTTP 明文仅限局域网（红线 R6.x）；公网主机一律强制 HTTPS。
- */
-private fun isLanHost(host: String): Boolean {
-    if (host == "localhost" || host == "::1" || host.endsWith(".local")) return true
-    val parts = host.split(".")
-    if (parts.size != 4 || parts.any { it.toIntOrNull() == null }) return false
-    val a = parts[0].toInt()
-    val b = parts[1].toInt()
-    return a == 127 || a == 10 ||
-        (a == 192 && b == 168) ||
-        (a == 172 && b in 16..31) ||
-        (a == 169 && b == 254)
-}
-
-/**
- * [SEC-P1] HTTPS 优先执行 HTTP 请求：
- * - 先尝试 https；
- * - 仅当主机是局域网地址且失败原因为 SSL 握手失败（对端为明文 HTTP 服务）时，
- *   回退到 http 重试一次（其他异常不回退，避免 POST 重复提交）；
- * - 公网主机仅 https，杜绝明文传输凭据（红线 R6.x）。
- */
-private fun <T> httpWithHttpsFirst(host: String, port: Int, block: (base: String) -> T): T {
-    val candidates = if (isLanHost(host))
-        listOf("https://$host:$port", "http://$host:$port")
-    else
-        listOf("https://$host:$port")
-    var sslFailed = false
-    for (base in candidates) {
-        try {
-            return block(base)
-        } catch (e: javax.net.ssl.SSLException) {
-            sslFailed = true
-            android.util.Log.w("WebRelay", "HTTPS 请求失败(SSL)，尝试下一候选: ${e.message}")
-        }
-    }
-    throw IllegalStateException("HTTPS 连接失败" + if (sslFailed) "（服务端未启用 HTTPS）" else "")
-}
-
-/**
- * [SEC-P1] HTTPS 优先 + 局域网回退的 JSON POST。
- * @return Triple(状态码, 响应体, 错误体)
- */
-private fun httpPostJson(
-    host: String, port: Int, path: String, body: String, token: String?
-): Triple<Int, String, String> {
-    return httpWithHttpsFirst(host, port) { base ->
-        val conn = URL("$base$path").openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Content-Type", "application/json")
-        if (token != null) conn.setRequestProperty("Authorization", "Bearer $token")
-        conn.doOutput = true
-        conn.connectTimeout = 10000
-        conn.readTimeout = 10000
-        OutputStreamWriter(conn.outputStream).use { it.write(body) }
-        val code = conn.responseCode
-        val resp = if (code in 200..299) conn.inputStream.bufferedReader().readText() else ""
-        val err = if (code in 200..299) ""
-            else try { conn.errorStream?.bufferedReader()?.readText() ?: "" } catch (_: Exception) { "" }
-        Triple(code, resp, err)
-    }
-}
-
-/**
- * [TASK-OPT-12-P3] 家长端设置页（含忘记密码/恢复码/Web中继）
+ * [TASK-ACCOUNT-V1] 家长端设置页
  *
- * 功能：
- * - 修改家长密码
- * - 忘记密码恢复（8 位恢复码）
- * - Web 中继连接配置
+ * 功能（本地密码体系已退役，账号安全统一由云端账号承担）：
+ * - Web 账号：展示绑定账号邮箱、退出登录、扫码确认 Web 登录
+ * - Web 云端中继配置（需求3）
  * - P2P 服务控制
+ * - 清除账号绑定与本地数据（云端验证，离线拒绝）
  * - 关于信息
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -123,40 +54,33 @@ private fun httpPostJson(
 fun ParentSettingsScreen(
     onBack: () -> Unit,
     // [TASK-PRELAUNCH-PARENT-RESET] 换账号清理完成后回调（返回登录页/新账号绑定状态）
-    onAccountReset: () -> Unit
+    onAccountReset: () -> Unit,
+    // [TASK-ACCOUNT-V1] 退出登录（清除本地账号绑定后回到家长登录页）
+    onLogout: () -> Unit
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
-    // 密码修改
-    var showChangePwd by remember { mutableStateOf(false) }
-
-    // 恢复码
-    var showRecoveryCode by remember { mutableStateOf(false) }
-    var recoveryCode by remember { mutableStateOf<String?>(null) }
+    // Web 账号绑定状态
+    var boundEmail by remember { mutableStateOf(CloudAccountManager.getBoundEmail(context)) }
+    var webTokenSaved by remember { mutableStateOf(CloudAccountManager.getToken(context) != null) }
 
     // Web 中继
-    var relayHost by remember { mutableStateOf("") }
-    var relayPort by remember { mutableIntStateOf(5000) }
+    var relayHost by remember { mutableStateOf(CloudAccountManager.getServerHost(context) ?: "") }
+    var relayPort by remember { mutableIntStateOf(CloudAccountManager.getServerPort(context)) }
     var relayEnabled by remember { mutableStateOf(false) }
     var relayConnecting by remember { mutableStateOf(false) }
 
-    // Web 账号登录（用于中继鉴权）
-    var webUsername by remember { mutableStateOf("") }
-    var webPassword by remember { mutableStateOf("") }
-    var webLoggingIn by remember { mutableStateOf(false) }
     // [REQ] Web 中继配对码/二维码（儿童端扫码经 Web 连接）
     var relayPairingCode by remember { mutableStateOf<String?>(null) }
     var relayQrBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var showRelayQr by remember { mutableStateOf(false) }
-    var webTokenSaved by remember {
-        mutableStateOf(
-            context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
-                .getString(KEY_WEB_TOKEN, null)?.isNotBlank() == true
-        )
-    }
+
     // [REQ] 扫码登录 Web（家长端扫 Web 登录二维码 → 确认授权）
     var scanLoginMessage by remember { mutableStateOf<String?>(null) }
+
+    // [TASK-ACCOUNT-V1] 退出登录确认
+    var showLogoutConfirm by remember { mutableStateOf(false) }
 
     fun handleWebLoginQr(text: String) {
         try {
@@ -180,12 +104,8 @@ fun ParentSettingsScreen(
                     u.port.takeIf { it > 0 }?.let { relayPort = it }
                 } catch (_: Exception) {}
             }
-            val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
-            // [SEC-P1] JWT 以 KeyStore 加密存储（"enc:" 前缀），读取时解密
-            val token = prefs.getString(KEY_WEB_TOKEN, null)
-                ?.takeIf { it.isNotBlank() }
-                ?.let { KeyStoreManager.decryptPrefsValue(it) }
-                ?.takeIf { it.isNotBlank() }
+            // [TASK-ACCOUNT-V1] 已保存 JWT（KeyStore 加密存储，读取时解密）
+            val token = CloudAccountManager.getToken(context)
             if (token == null) {
                 scanLoginMessage = "请先用账号密码登录获取 Token，再扫码确认 Web 登录"
                 return
@@ -216,7 +136,7 @@ fun ParentSettingsScreen(
     // P2P
     var isServiceRunning by remember { mutableStateOf(ParentP2PListenerService.isRunning) }
 
-    // [TASK-PRELAUNCH-PARENT-RESET] 换账号清理（家长密码验证）
+    // [TASK-PRELAUNCH-PARENT-RESET] 换账号清理（云端验证，离线拒绝）
     var showAccountReset by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -243,123 +163,65 @@ fun ParentSettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // === 账号安全 ===
-            SectionTitle("账号安全")
-
-            SettingsCard(icon = Icons.Filled.Lock, title = "修改家长密码", subtitle = "修改后需重新验证所有设备",
-                onClick = { showChangePwd = true })
-
-            SettingsCard(icon = Icons.Filled.Key, title = "忘记密码 / 恢复码",
-                subtitle = if (recoveryCode != null) "恢复码: $recoveryCode" else "生成 8 位恢复码用于找回密码",
-                onClick = {
-                    val code = generateRecoveryCode()
-                    RoleManager.setParentPassword(context, code) // 暂存恢复码哈希
-                    recoveryCode = code
-                    showRecoveryCode = true
-                })
-
-            // === Web 账号登录（中继鉴权）===
+            // === Web 账号（[TASK-ACCOUNT-V1] 绑定账号展示；密码修改/找回在 Web 端完成）===
             SectionTitle("Web 账号")
 
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("登录 Web 3.0 服务以获取中继鉴权 Token", fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (webTokenSaved) {
-                        Text("Token 已保存 ✓", fontSize = 13.sp,
+                    if (boundEmail != null) {
+                        Text("已绑定账号", fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(boundEmail!!, fontSize = 16.sp, fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary)
+                        if (webTokenSaved) {
+                            Spacer(Modifier.height(2.dp))
+                            Text("登录凭据已加密保存在本设备（密码不落盘）", fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        Text("未绑定云端账号", fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.error)
+                        Text("请退出后在家长登录页用 Web 3.0 账号登录", fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = webUsername,
-                        onValueChange = { webUsername = it },
-                        label = { Text("用户名") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = webPassword,
-                        onValueChange = { webPassword = it },
-                        label = { Text("密码") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Button(
-                            onClick = {
-                                webLoggingIn = true
-                                kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
-                                    try {
-                                        var result = loginToWeb(context, relayHost, relayPort, webUsername, webPassword)
-                                        if (result.startsWith("登录成功")) {
-                                            webPassword = ""  // 清空密码
-                                            // [TASK-PRELAUNCH-PARENT-RESET] 新账号登录绑定后：
-                                            // 全量拉取并覆盖为新账号的公告（不残留旧账号数据）
-                                            result += "\n" + pullAccountAnnouncements(context, relayHost, relayPort)
-                                        }
-                                        withContext(Dispatchers.Main) {
-                                            Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
-                                            if (result.startsWith("登录成功")) {
-                                                webTokenSaved = true
-                                            }
-                                            webLoggingIn = false
-                                        }
-                                    } catch (e: Exception) {
-                                        withContext(Dispatchers.Main) {
-                                            Toast.makeText(context, "登录失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                                            webLoggingIn = false
-                                        }
-                                    }
-                                }
-                            },
-                            enabled = webUsername.isNotBlank() && webPassword.isNotBlank() && relayHost.isNotBlank() && !webLoggingIn,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            if (webLoggingIn) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text("登录获取 Token")
-                            }
-                        }
+                        // [REQ] 扫码登录 Web：扫 Web 端登录二维码，用已保存 Token 确认授权
                         OutlinedButton(
                             onClick = {
-                                val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
-                                prefs.edit().remove(KEY_WEB_TOKEN).apply()
-                                webTokenSaved = false
-                                Toast.makeText(context, "Token 已清除", Toast.LENGTH_SHORT).show()
+                                try {
+                                    webQrScanLauncher.launch(
+                                        android.content.Intent(context, QrScannerActivity::class.java)
+                                    )
+                                } catch (e: Exception) {
+                                    scanLoginMessage = "无法打开相机：${e.message}"
+                                }
                             },
+                            modifier = Modifier.weight(1f),
                             enabled = webTokenSaved
                         ) {
-                            Text("清除")
+                            Icon(Icons.Filled.QrCode, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (webTokenSaved) "扫码登录 Web" else "先登录后可扫码")
+                        }
+                        // [TASK-ACCOUNT-V1] 退出登录：清除本地账号绑定（不删除云端账号）
+                        OutlinedButton(
+                            onClick = { showLogoutConfirm = true },
+                            modifier = Modifier.weight(1f),
+                            enabled = boundEmail != null,
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Icon(Icons.Filled.Logout, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("退出登录")
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    // [REQ] 扫码登录 Web：扫 Web 端登录二维码，用已保存 Token 确认授权
-                    OutlinedButton(
-                        onClick = {
-                            try {
-                                webQrScanLauncher.launch(
-                                    android.content.Intent(context, QrScannerActivity::class.java)
-                                )
-                            } catch (e: Exception) {
-                                scanLoginMessage = "无法打开相机：${e.message}"
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = webTokenSaved
-                    ) {
-                        Icon(Icons.Filled.QrCode, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (webTokenSaved) "扫码登录 Web（网页端被扫后自动登录）"
-                        else "先登录获取 Token 后即可扫码确认")
-                    }
                     // [DEBUG] 模拟器无真实相机，调试构建提供扫码结果注入入口
                     if (BuildConfig.DEBUG) {
                         TextButton(
@@ -427,6 +289,8 @@ fun ParentSettingsScreen(
                     Button(
                         onClick = {
                             relayConnecting = true
+                            // 持久化服务器地址（门禁验证/下次登录共用）
+                            CloudAccountManager.saveServerBase(context, relayHost.trim(), relayPort)
                             // 异步连接 Web 中继
                             kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                                 try {
@@ -516,7 +380,7 @@ fun ParentSettingsScreen(
             SettingsCard(
                 icon = Icons.Filled.DeleteForever,
                 title = "清除账号绑定与本地数据",
-                subtitle = "需家长密码验证；清除登录凭据、中继绑定与本地数据，回到新账号绑定状态",
+                subtitle = "需云端邮箱+密码验证（离线拒绝）；清除登录凭据、中继绑定与本地数据，回到未绑定状态",
                 onClick = { showAccountReset = true },
                 contentColor = MaterialTheme.colorScheme.error
             )
@@ -535,6 +399,25 @@ fun ParentSettingsScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+
+    // === 退出登录确认对话框 ===
+    if (showLogoutConfirm) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirm = false },
+            title = { Text("退出登录") },
+            text = { Text("将清除本设备保存的账号登录凭据（不删除云端账号）。下次进入家长端需重新云端验证。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showLogoutConfirm = false
+                    CloudAccountManager.clearAccount(context)
+                    onLogout()
+                }) { Text("退出") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutConfirm = false }) { Text("取消") }
+            }
+        )
     }
 
     // === 扫码登录 Web 结果对话框 ===
@@ -574,96 +457,9 @@ fun ParentSettingsScreen(
         )
     }
 
-    // === 修改密码对话框 ===
-    if (showChangePwd) {
-        var oldPwd by remember { mutableStateOf("") }
-        var newPwd by remember { mutableStateOf("") }
-        var confirmPwd by remember { mutableStateOf("") }
-        var err by remember { mutableStateOf<String?>(null) }
-        var ok by remember { mutableStateOf(false) }
-
-        AlertDialog(
-            onDismissRequest = { showChangePwd = false },
-            title = { Text("修改家长密码") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (ok) Text("密码已修改成功！", color = MaterialTheme.colorScheme.primary)
-                    else {
-                        OutlinedTextField(
-                            value = oldPwd,
-                            onValueChange = { oldPwd = it; err = null },
-                            label = { Text("当前密码") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation()
-                        )
-                        OutlinedTextField(
-                            value = newPwd,
-                            onValueChange = { newPwd = it; err = null },
-                            label = { Text("新密码（6-16位）") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation()
-                        )
-                        OutlinedTextField(
-                            value = confirmPwd,
-                            onValueChange = { confirmPwd = it; err = null },
-                            label = { Text("确认新密码") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation()
-                        )
-                        if (err != null) Text(err!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                    }
-                }
-            },
-            confirmButton = {
-                if (ok) TextButton(onClick = { showChangePwd = false }) { Text("关闭") }
-                else TextButton(onClick = {
-                    when {
-                        oldPwd.isEmpty() || newPwd.isEmpty() -> err = "请填写所有字段"
-                        newPwd != confirmPwd -> err = "两次密码不一致"
-                        !RoleManager.isValidPasswordFormat(newPwd) -> err = "密码格式不正确"
-                        !RoleManager.changeParentPassword(context, oldPwd, newPwd) -> err = "当前密码错误"
-                        else -> ok = true
-                    }
-                }) { Text("确认修改") }
-            },
-            dismissButton = { TextButton(onClick = { showChangePwd = false }) { Text("取消") } }
-        )
-    }
-
-    // === 恢复码展示对话框 ===
-    if (showRecoveryCode && recoveryCode != null) {
-        AlertDialog(
-            onDismissRequest = { showRecoveryCode = false },
-            title = { Text("恢复码") },
-            text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("请妥善保存以下恢复码，用于忘记密码时找回账号。", fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = recoveryCode!!,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.primary,
-                        letterSpacing = 4.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("⚠️ 此恢复码仅显示一次，请立即截图或抄写保存", fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.error)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showRecoveryCode = false }) { Text("我已保存") }
-            }
-        )
-    }
-
-    // === [TASK-PRELAUNCH-PARENT-RESET] 换账号清理确认（家长密码验证，失败不可清除）===
+    // === [TASK-ACCOUNT-V1] 换账号清理确认（云端邮箱+密码验证，离线拒绝）===
     if (showAccountReset) {
+        var resetEmail by remember { mutableStateOf(CloudAccountManager.getBoundEmail(context) ?: "") }
         var resetPassword by remember { mutableStateOf("") }
         var resetError by remember { mutableStateOf<String?>(null) }
         var resetBusy by remember { mutableStateOf(false) }
@@ -675,16 +471,24 @@ fun ParentSettingsScreen(
             text = {
                 Column {
                     if (resetDone) {
-                        Text("已清除登录凭据、绑定关系与本地数据。将返回登录页，请绑定新账号并设置新家长密码。",
+                        Text("已清除登录凭据、绑定关系与本地数据。将返回登录页，请绑定新账号。",
                             fontSize = 14.sp)
                     } else {
-                        Text("此操作将清除：Web 登录凭据、中继绑定、设备注册、公告、策略与使用记录。需验证家长密码，失败不可清除。",
+                        Text("此操作将清除：Web 登录凭据、中继绑定、设备注册、公告、策略与使用记录。需云端验证账号邮箱与密码（离线时无法清除）。",
                             fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedTextField(
+                            value = resetEmail,
+                            onValueChange = { resetEmail = it; resetError = null },
+                            label = { Text("账号邮箱") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
                             value = resetPassword,
                             onValueChange = { resetPassword = it; resetError = null },
-                            label = { Text("家长密码") },
+                            label = { Text("登录密码") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             visualTransformation = PasswordVisualTransformation()
@@ -699,10 +503,11 @@ fun ParentSettingsScreen(
                 } else {
                     TextButton(
                         onClick = {
-                            if (resetPassword.isEmpty()) { resetError = "请输入家长密码"; return@TextButton }
+                            if (!resetEmail.contains("@")) { resetError = "请输入有效的账号邮箱"; return@TextButton }
+                            if (resetPassword.isEmpty()) { resetError = "请输入登录密码"; return@TextButton }
                             resetBusy = true
                             kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
-                                val result = ParentAccountReset.resetAccount(context, resetPassword)
+                                val result = ParentAccountReset.resetAccount(context, resetEmail, resetPassword)
                                 withContext(Dispatchers.Main) {
                                     resetBusy = false
                                     when (result) {
@@ -777,15 +582,6 @@ private fun InfoRow(label: String, value: String) {
 // ==================== 工具函数 ====================
 
 /**
- * 生成 8 位恢复码（需求12）
- */
-private fun generateRecoveryCode(): String {
-    val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  // 避免混淆字符
-    val random = SecureRandom()
-    return (0 until 8).map { chars[random.nextInt(chars.length)] }.joinToString("")
-}
-
-/**
  * 连接 Web 中继服务（需求3）
  *
  * [REQ] 流程修正：先从 Web 获取真实配对码（/api/pairing/generate-code），
@@ -800,15 +596,11 @@ internal suspend fun connectToWebRelay(
     port: Int
 ): Pair<String, String?> {
     android.util.Log.i("WebRelay", "connectToWebRelay start: $host:$port")
-    // 读取已保存的 Web JWT Token（[SEC-P1] KeyStore 加密存储，读取时解密）
-    val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
-    val webToken = prefs.getString(KEY_WEB_TOKEN, null)
-        ?.takeIf { it.isNotBlank() }
-        ?.let { KeyStoreManager.decryptPrefsValue(it) }
-        ?.takeIf { it.isNotBlank() }
+    // [TASK-ACCOUNT-V1] 读取已保存的 Web JWT（KeyStore 加密存储，读取时解密）
+    val webToken = CloudAccountManager.getToken(context)
     if (webToken == null) {
         android.util.Log.w("WebRelay", "web_token 为空")
-        return "请先在「Web 账号」中登录获取 Token" to null
+        return "请先登录 Web 账号获取 Token" to null
     }
     android.util.Log.i("WebRelay", "web_token 存在，长度 ${webToken.length}")
 
@@ -912,61 +704,6 @@ internal suspend fun connectToWebRelay(
 }
 
 /**
- * 登录 Web 3.0 服务获取 JWT Token 并保存到 SharedPreferences
- */
-private suspend fun loginToWeb(context: android.content.Context, host: String, port: Int, username: String, password: String): String {
-    return try {
-        val body = JSONObject().apply {
-            put("username", username)
-            put("password", password)
-        }
-
-        // [SEC-P1] HTTPS 优先（局域网可回退明文），登录凭据不落明文链路
-        val (code, respBody, errBody) = httpPostJson(host, port, "/api/auth/login", body.toString(), null)
-
-        if (code in 200..299) {
-            val json = JSONObject(respBody)
-            val accessToken = json.optString("accessToken", "")
-            if (accessToken.isNotBlank()) {
-                // [SEC-P1] Token 以 KeyStore AES-GCM 加密后落盘（红线 R4.1）
-                val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
-                prefs.edit().putString(KEY_WEB_TOKEN, KeyStoreManager.encryptPrefsValue(accessToken)).apply()
-                "登录成功，Token 已保存"
-            } else {
-                "登录响应缺少 accessToken"
-            }
-        } else if (code == 401) {
-            "登录失败: 用户名或密码错误"
-        } else {
-            "登录失败: HTTP $code $errBody"
-        }
-    } catch (e: Exception) {
-        "登录请求失败: ${e.message}"
-    }
-}
-
-/**
- * [SEC-P1] HTTPS 优先 + 局域网回退的 JSON GET。
- * @return Triple(状态码, 响应体, 错误体)
- */
-private fun httpGetJson(
-    host: String, port: Int, path: String, token: String?
-): Triple<Int, String, String> {
-    return httpWithHttpsFirst(host, port) { base ->
-        val conn = URL("$base$path").openConnection() as HttpURLConnection
-        conn.requestMethod = "GET"
-        if (token != null) conn.setRequestProperty("Authorization", "Bearer $token")
-        conn.connectTimeout = 10000
-        conn.readTimeout = 10000
-        val code = conn.responseCode
-        val resp = if (code in 200..299) conn.inputStream.bufferedReader().readText() else ""
-        val err = if (code in 200..299) ""
-            else try { conn.errorStream?.bufferedReader()?.readText() ?: "" } catch (_: Exception) { "" }
-        Triple(code, resp, err)
-    }
-}
-
-/**
  * [TASK-PRELAUNCH-PARENT-RESET] 新账号绑定后全量拉取公告并覆盖本地表：
  * GET /api/announcements（Bearer 新账号 JWT）→ 先清空 parent_announcements 再插入，
  * 杜绝旧账号公告残留。父端自建策略（parent_policies）属本地创作数据，
@@ -979,11 +716,7 @@ internal suspend fun pullAccountAnnouncements(
     host: String,
     port: Int
 ): String {
-    val prefs = context.getSharedPreferences(WEB_PREFS_NAME, android.content.Context.MODE_PRIVATE)
-    val token = prefs.getString(KEY_WEB_TOKEN, null)
-        ?.takeIf { it.isNotBlank() }
-        ?.let { KeyStoreManager.decryptPrefsValue(it) }
-        ?.takeIf { it.isNotBlank() }
+    val token = CloudAccountManager.getToken(context)
     if (token == null) return "公告同步跳过：未获取到 Token"
 
     return try {

@@ -23,9 +23,10 @@ import com.xiaopacai.child.ui.theme.XiaopacaiTheme
  * 应用唯一 Activity，按角色分流：
  * - UNSET（首次启动）：角色引导页
  * - CHILD（儿童端）：现有 MainScreen 守护界面
- * - PARENT（家长端）：密码登录 → 家长主页
+ * - PARENT（家长端）：云端账号登录 → 家长主页
  *
- * 角色切换需要家长密码校验。
+ * [TASK-ACCOUNT-V1] 家长登录态仅存在于进程会话内（parentLoggedIn 不持久化）：
+ * 每次进入 / 切回 / 重启家长端都必须云端邮箱+密码验证。
  */
 class MainActivity : ComponentActivity() {
 
@@ -56,9 +57,8 @@ class MainActivity : ComponentActivity() {
     private fun AppRoot() {
         var currentRole by remember { mutableStateOf(RoleManager.getCurrentRole(this@MainActivity)) }
         var showParentFlow by remember { mutableStateOf(currentRole == RoleManager.Role.PARENT) }
-        var parentLoggedIn by remember {
-            mutableStateOf(currentRole == RoleManager.Role.PARENT && RoleManager.isParentPasswordSet(this@MainActivity))
-        }
+        // [TASK-ACCOUNT-V1] 登录态仅会话内有效：重启/切回一律重新云端验证
+        var parentLoggedIn by remember { mutableStateOf(false) }
 
         // [FIX] 儿童模式打开应用即拉起守护前台服务（含 SyncManager/采集器），
         // 避免重装/重启后服务不运行导致公告不展示、数据不同步、超时失效
@@ -77,8 +77,7 @@ class MainActivity : ComponentActivity() {
             currentRole = RoleManager.getCurrentRole(this@MainActivity)
             if (currentRole == RoleManager.Role.PARENT) {
                 showParentFlow = true
-                // 检查密码是否已设置
-                parentLoggedIn = RoleManager.isParentPasswordSet(this@MainActivity)
+                parentLoggedIn = false // 云端验证后才可进入家长端
             }
         }
 
@@ -95,8 +94,9 @@ class MainActivity : ComponentActivity() {
             currentRole == RoleManager.Role.PARENT -> {
                 if (parentLoggedIn) {
                     ParentHomeScreen(
-                        onSwitchToChild = { password ->
-                            RoleManager.switchToChild(this@MainActivity, password)
+                        // [TASK-ACCOUNT-V1] 家长主页内已通过 SystemGateDialog 云端验证后才回调
+                        onSwitchToChild = {
+                            RoleManager.setCurrentRole(this@MainActivity, RoleManager.Role.CHILD)
                             currentRole = RoleManager.Role.CHILD
                             showParentFlow = false
                             parentLoggedIn = false
@@ -124,11 +124,11 @@ class MainActivity : ComponentActivity() {
             else -> {
                 MainScreen(
                     onSwitchToParent = {
-                        // [TASK-ROLE-P1] 从儿童端切到家长端：先设角色，密码在登录页校验
+                        // [TASK-ACCOUNT-V1] 从儿童端切到家长端：先设角色，云端验证在登录页完成
                         RoleManager.setCurrentRole(this@MainActivity, RoleManager.Role.PARENT)
                         currentRole = RoleManager.Role.PARENT
                         showParentFlow = true
-                        parentLoggedIn = RoleManager.isParentPasswordSet(this@MainActivity)
+                        parentLoggedIn = false
                     }
                 )
             }

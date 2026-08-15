@@ -17,14 +17,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaopacai.child.data.database.ParentDao
 import com.xiaopacai.child.p2p.ChildDeviceInfo
 import com.xiaopacai.child.p2p.ParentP2PListenerService
-import com.xiaopacai.child.role.RoleManager
+import com.xiaopacai.child.ui.components.SystemGateDialog
 import com.xiaopacai.child.BuildConfig
 import com.xiaopacai.child.ui.scan.QrScannerActivity
 import kotlinx.coroutines.delay
@@ -42,7 +41,8 @@ import java.net.NetworkInterface
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ParentHomeScreen(
-    onSwitchToChild: (String) -> Unit,
+    // [TASK-ACCOUNT-V1] 切回儿童端前已通过 SystemGateDialog 云端验证（无密码参数）
+    onSwitchToChild: () -> Unit,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
@@ -50,8 +50,6 @@ fun ParentHomeScreen(
 
     // 角色切换对话框
     var showSwitchDialog by remember { mutableStateOf(false) }
-    var switchPassword by remember { mutableStateOf("") }
-    var switchError by remember { mutableStateOf<String?>(null) }
 
     // P2P 状态
     var isServiceRunning by remember { mutableStateOf(ParentP2PListenerService.isRunning) }
@@ -282,42 +280,16 @@ fun ParentHomeScreen(
         }
     }
 
-    // 角色切换对话框
+    // [TASK-ACCOUNT-V1] 角色切换对话框：统一云端验证门禁
     if (showSwitchDialog) {
-        AlertDialog(
-            onDismissRequest = { showSwitchDialog = false; switchPassword = ""; switchError = null },
-            title = { Text("切换到儿童端") },
-            text = {
-                Column {
-                    Text("请输入家长密码以切换角色", fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = switchPassword,
-                        onValueChange = { switchPassword = it; switchError = null },
-                        label = { Text("家长密码") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        visualTransformation = PasswordVisualTransformation(),
-                        isError = switchError != null
-                    )
-                    if (switchError != null)
-                        Text(switchError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (switchPassword.isEmpty()) switchError = "请输入密码"
-                    else if (RoleManager.verifyParentPassword(context, switchPassword)) {
-                        showSwitchDialog = false
-                        onSwitchToChild(switchPassword)
-                    } else switchError = "密码错误"
-                }) { Text("确认切换") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSwitchDialog = false; switchPassword = ""; switchError = null }) {
-                    Text("取消")
-                }
+        SystemGateDialog(
+            title = "切换到儿童端",
+            description = "请输入家长账号邮箱与登录密码以切换角色。",
+            confirmText = "验证并切换",
+            onDismiss = { showSwitchDialog = false },
+            onVerified = {
+                showSwitchDialog = false
+                onSwitchToChild()
             }
         )
     }
@@ -939,8 +911,6 @@ private fun catEmoji(c: String) = when(c) { "game"->"🎮"; "social"->"💬"; "v
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 private fun SettingsTab(onLogout: () -> Unit) {
-    val context = LocalContext.current
-    var showChangePwd by remember { mutableStateOf(false) }
     // [TASK-OPT-12-P3] Web 云端中继设置页（ParentSettingsScreen）入口
     var showWebRelay by remember { mutableStateOf(false) }
 
@@ -949,6 +919,11 @@ private fun SettingsTab(onLogout: () -> Unit) {
             onBack = { showWebRelay = false },
             // [TASK-PRELAUNCH-PARENT-RESET] 换账号清理完成 → 返回登录页（新账号绑定状态）
             onAccountReset = {
+                showWebRelay = false
+                onLogout()
+            },
+            // [TASK-ACCOUNT-V1] 退出登录（清除本地账号绑定后回到登录页）
+            onLogout = {
                 showWebRelay = false
                 onLogout()
             }
@@ -962,20 +937,9 @@ private fun SettingsTab(onLogout: () -> Unit) {
                     Icon(Icons.Filled.Cloud, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Web 云端中继", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text("登录 Web 3.0 账号、连接跨网络中继", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("账号与云端设置", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("账号信息、Web 中继、数据管理", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
-                }
-            }
-        }
-
-        item {
-            Card(onClick = { showChangePwd = true }, modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Lock, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) { Text("修改家长密码", fontSize = 14.sp, fontWeight = FontWeight.Medium); Text("修改后需重新验证", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
                 }
             }
@@ -1010,52 +974,6 @@ private fun SettingsTab(onLogout: () -> Unit) {
         }
     }
 
-    if (showChangePwd) {
-        var oldPwd by remember { mutableStateOf("") }; var newPwd by remember { mutableStateOf("") }
-        var confirmPwd by remember { mutableStateOf("") }; var err by remember { mutableStateOf<String?>(null) }
-        var ok by remember { mutableStateOf(false) }
-
-        AlertDialog(
-            onDismissRequest = { showChangePwd = false },
-            title = { Text("修改家长密码") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (ok) Text("密码已修改成功！", color = MaterialTheme.colorScheme.primary)
-                    else {
-                        OutlinedTextField(
-                            value = oldPwd, onValueChange = { oldPwd = it; err = null },
-                            modifier = Modifier.fillMaxWidth(), label = { Text("当前密码") },
-                            singleLine = true, visualTransformation = PasswordVisualTransformation()
-                        )
-                        OutlinedTextField(
-                            value = newPwd, onValueChange = { newPwd = it; err = null },
-                            modifier = Modifier.fillMaxWidth(), label = { Text("新密码（6-16位）") },
-                            singleLine = true, visualTransformation = PasswordVisualTransformation()
-                        )
-                        OutlinedTextField(
-                            value = confirmPwd, onValueChange = { confirmPwd = it; err = null },
-                            modifier = Modifier.fillMaxWidth(), label = { Text("确认新密码") },
-                            singleLine = true, visualTransformation = PasswordVisualTransformation()
-                        )
-                        if (err != null) Text(err!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                    }
-                }
-            },
-            confirmButton = {
-                if (ok) TextButton(onClick = { showChangePwd = false }) { Text("关闭") }
-                else TextButton(onClick = {
-                    when {
-                        oldPwd.isEmpty() || newPwd.isEmpty() -> err = "请填写所有字段"
-                        newPwd != confirmPwd -> err = "两次密码不一致"
-                        !RoleManager.isValidPasswordFormat(newPwd) -> err = "密码格式不正确"
-                        !RoleManager.changeParentPassword(context, oldPwd, newPwd) -> err = "当前密码错误"
-                        else -> ok = true
-                    }
-                }) { Text("确认修改") }
-            },
-            dismissButton = { TextButton(onClick = { showChangePwd = false }) { Text("取消") } }
-        )
-    }
 }
 
 private fun formatLastSeen(ts: Long): String {
