@@ -301,6 +301,15 @@ fun PermissionGuideScreen(
             onRequestPermission = { openAutoStartSettings(context) }
         )
 
+        // [TASK-HARDENING-V1.1.1] Bug1-B：OPPO/ColorOS 保活四项检测引导
+        // （自启动/后台冻结/电池白名单/最近任务锁定）。
+        // 系统不提供这四项的公开检测接口 → 如实标注「引导项」，状态以引导为准，
+        // 家长端健康度与 Web 端同步展示为引导说明，不伪造检测结果。
+        if (isColorOs(context)) {
+            Spacer(modifier = Modifier.height(12.dp))
+            ColorOsKeepAliveGuide(context = context, batteryGranted = batteryGranted)
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
         Card(
             colors = CardDefaults.cardColors(
@@ -484,4 +493,105 @@ private fun isAutoStartGranted(context: android.content.Context): Boolean {
     // 非国产 ROM：视为无需自启动授权
     // 国产 ROM：无法可靠查询自启动开关，保守显示未授权，引导用户去厂商设置
     return brands.none { manufacturer.contains(it) }
+}
+
+/** 是否 OPPO/一加/真我 ColorOS（用于保活四项引导展示） */
+private fun isColorOs(context: android.content.Context): Boolean {
+    val manufacturer = Build.MANUFACTURER?.lowercase() ?: ""
+    if (listOf("oppo", "oneplus", "realme").any { manufacturer.contains(it) }) return true
+    return try {
+        context.packageManager.getPackageInfo("com.coloros.safecenter", 0) != null
+    } catch (e: Exception) {
+        false
+    }
+}
+
+/**
+ * [TASK-HARDENING-V1.1.1] Bug1-B：ColorOS 保活四项引导卡片
+ * （自启动 / 后台冻结 / 电池白名单 / 最近任务锁定）
+ */
+@Composable
+private fun ColorOsKeepAliveGuide(context: android.content.Context, batteryGranted: Boolean) {
+    var showRecentsDialog by remember { mutableStateOf(false) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Security, null, Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.tertiary)
+                Spacer(Modifier.width(8.dp))
+                Text("ColorOS 保活增强（OPPO/一加/真我）", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(4.dp))
+            Text("检测到 ColorOS 系统。以下 4 项对守护保活至关重要；系统不提供检测接口，" +
+                "状态以引导为准（家长端/Web 健康度同步展示为引导项）。",
+                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
+            KeepAliveRow("自启动管理", "允许小趴菜开机/后台自启动", "去设置") {
+                openAutoStartSettings(context)
+            }
+            KeepAliveRow("后台冻结/耗电管理", "将小趴菜设为「允许完全后台行为」，取消后台冻结", "去设置") {
+                openColorOsBatterySettings(context)
+            }
+            KeepAliveRow(
+                if (batteryGranted) "电池白名单（已授权 ✓）" else "电池白名单",
+                "允许小趴菜忽略电池优化，防止省电策略杀后台",
+                if (batteryGranted) "已开启" else "去开启"
+            ) {
+                if (!batteryGranted) requestBatteryOptimization(context)
+            }
+            KeepAliveRow("最近任务锁定", "在最近任务中锁定小趴菜，防止上滑误杀（无设置页）", "查看步骤") {
+                showRecentsDialog = true
+            }
+        }
+    }
+    if (showRecentsDialog) {
+        AlertDialog(
+            onDismissRequest = { showRecentsDialog = false },
+            confirmButton = {
+                TextButton(onClick = { showRecentsDialog = false }) { Text("知道了") }
+            },
+            title = { Text("最近任务锁定步骤") },
+            text = {
+                Text("1. 打开最近任务界面（屏幕底部上滑并停顿，或点导航键 ▢）；\n" +
+                    "2. 找到「小趴菜」卡片，点卡片右上角「···」菜单（或长按卡片）；\n" +
+                    "3. 选择「锁定」，卡片出现锁图标即成功。")
+            }
+        )
+    }
+}
+
+/** ColorOS 保活引导行 */
+@Composable
+private fun KeepAliveRow(title: String, desc: String, buttonText: String, onAction: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(desc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        TextButton(onClick = onAction) { Text(buttonText, fontSize = 12.sp) }
+    }
+}
+
+/** 打开 ColorOS 耗电管理/后台冻结设置：已知组件逐个尝试，兜底应用详情页 */
+private fun openColorOsBatterySettings(context: android.content.Context) {
+    val targets = listOf(
+        "com.oplus.battery" to "com.oplus.powermanager.fuelgaue.PowerUsageModelActivity",
+        "com.coloros.safecenter" to "com.coloros.safecenter.powerui.BatterySettingActivity",
+    )
+    for ((pkg, act) in targets) {
+        try {
+            context.startActivity(Intent().apply {
+                setClassName(pkg, act)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+            return
+        } catch (e: Exception) {
+            // 尝试下一个组件
+        }
+    }
+    // 兜底：应用详情页（用户手动进入电池设置关闭小趴菜的后台冻结）
+    openPermissionSettings(context, appDetailsIntent(context)) { appDetailsIntent(context) }
 }
