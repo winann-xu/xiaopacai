@@ -73,6 +73,8 @@ object DiagnosticsCollector {
             try {
                 val stackTrace = Log.getStackTraceString(throwable)
                 recordCrash(context, stackTrace)
+                // [TASK-MILESTONE-V3] 需求 14：崩溃堆栈同步写入日志环形缓冲（脱敏 + 落盘）
+                com.xiaopacai.child.util.AppLog.eCrash("Crash", stackTrace)
                 Log.e(TAG, "捕获崩溃: ${throwable.message}")
             } catch (_: Exception) {
             }

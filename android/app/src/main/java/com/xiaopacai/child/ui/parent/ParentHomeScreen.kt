@@ -1193,6 +1193,8 @@ private fun SettingsTab(onLogout: () -> Unit) {
     var showWebRelay by remember { mutableStateOf(false) }
     // [TASK-MILESTONE-V3] 需求 7：关于对话框（双端统一组件）
     var showAboutDialog by remember { mutableStateOf(false) }
+    // [TASK-MILESTONE-V3] 需求 14：运行日志页（查看/复制/清空/上传）
+    var showLogScreen by remember { mutableStateOf(false) }
 
     if (showWebRelay) {
         ParentSettingsScreen(
@@ -1208,6 +1210,9 @@ private fun SettingsTab(onLogout: () -> Unit) {
                 onLogout()
             }
         )
+    } else if (showLogScreen) {
+        // [TASK-MILESTONE-V3] 需求 14：运行日志页
+        ParentLogScreen(onBack = { showLogScreen = false })
     } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { Text("设置", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp)) }
 
@@ -1231,6 +1236,21 @@ private fun SettingsTab(onLogout: () -> Unit) {
                     Icon(Icons.Filled.Security, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) { Text("安全信息", fontSize = 14.sp, fontWeight = FontWeight.Medium); Text("SQLCipher AES-256 加密 · 本地存储", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+        }
+
+        item {
+            // [TASK-MILESTONE-V3] 需求 14：运行日志菜单（查看/复制/清空/上传云端）
+            Card(onClick = { showLogScreen = true }, modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Description, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("日志", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("本机运行日志 · 自动上传 Web（已脱敏）", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
                 }
             }
         }

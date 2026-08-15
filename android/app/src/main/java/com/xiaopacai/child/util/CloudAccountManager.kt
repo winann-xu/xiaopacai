@@ -137,6 +137,8 @@ object CloudAccountManager {
             loginClient.postLogin(host, port, email.trim(), password)
         } catch (e: Exception) {
             Log.w(TAG, "云端验证网络异常: ${e.message}")
+            // [TASK-MILESTONE-V3] 需求 14：登录过程进运行日志（脱敏，不含密码明文）
+            AppLog.w("Account", "云端验证网络异常: ${e.message}")
             // [TASK-MILESTONE-V3] 132 信需求 2：失败文案细分
             return LoginResult.Failed(loginNetworkErrorMessage(context, e))
         }
@@ -161,10 +163,17 @@ object CloudAccountManager {
                     .putString(KEY_ACCOUNT_ROLE, role)
                     .apply()
                 Log.i(TAG, "云端验证成功: $normalized (role=$role)")
+                AppLog.i("Account", "云端登录成功 $normalized (role=$role)")
                 LoginResult.Success(normalized)
             }
-            code == 401 -> LoginResult.Failed("邮箱或密码错误")
-            else -> LoginResult.Failed("登录失败: HTTP $code ${errBody.take(80)}")
+            code == 401 -> {
+                AppLog.w("Account", "云端登录失败: 邮箱或密码错误")
+                LoginResult.Failed("邮箱或密码错误")
+            }
+            else -> {
+                AppLog.w("Account", "云端登录失败: HTTP $code")
+                LoginResult.Failed("登录失败: HTTP $code ${errBody.take(80)}")
+            }
         }
     }
 

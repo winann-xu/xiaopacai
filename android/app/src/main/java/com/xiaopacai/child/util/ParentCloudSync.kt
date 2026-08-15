@@ -121,6 +121,7 @@ object ParentCloudSync {
                 code in 200..299 -> {
                     val devices = JSONObject(body).optJSONArray("devices") ?: JSONArray()
                     prefs(context).edit().putString(CACHE_DEVICES, devices.toString()).apply()
+                    AppLog.i(TAG, "设备列表已同步: ${devices.length()} 台")
                     Result.Ok(devices)
                 }
                 code == 401 -> Result.Err(false, "登录已过期，请重新登录")
@@ -204,6 +205,7 @@ object ParentCloudSync {
                         prefs(context).edit()
                             .putString(CACHE_POLICY_PREFIX + serverDeviceId, saved.toString())
                             .apply()
+                        AppLog.i(TAG, "策略已保存: deviceId=$serverDeviceId v${saved.optInt("version")}")
                         PolicySaveResult.Saved(saved, respJson.optBoolean("pushed", false))
                     }
                     code == 409 -> {
@@ -213,6 +215,7 @@ object ParentCloudSync {
                             policy
                         }
                         Log.w(TAG, "策略并发冲突: deviceId=$serverDeviceId, serverVersion=${serverPolicy.optInt("version")}")
+                        AppLog.w(TAG, "策略并发冲突 deviceId=$serverDeviceId，采纳服务端 v${serverPolicy.optInt("version")}")
                         PolicySaveResult.Conflict(serverPolicy)
                     }
                     code == 401 -> PolicySaveResult.Failed(false, "登录已过期，请重新登录")
@@ -240,6 +243,7 @@ object ParentCloudSync {
                     val count = ParentDao.replaceAllAnnouncements(context, arr)
                     prefs(context).edit().putLong(CACHE_ANN_SYNC_AT, System.currentTimeMillis()).apply()
                     Log.i(TAG, "公告已同步：$count 条")
+                    AppLog.i(TAG, "公告已同步: $count 条")
                     Result.Ok(arr)
                 }
                 code == 401 -> Result.Err(false, "登录已过期，请重新登录")
