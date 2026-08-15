@@ -1,6 +1,6 @@
 # 小趴菜系统 · 管理员运维手册
 
-> 版本：V1.1 ｜ 更新日期：2026-08-15 ｜ 适用：阿里云公网生产 + 本机预发布（50.11）
+> 版本：V1.2 ｜ 更新日期：2026-08-15 ｜ 适用：阿里云公网生产 + 本机预发布（50.11）
 > 维护约定：**每次系统升级/部署后必须同步更新本文档**（版本号 + 变更记录 + 相关命令/路径变化）。
 > 凭据策略：本文档不写任何明文密码/密钥；需要时从 `/etc/xiaopacai-web.env`（服务器）或
 > `C:/Users/winann/.codex/skills/xiaopacai-collab/references/current-state.md`（本地技能库）读取。
@@ -13,6 +13,7 @@
 |---|---|---|---|
 | V1.0 | 2026-08-15 | 初版：架构/日常运维/升级/备份/安全/排障/巡检/监控 | Codex |
 | V1.1 | 2026-08-15 | 公网域名 `xpc.winann.com` + HTTPS 反代（nginx）已启用；邮箱验证已启用；管理端邮件配置；管理员引导创建说明 | Codex |
+| V1.2 | 2026-08-15 | v1.1.1 加固版：守护健康度/失守事件运维（guard_events）、日志表修复运维（app_logs）、下载中心 1.1.1、系统说明书归档 | Codex |
 
 > 后续每次发版，在“第九章 附录 B”追加记录，并同步修订正文。
 
@@ -139,7 +140,8 @@ curl -sI https://xpc.winann.com/downloads/<最新 Release APK 文件名>   # 期
 ```
 
 > 当前 APK 为 ABI 拆分（arm64-v8a / armeabi-v7a / x86_64）的 Release 签名包（旧 debug 已删除）；
-> 下载中心文件名与页面引用必须一致。
+> 下载中心文件名与页面引用必须一致；当前线上版本 v1.1.1（versionName 1.1.1 / versionCode 10101），
+> 旧 1.1.0 安装包已移除，如需回退用备份 `/opt/xiaopacai/app.bak-20260815-225329` 内的下载文件。
 
 ### 2.7 公告 / 策略推送验证
 
@@ -176,6 +178,20 @@ sqlite3 $DB "SELECT Id,Action,TargetType,TargetId,CreatedAt FROM audit_logs ORDE
 - 审计关键字：`email_code_sent` / `email_code_send_failed` / `email_code_rate_limited` / `email_code_unconfigured` / `mail_config_update` / `mail_config_test`。
 - 常见故障：收不到验证码 → 先查审计 `email_code_send_failed` 与邮件通道配置；再查垃圾箱/发信限额；最后 `POST /api/admin/mail-config/test` 验证通道。
 
+### 2.10 守护健康度与失守事件（v1.1.1 新增）
+
+儿童端守护状态（无障碍/使用情况访问/设备管理员/通知/前台服务/电量优化）会形成健康度快照并上报：
+
+| 接口 | 说明 |
+|---|---|
+| `POST /api/guard-events` | 儿童端批量上报失守/恢复事件与健康度快照（账号隔离，限频） |
+| `GET  /api/guard-events?deviceId=&limit=` | 查询失守历史（本账号设备；admin 可全量过滤） |
+| `GET  /api/guard-events/health?deviceId=` | 查询最新健康度快照（score/100 + 6 项权限状态） |
+
+- 数据表：`guard_events`（显式 ToTable，与 DDL 同名）；7 天保留策略同 `app_logs`。
+- Web 设备管理页会展示守护健康度徽标与详情；家长端“守护状态”页展示 score 与失守历史。
+- 运维巡检：失守事件应能解释（上滑/强杀/OEM 清理/权限被关）；若频繁失守，按 2.10 引导家长开启 OPPO 保活四项（自启动/后台冻结/电池白名单/最近任务锁定），并确认“设置-强制停止”按钮对设备管理器应用应处于禁用态。
+
 ---
 
 ## 第三章 发布与升级流程（标准操作）
@@ -197,6 +213,8 @@ cd C:\Users\Public\bridge\work\xiaopacai\android; .\gradlew.bat testDebugUnitTes
 C:\dotnet\dotnet build C:\Users\Public\bridge\work\xiaopacai\windows\XiaopacaiParent\XiaopacaiParent.csproj -c Release
 C:\dotnet\dotnet test  C:\Users\Public\bridge\work\xiaopacai\tests\XiaopacaiParent.Tests\XiaopacaiParent.Tests.csproj -c Release
 ```
+
+> 当前基线（v1.1.1）：Web 303/303、Android 154/154、Windows 15/15、npm build 通过。
 
 ### 3.2 打包与上传
 
@@ -234,6 +252,8 @@ curl -s http://127.0.0.1:5000/api/health
 - [ ] 发布一条测试公告，儿童端 ≤5s 收到
 - [ ] 保存策略（限额/就寝），儿童端日志出现 `policy_update`
 - [ ] 下载中心 APK 返回 200
+- [ ] `GET /api/logs` 返回 200（v1.1.1 起修复；此前实体未映射 `app_logs` 表会 500）
+- [ ] `GET /api/guard-events` 返回 200；设备页健康度展示与真机一致
 - [ ] 无新报错日志（journalctl 关键字 Exception/Failed）
 
 ### 3.6 回滚
@@ -469,6 +489,7 @@ sqlite3 $DB "SELECT CreatedAt,UserId,Action,Detail FROM audit_logs ORDER BY Id D
 |---|---|---|---|---|
 | 2026-08-15 | 3.0.0-p2 | V1.0 | 初版手册 | Codex |
 | 2026-08-15 | 3.0.0-p2 | V1.1 | 域名 xpc.winann.com + HTTPS 反代、邮箱验证与邮件配置运维 | Codex |
+| 2026-08-15 | v1.1.1 | V1.2 | 四项 P0 加固上线（上滑失效/倒计时/日志 500/权限丢失）；guard_events 与健康度运维；下载中心 1.1.1；系统说明书 SYSTEM_MANUAL.md | Codex |
 
 ### C. 待办安全/运维项
 
@@ -476,7 +497,7 @@ sqlite3 $DB "SELECT CreatedAt,UserId,Action,Detail FROM audit_logs ORDER BY Id D
 - [x] HTTP 80 → 301 跳转 HTTPS（2026-08-15 已生效）
 - [ ] 生产 5000 端口收敛（仅 nginx 本机来源）
 - [ ] 生产数据库加密（R6.2）
-- [ ] SEC-K3 限速自锁修复与复测
+- [x] SEC-K3 限速自锁修复与复测（2026-08-15 已上线）
 - [ ] 生产 P2P 端口来源白名单
 - [ ] 监控告警落地（探针/磁盘/审计）
 - [ ] 备份加密与异机存储落地

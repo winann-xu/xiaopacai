@@ -14,6 +14,11 @@
 - **P2P 直连**：家庭局域网内家长端与儿童端直连，数据不上云
 - **数据安全**：两端 SQLCipher 加密存储，TLS 1.3 双向认证传输
 
+## 📚 文档
+
+- 系统说明书（图文并茂）：[xiaopacai-web/docs/SYSTEM_MANUAL.md](https://github.com/winann-xu/xiaopacai-web/blob/master/docs/SYSTEM_MANUAL.md)
+- 管理员运维手册：[docs/ADMIN_OPS_MANUAL.md](docs/ADMIN_OPS_MANUAL.md)
+
 ## 🏗️ 架构概览
 
 ```
