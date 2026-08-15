@@ -27,6 +27,7 @@ object CloudAccountManager {
     const val KEY_ACCOUNT_EMAIL = "account_email"
     const val KEY_WEB_HOST = "web_host"
     const val KEY_WEB_PORT = "web_port"
+    const val KEY_ALLOW_HTTP = "allow_http"
 
     /** 网络登录客户端（可注入替换，便于单元测试网络失败路径） */
     var loginClient: CloudLoginClient = HttpCloudLoginClient
@@ -79,6 +80,19 @@ object CloudAccountManager {
         prefs(context).getInt(KEY_WEB_PORT, 5000)
 
     /**
+     * [TASK-ACCOUNT-V1-HOTFIX] 测试期允许公网 HTTP 开关（服务器尚未启用 HTTPS 时使用）。
+     * 默认关闭；开启后进程内所有云端 HTTP 请求对公网地址也允许 http 回退。
+     */
+    fun saveAllowHttp(context: Context, allow: Boolean) {
+        prefs(context).edit().putBoolean(KEY_ALLOW_HTTP, allow).apply()
+        com.xiaopacai.child.util.allowHttpOverride = allow
+        Log.i(TAG, "测试期允许 HTTP: $allow")
+    }
+
+    fun getAllowHttp(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ALLOW_HTTP, false)
+
+    /**
      * 已绑定账号邮箱（仅保存邮箱，密码永不落盘）
      */
     fun getBoundEmail(context: Context): String? =
@@ -118,6 +132,8 @@ object CloudAccountManager {
             return LoginResult.Failed("尚未配置家长端服务器地址，请先在家长端登录页填写服务器地址")
         }
         val port = getServerPort(context)
+        // [TASK-ACCOUNT-V1-HOTFIX] 进程内同步测试期 HTTP 开关（App 重启后仍生效）
+        com.xiaopacai.child.util.allowHttpOverride = getAllowHttp(context)
 
         val (code, respBody, errBody) = try {
             loginClient.postLogin(host, port, email.trim(), password)

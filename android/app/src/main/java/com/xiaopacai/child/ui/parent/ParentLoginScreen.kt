@@ -49,6 +49,7 @@ fun ParentLoginScreen(
     // 账号输入（预填已绑定邮箱）
     var email by remember { mutableStateOf(CloudAccountManager.getBoundEmail(context) ?: "") }
     var password by remember { mutableStateOf("") }
+    var allowHttp by remember { mutableStateOf(CloudAccountManager.getAllowHttp(context)) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var passwordVisible by remember { mutableStateOf(false) }
     var isProcessing by remember { mutableStateOf(false) }
@@ -134,6 +135,27 @@ fun ParentLoginScreen(
             )
             Spacer(modifier = Modifier.height(16.dp))
 
+            // [TASK-ACCOUNT-V1-HOTFIX] 测试期允许 HTTP（服务器未启用 HTTPS 时显式开启）
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Switch(
+                    checked = allowHttp,
+                    onCheckedChange = { allowHttp = it }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("测试期允许 HTTP", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        "服务器未启用 HTTPS 时勾选（明文传输，生产应配置 HTTPS）",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
             // 账号邮箱
             OutlinedTextField(
                 value = email,
@@ -207,6 +229,7 @@ fun ParentLoginScreen(
                         }
                         else -> {
                             // 持久化服务器地址（供后续门禁验证使用）
+                            CloudAccountManager.saveAllowHttp(context, allowHttp)
                             CloudAccountManager.saveServerBase(context, serverHost.trim(), serverPort)
                             GlobalScope.launch(Dispatchers.IO) {
                                 val result = CloudAccountManager.login(context, email, password)

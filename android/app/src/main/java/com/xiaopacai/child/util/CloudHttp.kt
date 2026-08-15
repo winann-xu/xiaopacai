@@ -33,10 +33,14 @@ internal fun isLanHost(host: String): Boolean {
  * - 先尝试 https；
  * - 仅当主机是局域网地址且失败原因为 SSL 握手失败（对端为明文 HTTP 服务）时，
  *   回退到 http 重试一次（其他异常不回退，避免 POST 重复提交）；
- * - 公网主机仅 https。
+ * - 公网主机仅 https；测试期家长端显式开启 allowHttpOverride 后允许回退 http
+ *   （服务器尚未启用 HTTPS 时的过渡开关，生产应配置 HTTPS 后关闭）。
  */
+/** [TASK-ACCOUNT-V1-HOTFIX] 测试期允许公网 HTTP（由家长端登录页开关写入，进程内生效） */
+internal var allowHttpOverride: Boolean = false
+
 internal fun <T> httpWithHttpsFirst(host: String, port: Int, block: (base: String) -> T): T {
-    val candidates = if (isLanHost(host))
+    val candidates = if (isLanHost(host) || allowHttpOverride)
         listOf("https://$host:$port", "http://$host:$port")
     else
         listOf("https://$host:$port")
