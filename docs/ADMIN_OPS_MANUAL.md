@@ -58,7 +58,7 @@ systemd 服务：`xiaopacai-web`。
 
 | 端口 | 用途 | 公网暴露 | 备注 |
 |---|---|---|---|
-| 443/80 | HTTPS/HTTP（nginx 反代） | 是 | 已启用 `xpc.winann.com`；HTTP 80 当前返回 200，建议改为 301 跳转 HTTPS |
+| 443/80 | HTTPS/HTTP（nginx 反代） | 是 | 已启用 `xpc.winann.com`；HTTP 80 已 301 跳转 HTTPS |
 | 5000 | Web/API（Kestrel 直连） | 当前是 | 建议安全组收敛为仅 nginx 本机来源（127.0.0.1） |
 | 9527 | P2P TLS | 当前是 | 建议后续按来源白名单收敛 |
 
@@ -324,7 +324,7 @@ sudo ls -l /opt/xiaopacai/app/Data/certs/
 ### 5.3 网络安全
 
 - **HTTPS/反代已启用**：`xpc.winann.com` 经 nginx/1.24 反代到 `127.0.0.1:5000`，HSTS 已开启（30 天）。
-- 建议后续：HTTP 80 → 301 跳转 HTTPS；阿里云安全组将 5000 收敛为仅 nginx 本机来源、9527 按来源白名单。
+- 已生效：HTTP 80 → 301 跳转 HTTPS。建议后续：阿里云安全组将 5000 收敛为仅 nginx 本机来源、9527 按来源白名单。
 - 服务器本机：`sudo ufw status`；仅开放必要端口；禁 root 远程登录建议。
 
 ### 5.4 P2P 安全
@@ -473,7 +473,7 @@ sqlite3 $DB "SELECT CreatedAt,UserId,Action,Detail FROM audit_logs ORDER BY Id D
 ### C. 待办安全/运维项
 
 - [x] HTTPS + 域名 `xpc.winann.com`（R3.1，2026-08-15 已启用）
-- [ ] HTTP 80 → 301 跳转 HTTPS
+- [x] HTTP 80 → 301 跳转 HTTPS（2026-08-15 已生效）
 - [ ] 生产 5000 端口收敛（仅 nginx 本机来源）
 - [ ] 生产数据库加密（R6.2）
 - [ ] SEC-K3 限速自锁修复与复测
