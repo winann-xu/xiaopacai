@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaopacai.child.util.CloudAccountManager
+import com.xiaopacai.child.util.ParentAccountReset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -61,6 +62,35 @@ fun ParentLoginScreen(
     var isProcessing by remember { mutableStateOf(false) }
 
     val isBound = remember { CloudAccountManager.isBound(context) }
+
+    // [TASK-MILESTONE-V3] 需求 3：登录新账号检测到旧账号残留时的确认（旧账号密码验证后清除）
+    var showOldAccountDialog by remember { mutableStateOf(false) }
+    var oldEmailInput by remember { mutableStateOf("") }
+    var oldPassword by remember { mutableStateOf("") }
+    var oldDialogError by remember { mutableStateOf<String?>(null) }
+    var oldDialogBusy by remember { mutableStateOf(false) }
+
+    /** 云端登录（登录成功后进入家长端） */
+    fun doCloudLogin() {
+        // 持久化服务器地址（供后续门禁验证使用）
+        CloudAccountManager.saveServerBase(context, serverHost.trim(), serverPort)
+        isProcessing = true
+        errorMessage = null
+        GlobalScope.launch(Dispatchers.IO) {
+            val result = CloudAccountManager.login(context, email, password)
+            withContext(Dispatchers.Main) {
+                isProcessing = false
+                when (result) {
+                    is CloudAccountManager.LoginResult.Success -> {
+                        password = ""
+                        onLoginSuccess()
+                    }
+                    is CloudAccountManager.LoginResult.Failed ->
+                        errorMessage = result.reason
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -216,21 +246,16 @@ fun ParentLoginScreen(
                             isProcessing = false
                         }
                         else -> {
-                            // 持久化服务器地址（供后续门禁验证使用）
-                            CloudAccountManager.saveServerBase(context, serverHost.trim(), serverPort)
-                            GlobalScope.launch(Dispatchers.IO) {
-                                val result = CloudAccountManager.login(context, email, password)
-                                withContext(Dispatchers.Main) {
-                                    isProcessing = false
-                                    when (result) {
-                                        is CloudAccountManager.LoginResult.Success -> {
-                                            password = ""
-                                            onLoginSuccess()
-                                        }
-                                        is CloudAccountManager.LoginResult.Failed ->
-                                            errorMessage = result.reason
-                                    }
-                                }
+                            // [TASK-MILESTONE-V3] 需求 3：检测旧账号残留（旧邮箱与本次登录账号不同）
+                            val newEmail = email.trim().lowercase()
+                            val boundEmail = CloudAccountManager.getBoundEmail(context)?.lowercase()
+                            if (boundEmail != null && boundEmail != newEmail) {
+                                oldEmailInput = boundEmail
+                                oldPassword = ""
+                                oldDialogError = null
+                                showOldAccountDialog = true
+                            } else {
+                                doCloudLogin()
                             }
                         }
                     }
@@ -267,5 +292,83 @@ fun ParentLoginScreen(
                 Text("返回儿童端")
             }
         }
+    }
+
+    // [TASK-MILESTONE-V3] 需求 3：检测到旧账号数据，确认后才清除并继续登录新账号
+    if (showOldAccountDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!oldDialogBusy) showOldAccountDialog = false },
+            title = { Text("检测到旧账号数据") },
+            text = {
+                Column {
+                    Text(
+                        "本机已绑定旧账号「$oldEmailInput」，本次登录的新账号与它不同。\n\n" +
+                            "继续将清除旧账号数据并绑定新账号，清除范围：\n" +
+                            "• 公告、策略、应用分类、使用记录与报告缓存\n" +
+                            "• Web 登录凭据（令牌/邮箱）\n" +
+                            "• 中继连接配置\n" +
+                            "• 本机设备身份（重新生成，旧账号服务器端本机设备记录将同步解绑）\n\n" +
+                            "服务器地址配置保留。需旧账号密码验证后继续。",
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = oldEmailInput,
+                        onValueChange = { oldEmailInput = it; oldDialogError = null },
+                        label = { Text("旧账号邮箱") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = oldPassword,
+                        onValueChange = { oldPassword = it; oldDialogError = null },
+                        label = { Text("旧账号密码") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+                    if (oldDialogError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(oldDialogError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (!oldEmailInput.contains("@")) { oldDialogError = "请输入有效的旧账号邮箱"; return@TextButton }
+                        if (oldPassword.isEmpty()) { oldDialogError = "请输入旧账号密码"; return@TextButton }
+                        oldDialogBusy = true
+                        oldDialogError = null
+                        GlobalScope.launch(Dispatchers.IO) {
+                            // 旧账号密码验证 + 服务端本机解绑 + 本地全清（ParentAccountReset 内部把关）
+                            val reset = ParentAccountReset.resetAccount(context, oldEmailInput, oldPassword)
+                            withContext(Dispatchers.Main) {
+                                when (reset) {
+                                    is ParentAccountReset.ResetResult.Success -> {
+                                        // 清除成功后继续登录新账号
+                                        showOldAccountDialog = false
+                                        doCloudLogin()
+                                    }
+                                    is ParentAccountReset.ResetResult.Failed -> {
+                                        oldDialogBusy = false
+                                        oldDialogError = reset.reason
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    enabled = !oldDialogBusy,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text(if (oldDialogBusy) "验证并清除中…" else "验证并清除，继续登录") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOldAccountDialog = false }, enabled = !oldDialogBusy) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }

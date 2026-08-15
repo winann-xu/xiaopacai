@@ -108,6 +108,30 @@ internal fun httpPostJson(
 }
 
 /**
+ * [TASK-MILESTONE-V3] 需求 4：解绑/换绑服务端清理用 DELETE。
+ * 可携带额外请求头（X-Action-Token：POST /api/auth/verify-password 签发的一次性操作令牌）。
+ * @return Triple(状态码, 响应体, 错误体)
+ */
+internal fun httpDeleteJson(
+    host: String, port: Int, path: String, token: String?,
+    extraHeaders: Map<String, String> = emptyMap()
+): Triple<Int, String, String> {
+    return httpWithHttpsFirst(host, port) { base ->
+        val conn = URL("$base$path").openConnection() as HttpURLConnection
+        conn.requestMethod = "DELETE"
+        if (token != null) conn.setRequestProperty("Authorization", "Bearer $token")
+        extraHeaders.forEach { (k, v) -> conn.setRequestProperty(k, v) }
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+        val code = conn.responseCode
+        val resp = if (code in 200..299) conn.inputStream.bufferedReader().readText() else ""
+        val err = if (code in 200..299) ""
+            else try { conn.errorStream?.bufferedReader()?.readText() ?: "" } catch (_: Exception) { "" }
+        Triple(code, resp, err)
+    }
+}
+
+/**
  * [SEC-P1] HTTPS 优先 + 局域网回退的 JSON GET。
  * @return Triple(状态码, 响应体, 错误体)
  */

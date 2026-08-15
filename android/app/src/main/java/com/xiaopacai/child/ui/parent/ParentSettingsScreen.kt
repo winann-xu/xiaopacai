@@ -506,6 +506,8 @@ fun ParentSettingsScreen(
         var resetError by remember { mutableStateOf<String?>(null) }
         var resetBusy by remember { mutableStateOf(false) }
         var resetDone by remember { mutableStateOf(false) }
+        // [TASK-MILESTONE-V3] 需求 4：清除后三处核对结果（数据库/配置文件/UI 回到未绑定）
+        var resetVerified by remember { mutableStateOf<List<String>>(emptyList()) }
 
         AlertDialog(
             onDismissRequest = { if (!resetBusy && !resetDone) showAccountReset = false },
@@ -513,10 +515,17 @@ fun ParentSettingsScreen(
             text = {
                 Column {
                     if (resetDone) {
-                        Text("已清除登录凭据、绑定关系与本地数据。将返回登录页，请绑定新账号。",
-                            fontSize = 14.sp)
+                        Text("已清除旧账号数据并完成三处核对：", fontSize = 14.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        resetVerified.forEach { v ->
+                            Text(v, fontSize = 12.sp,
+                                color = if (v.startsWith("✗")) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("将返回登录页，请绑定新账号。", fontSize = 14.sp)
                     } else {
-                        Text("此操作将清除：Web 登录凭据、中继绑定、设备注册、公告、策略与使用记录。需云端验证账号邮箱与密码（离线时无法清除）。",
+                        Text("此操作将清除旧账号的全部数据：公告、策略、应用分类、使用记录与报告缓存、Web 登录凭据、中继配置；本机设备身份将重置（重绑生成全新身份），旧账号服务器端本机设备记录同步解绑。服务器地址配置保留。需旧账号邮箱与密码验证（离线时无法清除）。",
                             fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedTextField(
@@ -553,7 +562,10 @@ fun ParentSettingsScreen(
                                 withContext(Dispatchers.Main) {
                                     resetBusy = false
                                     when (result) {
-                                        is ParentAccountReset.ResetResult.Success -> resetDone = true
+                                        is ParentAccountReset.ResetResult.Success -> {
+                                            resetVerified = result.verified
+                                            resetDone = true
+                                        }
                                         is ParentAccountReset.ResetResult.Failed -> resetError = result.reason
                                     }
                                 }
