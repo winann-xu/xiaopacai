@@ -1,7 +1,9 @@
 package com.xiaopacai.child.ui.parent
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -17,15 +19,19 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xiaopacai.child.role.RoleManager
+import com.xiaopacai.child.util.CloudAccountManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * [TASK-ROLE-P1] 家长登录页
+ * [TASK-ACCOUNT-V1] 家长登录页（云端账号，替换本地密码登录）
  *
- * 三种模式：
- * 1. 首次设置密码：无密码时引导设置 6-16 位密码
- * 2. 密码登录：已有密码时输入密码登录
- * 3. 角色切换登录：从儿童端切到家长端时输入密码
+ * 每次进入 / 切回 / 重启家长端都必须经云端邮箱+密码验证：
+ * - 首次使用需先在 Web 3.0 家长控制面板注册账号（网页端两步注册）；
+ * - 登录成功仅保存 JWT（KeyStore 加密）与账号邮箱，密码不落盘；
+ * - 服务器地址首次填写后持久化，供后续门禁验证使用。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,26 +41,24 @@ fun ParentLoginScreen(
     isFromSwitch: Boolean = false  // 是否从儿童端切换过来
 ) {
     val context = LocalContext.current
-    val isPasswordSet = remember { RoleManager.isParentPasswordSet(context) }
 
-    // 密码输入状态
+    // 服务器地址（优先取已保存配置）
+    var serverHost by remember { mutableStateOf(CloudAccountManager.getServerHost(context) ?: "") }
+    var serverPort by remember { mutableIntStateOf(CloudAccountManager.getServerPort(context)) }
+
+    // 账号输入（预填已绑定邮箱）
+    var email by remember { mutableStateOf(CloudAccountManager.getBoundEmail(context) ?: "") }
     var password by remember { mutableStateOf("") }
-    var confirmPassword by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var passwordVisible by remember { mutableStateOf(false) }
     var isProcessing by remember { mutableStateOf(false) }
 
-    // 是否在"设置新密码"模式
-    val isSetupMode = !isPasswordSet
+    val isBound = remember { CloudAccountManager.isBound(context) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        if (isSetupMode) "设置家长密码" else "家长登录"
-                    )
-                },
+                title = { Text("家长登录") },
                 navigationIcon = {
                     if (isFromSwitch) {
                         IconButton(onClick = onSwitchToChild) {
@@ -69,7 +73,8 @@ fun ParentLoginScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 32.dp),
+                .padding(horizontal = 32.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -85,7 +90,7 @@ fun ParentLoginScreen(
 
             // 标题
             Text(
-                text = if (isSetupMode) "请设置家长密码" else "请输入家长密码",
+                text = "云端账号登录",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
@@ -94,31 +99,68 @@ fun ParentLoginScreen(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = if (isSetupMode) "密码用于切换角色和修改设置\n6-16位数字或字母"
-                else "请输入家长密码以进入家长端",
+                text = if (isBound)
+                    "登录 Web 3.0 账号进入家长端（密码不保存在设备上）"
+                else
+                    "首次使用请先在 Web 3.0 家长控制面板注册账号，\n再用同一邮箱在此登录",
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 lineHeight = 20.sp
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
-            // 密码输入框
+            // 服务器地址
+            OutlinedTextField(
+                value = serverHost,
+                onValueChange = { serverHost = it; errorMessage = null },
+                label = { Text("Web 服务地址") },
+                placeholder = { Text("192.168.x.x 或域名") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = serverPort.toString(),
+                onValueChange = { v ->
+                    v.toIntOrNull()?.takeIf { it in 1..65535 }?.let { serverPort = it }
+                },
+                label = { Text("端口") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 账号邮箱
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it; errorMessage = null },
+                label = { Text("账号邮箱") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Email,
+                    imeAction = ImeAction.Next
+                ),
+                isError = errorMessage != null
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 密码
             OutlinedTextField(
                 value = password,
-                onValueChange = {
-                    password = it
-                    errorMessage = null
-                },
-                label = { Text(if (isSetupMode) "密码" else "家长密码") },
+                onValueChange = { password = it; errorMessage = null },
+                label = { Text("登录密码") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 visualTransformation = if (passwordVisible) VisualTransformation.None
                     else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Password,
-                    imeAction = if (isSetupMode) ImeAction.Next else ImeAction.Done
+                    imeAction = ImeAction.Done
                 ),
                 trailingIcon = {
                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
@@ -132,39 +174,6 @@ fun ParentLoginScreen(
                 isError = errorMessage != null
             )
 
-            // 设置模式下需要确认密码
-            if (isSetupMode) {
-                Spacer(modifier = Modifier.height(16.dp))
-
-                var confirmVisible by remember { mutableStateOf(false) }
-                OutlinedTextField(
-                    value = confirmPassword,
-                    onValueChange = {
-                        confirmPassword = it
-                        errorMessage = null
-                    },
-                    label = { Text("确认密码") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    visualTransformation = if (confirmVisible) VisualTransformation.None
-                        else PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Done
-                    ),
-                    trailingIcon = {
-                        IconButton(onClick = { confirmVisible = !confirmVisible }) {
-                            Icon(
-                                imageVector = if (confirmVisible) Icons.Filled.VisibilityOff
-                                    else Icons.Filled.Visibility,
-                                contentDescription = if (confirmVisible) "隐藏密码" else "显示密码"
-                            )
-                        }
-                    },
-                    isError = errorMessage != null
-                )
-            }
-
             // 错误消息
             if (errorMessage != null) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -177,50 +186,42 @@ fun ParentLoginScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 登录/设置按钮
+            // 登录按钮（云端验证）
             Button(
                 onClick = {
                     isProcessing = true
                     errorMessage = null
 
-                    if (isSetupMode) {
-                        // 设置密码模式
-                        when {
-                            password.isEmpty() || confirmPassword.isEmpty() -> {
-                                errorMessage = "请填写密码和确认密码"
-                                isProcessing = false
-                            }
-                            password != confirmPassword -> {
-                                errorMessage = "两次输入的密码不一致"
-                                isProcessing = false
-                            }
-                            !RoleManager.isValidPasswordFormat(password) -> {
-                                errorMessage = "密码格式不符合要求（6-16位数字或字母）"
-                                isProcessing = false
-                            }
-                            else -> {
-                                val success = RoleManager.setParentPassword(context, password)
-                                if (success) {
-                                    onLoginSuccess()
-                                } else {
-                                    errorMessage = "密码设置失败，请重试"
-                                }
-                                isProcessing = false
-                            }
+                    when {
+                        serverHost.isBlank() -> {
+                            errorMessage = "请填写 Web 服务地址"
+                            isProcessing = false
                         }
-                    } else {
-                        // 登录验证模式
-                        if (password.isEmpty()) {
-                            errorMessage = "请输入密码"
+                        email.isBlank() || !email.contains("@") -> {
+                            errorMessage = "请输入有效的账号邮箱"
                             isProcessing = false
-                        } else {
-                            val success = RoleManager.verifyParentPassword(context, password)
-                            if (success) {
-                                onLoginSuccess()
-                            } else {
-                                errorMessage = "密码错误，请重试"
+                        }
+                        password.isEmpty() -> {
+                            errorMessage = "请输入登录密码"
+                            isProcessing = false
+                        }
+                        else -> {
+                            // 持久化服务器地址（供后续门禁验证使用）
+                            CloudAccountManager.saveServerBase(context, serverHost.trim(), serverPort)
+                            GlobalScope.launch(Dispatchers.IO) {
+                                val result = CloudAccountManager.login(context, email, password)
+                                withContext(Dispatchers.Main) {
+                                    isProcessing = false
+                                    when (result) {
+                                        is CloudAccountManager.LoginResult.Success -> {
+                                            password = ""
+                                            onLoginSuccess()
+                                        }
+                                        is CloudAccountManager.LoginResult.Failed ->
+                                            errorMessage = result.reason
+                                    }
+                                }
                             }
-                            isProcessing = false
                         }
                     }
                 },
@@ -236,16 +237,22 @@ fun ParentLoginScreen(
                         strokeWidth = 2.dp
                     )
                 } else {
-                    Text(
-                        text = if (isSetupMode) "设置密码并进入" else "登录",
-                        fontSize = 16.sp
-                    )
+                    Text("验证并进入家长端", fontSize = 16.sp)
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 切换回儿童端（始终可用，避免因忘记密码而被锁在登录页）
+            // 忘记密码引导（云端邮箱验证码重置，见 Web 端登录页）
+            Text(
+                text = "忘记密码？请在 Web 3.0 登录页用邮箱验证码重置",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 切换回儿童端（未登录状态下无家长数据暴露，允许直接返回）
             TextButton(onClick = onSwitchToChild) {
                 Text("返回儿童端")
             }

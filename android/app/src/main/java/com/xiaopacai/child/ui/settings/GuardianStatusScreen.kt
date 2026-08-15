@@ -29,8 +29,8 @@ import androidx.compose.ui.unit.sp
 import com.xiaopacai.child.service.AntiBypassService
 import com.xiaopacai.child.service.DiagnosticsCollector
 import com.xiaopacai.child.service.GuardianDeviceAdminReceiver
+import com.xiaopacai.child.ui.components.SystemGateDialog
 import com.xiaopacai.child.ui.theme.XiaopacaiTheme
-import com.xiaopacai.child.util.ParentPasswordManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -82,10 +82,8 @@ private data class GuardianStatusItem(
 fun GuardianStatusScreen(onBack: () -> Unit) {
     val context = LocalContext.current
 
-    // [REQ] 解除设备管理器必须家长密码验证（防儿童自行卸载）
+    // [TASK-ACCOUNT-V1] 解除设备管理器必须家长云端验证（防儿童自行卸载；离线拒绝）
     var showUnlockAdminDialog by remember { mutableStateOf(false) }
-    var adminPwd by remember { mutableStateOf("") }
-    var adminPwdError by remember { mutableStateOf<String?>(null) }
 
     // 诊断上报状态提示
     var reportMessage by remember { mutableStateOf<String?>(null) }
@@ -100,75 +98,32 @@ fun GuardianStatusScreen(onBack: () -> Unit) {
     }
     val readyCount = items.count { it.ready }
 
-    // [REQ] 家长密码验证：解除设备管理器（允许卸载）前必须验证
+    // [TASK-ACCOUNT-V1] 家长云端验证：解除设备管理器（允许卸载）前必须验证
     if (showUnlockAdminDialog) {
-        AlertDialog(
-            onDismissRequest = {
+        SystemGateDialog(
+            title = "家长验证",
+            description = "解除设备管理器后才能卸载小趴菜，请输入家长账号邮箱与登录密码。",
+            confirmText = "验证并解除",
+            onDismiss = { showUnlockAdminDialog = false },
+            onVerified = {
                 showUnlockAdminDialog = false
-                adminPwd = ""
-                adminPwdError = null
-            },
-            title = { Text("家长验证") },
-            text = {
-                Column {
-                    Text(
-                        "解除设备管理器后才能卸载小趴菜。\n请输入家长密码：",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                try {
+                    val dpm = GuardianDeviceAdminReceiver.getDpm(context)
+                    dpm.removeActiveAdmin(
+                        GuardianDeviceAdminReceiver.getComponentName(context)
                     )
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = adminPwd,
-                        onValueChange = { adminPwd = it; adminPwdError = null },
-                        label = { Text("家长密码") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        isError = adminPwdError != null,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    if (adminPwdError != null) {
-                        Text(
-                            adminPwdError!!,
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 12.sp
-                        )
-                    }
+                    Toast.makeText(
+                        context,
+                        "设备保护已解除，现在可以卸载应用",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        context,
+                        "解除失败：${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (ParentPasswordManager.verifyPassword(context, adminPwd)) {
-                        showUnlockAdminDialog = false
-                        adminPwd = ""
-                        adminPwdError = null
-                        try {
-                            val dpm = GuardianDeviceAdminReceiver.getDpm(context)
-                            dpm.removeActiveAdmin(
-                                GuardianDeviceAdminReceiver.getComponentName(context)
-                            )
-                            Toast.makeText(
-                                context,
-                                "设备保护已解除，现在可以卸载应用",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        } catch (e: Exception) {
-                            Toast.makeText(
-                                context,
-                                "解除失败：${e.message}",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    } else {
-                        adminPwdError = "密码错误"
-                    }
-                }) { Text("确认解除") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showUnlockAdminDialog = false
-                    adminPwd = ""
-                    adminPwdError = null
-                }) { Text("取消") }
             }
         )
     }

@@ -24,7 +24,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,7 +37,7 @@ import com.xiaopacai.child.p2p.PairingState
 import com.xiaopacai.child.p2p.rejectionHintText
 import com.xiaopacai.child.p2p.isRateLimitedRejectionCode
 import com.xiaopacai.child.BuildConfig
-import com.xiaopacai.child.role.RoleManager
+import com.xiaopacai.child.ui.components.SystemGateDialog
 import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.service.UsageStatsCollector
 import com.xiaopacai.child.ui.settings.AppCategoryActivity
@@ -119,8 +118,6 @@ fun GuardianHomeContent(
     var myQrBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     // [REQ] 家长密码验证（应用分类/设置/权限管理统一走此门槛）
     var showParentPwd by remember { mutableStateOf(false) }
-    var parentPwd by remember { mutableStateOf("") }
-    var parentPwdError by remember { mutableStateOf<String?>(null) }
     var pendingProtectedAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     fun handleQrScanResult(text: String) {
@@ -223,57 +220,21 @@ fun GuardianHomeContent(
         )
     }
 
-    // [REQ] 家长密码验证对话框（应用分类/设置/权限管理共用）
+    // [TASK-ACCOUNT-V1] 家长云端验证门禁（应用分类/设置/权限管理共用，统一 SystemGateDialog）
     if (showParentPwd) {
-        AlertDialog(
-            onDismissRequest = {
+        SystemGateDialog(
+            title = "家长验证",
+            description = "此操作涉及守护设置，请输入家长账号邮箱与登录密码。",
+            confirmText = "验证",
+            onDismiss = {
                 showParentPwd = false
-                parentPwd = ""
-                parentPwdError = null
                 pendingProtectedAction = null
             },
-            title = { Text("家长验证") },
-            text = {
-                Column {
-                    Text("此操作涉及守护设置，请输入家长密码",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = parentPwd,
-                        onValueChange = { parentPwd = it; parentPwdError = null },
-                        label = { Text("家长密码") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        visualTransformation = PasswordVisualTransformation(),
-                        isError = parentPwdError != null
-                    )
-                    if (parentPwdError != null) {
-                        Text(parentPwdError!!, color = MaterialTheme.colorScheme.error,
-                            fontSize = 12.sp)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (RoleManager.verifyParentPassword(context, parentPwd)) {
-                        val action = pendingProtectedAction
-                        showParentPwd = false
-                        parentPwd = ""
-                        pendingProtectedAction = null
-                        action?.invoke()
-                    } else {
-                        parentPwdError = "密码错误"
-                    }
-                }) { Text("确认") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showParentPwd = false
-                    parentPwd = ""
-                    parentPwdError = null
-                    pendingProtectedAction = null
-                }) { Text("取消") }
+            onVerified = {
+                val action = pendingProtectedAction
+                showParentPwd = false
+                pendingProtectedAction = null
+                action?.invoke()
             }
         )
     }

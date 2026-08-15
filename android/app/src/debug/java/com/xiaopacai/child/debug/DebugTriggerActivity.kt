@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
  *   action=parent_seedpolicy    向 parent_policies 注入测试策略（daily_limit=60min/游戏30min/就寝22:00-06:00）
  *   action=parent_seedannounce  向 parent_announcements 注入 3 条测试公告
  *   action=parent_fulldata      一键注入全部家长端测试数据（策略+公告+设备注册记录）
- *   action=parent_setup         直接设置家长角色与密码（跳过 UI 引导，供联调自动化）
+ *   action=parent_setup         直接设置家长角色（跳过 UI 引导，供联调自动化；云端验证在登录页完成）
  *
  * 该组件不进入 release 构建，仅用于测试环境，不构成产品功能。
  */
@@ -85,7 +85,6 @@ class DebugTriggerActivity : ComponentActivity() {
             "parent_setup" -> parentSetup()
             "parent_relay" -> parentRelayConnect()
             "pair_relay" -> pairRelay()
-            "set_parent_pwd" -> setParentPwd()
             "auto_classify" -> autoClassify()
                 else -> goHome()
             }
@@ -689,22 +688,11 @@ class DebugTriggerActivity : ComponentActivity() {
     }
 
     private fun parentSetup() {
-        val pwd = intent.getStringExtra("password") ?: "123456"
-        val okPwd = com.xiaopacai.child.role.RoleManager.setParentPassword(this, pwd)
+        // [TASK-ACCOUNT-V1] 本地密码体系已退役：仅设角色，云端验证在家长登录页完成
         val okRole = com.xiaopacai.child.role.RoleManager.setCurrentRole(
             this, com.xiaopacai.child.role.RoleManager.Role.PARENT
         )
-        Log.i(TAG, "parent_setup: setPwd=$okPwd setRole=$okRole")
-    }
-
-    /**
-     * 仅设置家长密码（不切换角色），供儿童端验证密码门槛使用。
-     */
-    private fun setParentPwd() {
-        val pwd = intent.getStringExtra("password") ?: "123456"
-        val ok = com.xiaopacai.child.role.RoleManager.setParentPassword(this, pwd)
-        toast("setParentPwd=$ok")
-        Log.i(TAG, "set_parent_pwd: ok=$ok")
+        Log.i(TAG, "parent_setup: setRole=$okRole")
     }
 
     /**
