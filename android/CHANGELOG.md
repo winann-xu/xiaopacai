@@ -4,7 +4,7 @@
 
 ---
 
-## [1.1.0] — 2026-08-15（[TASK-MILESTONE-V3]，进行中）
+## [1.1.0] — 2026-08-15（[TASK-MILESTONE-V3]，交付）
 
 > 里程碑 V3 = 1.1.0，交付时打 tag v1.1.0；versionName 构建时读 Git tag，
 > versionCode = major×10000 + minor×100 + patch（v1.1.0 → 10100，保证覆盖存量 versionCode=1）。
