@@ -40,7 +40,8 @@ class GuardianAlarmReceiver : BroadcastReceiver() {
         private const val ALARM_INTERVAL_MS = 30 * 60 * 1000L  // 30 分钟
         private const val ALARM_REQUEST_CODE = 3001
         private const val SWIPE_RECOVERY_REQUEST_CODE = 3002
-        private const val SWIPE_RECOVERY_DELAY_MS = 5 * 1000L   // 上滑后 5 秒拉起
+        // [TASK-HARDENING-V1.1.1] 1-A：internal 供单测断言恢复链路延迟契约
+        internal const val SWIPE_RECOVERY_DELAY_MS = 5 * 1000L   // 上滑后 5 秒拉起
         private const val RECOVERY_NOTIFY_ID = 3003
         private const val PREFS_GUARDIAN = "guardian_prefs"
         private const val KEY_ENFORCEMENT_ACTIVE = "enforcement_active"
@@ -160,6 +161,17 @@ class GuardianAlarmReceiver : BroadcastReceiver() {
     }
 
     /**
+     * [TASK-HARDENING-V1.1.1] 1-A：恢复通知文案纯函数（恢复链路可单测）
+     */
+    fun recoveryNotificationText(wasEnforcing: Boolean): Pair<String, String> =
+        if (wasEnforcing)
+            "守护已自动恢复，管控重新生效" to
+                "检测到小趴菜进程曾被上滑结束，守护已自动恢复并重新执行管控。"
+        else
+            "守护已自动恢复" to
+                "检测到小趴菜进程曾被上滑结束，守护已自动恢复。"
+
+    /**
      * [TASK-MILESTONE-V3] 需求 5：上滑结束后的快速恢复
      */
     private fun handleSwipeRecovery(context: Context) {
@@ -183,14 +195,7 @@ class GuardianAlarmReceiver : BroadcastReceiver() {
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            val title = if (wasEnforcing)
-                "守护已自动恢复，管控重新生效"
-            else
-                "守护已自动恢复"
-            val text = if (wasEnforcing)
-                "检测到小趴菜进程曾被上滑结束，守护已自动恢复并重新执行管控。"
-            else
-                "检测到小趴菜进程曾被上滑结束，守护已自动恢复。"
+            val (title, text) = recoveryNotificationText(wasEnforcing)
             val notification = NotificationCompat.Builder(context, XiaopacaiApp.CHANNEL_SECURITY)
                 .setContentTitle(title)
                 .setContentText(text)

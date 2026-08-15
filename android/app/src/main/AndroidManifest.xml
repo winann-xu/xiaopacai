@@ -104,10 +104,12 @@
             android:theme="@style/Theme.Xiaopacai" />
 
         <!-- 前台服务（时长采集 + 超时守护） -->
+        <!-- [TASK-HARDENING-V1.1.1] 1-A：stopWithTask=false，上滑最近任务不清除服务（OPPO 真机根因） -->
         <service
             android:name=".service.GuardianForegroundService"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false" />
 
         <!-- 无障碍服务（超时停用拦截实现） -->
         <service
@@ -138,10 +140,12 @@
             android:exported="false" />
 
         <!-- [TASK-ROLE-P1] 家长端 P2P 入站监听服务 -->
+        <!-- [TASK-HARDENING-V1.1.1] 1-A：stopWithTask=false，上滑最近任务不清除服务（OPPO 真机根因） -->
         <service
             android:name=".p2p.ParentP2PListenerService"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false" />
 
         <!-- [TASK-D3-03] 设备管理器接收器（防卸载保护） -->
         <receiver
