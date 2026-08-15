@@ -47,6 +47,24 @@ class XiaopacaiApp : Application() {
         // [TASK-MILESTONE-V3] 需求 14：日志自动上传（每 6 小时，未登录账号时快速跳过）
         LogUploader.schedulePeriodic(this)
         AppLog.i("App", "应用启动 v${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）")
+
+        // [TASK-HARDENING-V1.1.1] Bug4-A：应用回前台即时自检
+        // （儿童/家长打开应用即查权限，无障碍被关立即通知；30 秒节流防频繁检查）
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityResumed(activity: android.app.Activity) {
+                try {
+                    com.xiaopacai.child.service.AntiBypassService.triggerImmediateCheck(this@XiaopacaiApp)
+                } catch (e: Exception) {
+                    // 自检失败不阻断界面
+                }
+            }
+            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+            override fun onActivityStarted(activity: android.app.Activity) {}
+            override fun onActivityStopped(activity: android.app.Activity) {}
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {}
+        })
     }
 
     /**

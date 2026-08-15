@@ -31,8 +31,13 @@ object AntiBypassService {
     private const val TAG = "AntiBypass"
     private const val SECURITY_NOTIFY_ID = 2001
     private const val CHECK_INTERVAL_MS = 60_000L  // 每分钟检查一次
+    // [TASK-HARDENING-V1.1.1] Bug4-A：事件触发即时自检节流（亮屏/解锁/回前台高频事件合并）
+    private const val IMMEDIATE_CHECK_THROTTLE_MS = 30_000L
 
     private var checkJob: Job? = null
+
+    @Volatile
+    private var lastImmediateCheckAtMs = 0L
 
     /**
      * 启动防绕过监控
@@ -64,6 +69,24 @@ object AntiBypassService {
         checkJob?.cancel()
         checkJob = null
         Log.i(TAG, "防绕过监控已停止")
+    }
+
+    /**
+     * [TASK-HARDENING-V1.1.1] Bug4-A：事件触发即时自检（30 秒节流）
+     *
+     * 调用方：GuardianEventReceiver（亮屏/解锁/应用更新）、应用回前台回调。
+     * 发现无障碍被关 → checkAllBypassVectors 立即高优通知 + 一键直达无障碍设置。
+     */
+    fun triggerImmediateCheck(context: Context) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastImmediateCheckAtMs < IMMEDIATE_CHECK_THROTTLE_MS) return
+        lastImmediateCheckAtMs = now
+        Log.i(TAG, "事件触发即时自检")
+        try {
+            checkAllBypassVectors(context)
+        } catch (e: Exception) {
+            Log.e(TAG, "即时自检异常: ${e.message}")
+        }
     }
 
     /**
@@ -190,12 +213,18 @@ object AntiBypassService {
                     context, 2002, a11yIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
+                // [TASK-HARDENING-V1.1.1] Bug4-A：如实区分「管控曾生效=拦截已失效」与「未生效=守护受影响」
+                val enforcing = GuardianForegroundService.isEnforcementActive(context)
                 val a11yNotification = NotificationCompat.Builder(context, XiaopacaiApp.CHANNEL_SECURITY)
-                    .setContentTitle("无障碍服务已关闭，拦截已失效")
+                    .setContentTitle(if (enforcing) "无障碍服务已关闭，拦截已失效" else "无障碍服务已关闭")
                     .setContentText("点击下方按钮，前往系统设置重新开启小趴菜无障碍服务")
                     .setStyle(NotificationCompat.BigTextStyle().bigText(
-                        "无障碍服务被系统移除后，超时拦截将失效（快手/抖音等可正常使用）。\n" +
-                        "请点击按钮前往：设置 → 无障碍 → 已安装的服务 → 小趴菜 → 打开开关。"
+                        if (enforcing)
+                            "无障碍服务被系统移除后，超时拦截将失效（快手/抖音等可正常使用）。\n" +
+                            "请点击按钮前往：设置 → 无障碍 → 已安装的服务 → 小趴菜 → 打开开关。"
+                        else
+                            "无障碍服务被系统移除，超时拦截无法生效。\n" +
+                            "请点击按钮前往：设置 → 无障碍 → 已安装的服务 → 小趴菜 → 打开开关。"
                     ))
                     .setSmallIcon(R.drawable.ic_notification)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)

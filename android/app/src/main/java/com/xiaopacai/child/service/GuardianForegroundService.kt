@@ -111,11 +111,25 @@ class GuardianForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    /** [TASK-HARDENING-V1.1.1] Bug4-A：亮屏/解锁事件自检接收器（动态注册，随服务常驻） */
+    private val eventReceiver = GuardianEventReceiver()
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "守护前台服务创建")
+
+        // [TASK-HARDENING-V1.1.1] Bug4-A：亮屏/解锁事件即时自检
+        // （无障碍被关 → 立即高优通知 + 一键直达设置；30 秒节流防高频事件合并）
+        try {
+            androidx.core.content.ContextCompat.registerReceiver(
+                this, eventReceiver, GuardianEventReceiver.dynamicFilter(),
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "注册事件自检接收器失败: ${e.message}")
+        }
 
         // [TASK-D3-03] 启动防绕过监控
         AntiBypassService.startMonitoring(this, serviceScope)
@@ -363,6 +377,12 @@ class GuardianForegroundService : Service() {
         collector?.stop()
         syncManager?.stop()
         AntiBypassService.stopMonitoring()  // [TASK-D3-03]
+        // [TASK-HARDENING-V1.1.1] Bug4-A：注销事件自检接收器
+        try {
+            unregisterReceiver(eventReceiver)
+        } catch (e: Exception) {
+            // 未注册或已注销，忽略
+        }
         serviceScope.cancel()
         Log.i(TAG, "守护前台服务销毁")
     }

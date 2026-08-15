@@ -139,6 +139,17 @@
             android:name=".service.GuardianAlarmReceiver"
             android:exported="false" />
 
+        <!-- [TASK-HARDENING-V1.1.1] Bug4-A：应用更新后权限即时自检
+             （更新会关停无障碍服务，第一时间发现并高优通知；
+             亮屏/解锁由守护服务动态注册，回前台由 Application 回调） -->
+        <receiver
+            android:name=".service.GuardianEventReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <!-- [TASK-ROLE-P1] 家长端 P2P 入站监听服务 -->
         <!-- [TASK-HARDENING-V1.1.1] 1-A：stopWithTask=false，上滑最近任务不清除服务（OPPO 真机根因） -->
         <service
