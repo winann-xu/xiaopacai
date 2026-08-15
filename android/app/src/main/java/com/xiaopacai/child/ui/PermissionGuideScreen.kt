@@ -311,6 +311,24 @@ fun PermissionGuideScreen(
             )
         }
 
+        // [TASK-MILESTONE-V3] 需求 5：能力边界如实说明（上滑结束/强制停止）
+        Spacer(modifier = Modifier.height(12.dp))
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Text(
+                text = "能力边界说明：Android 不允许任何应用阻止用户手动结束进程。\n" +
+                    "• 孩子在最近任务上滑结束小趴菜：守护会在约 5 秒内自动恢复并重新执行管控，同时通知家长；\n" +
+                    "• 在系统设置中「强制停止」小趴菜：系统会一并取消恢复机制，需重新打开小趴菜才能恢复守护（打开即恢复并通知家长）。\n" +
+                    "完成以上授权（尤其「忽略电池优化」与「自启动」）可显著降低被系统结束的概率。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+
         Spacer(modifier = Modifier.height(32.dp))
     }
 }

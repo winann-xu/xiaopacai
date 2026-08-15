@@ -131,6 +131,12 @@
             </intent-filter>
         </receiver>
 
+        <!-- [TASK-MILESTONE-V3] 需求 5：守护兜底闹钟 + 上滑结束恢复接收器
+             （此前漏注册导致 AlarmManager 兜底链路静默失效，本次补声明） -->
+        <receiver
+            android:name=".service.GuardianAlarmReceiver"
+            android:exported="false" />
+
         <!-- [TASK-ROLE-P1] 家长端 P2P 入站监听服务 -->
         <service
             android:name=".p2p.ParentP2PListenerService"
