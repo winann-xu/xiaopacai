@@ -29,31 +29,58 @@ internal fun isLanHost(host: String): Boolean {
 }
 
 /**
+ * [TASK-MILESTONE-V3] 132 信需求 2：云端连接异常分类（供 UI 细分错误文案）
+ * - NO_NETWORK：设备无网络/未知主机（DNS 解析失败等）
+ * - CANNOT_CONNECT：连接超时/被拒绝（服务器不可达或地址有误）
+ * - HTTPS_REQUIRED：SSL 握手失败（对端未启用 HTTPS），公网仅 HTTPS 红线
+ */
+internal class CloudConnectionException(
+    val kind: Kind,
+    cause: Throwable? = null
+) : Exception(cause) {
+    enum class Kind { NO_NETWORK, CANNOT_CONNECT, HTTPS_REQUIRED }
+}
+
+/**
  * [SEC-P1] HTTPS 优先执行 HTTP 请求：
  * - 先尝试 https；
  * - 仅当主机是局域网地址且失败原因为 SSL 握手失败（对端为明文 HTTP 服务）时，
  *   回退到 http 重试一次（其他异常不回退，避免 POST 重复提交）；
- * - 公网主机仅 https；测试期家长端显式开启 allowHttpOverride 后允许回退 http
- *   （服务器尚未启用 HTTPS 时的过渡开关，生产应配置 HTTPS 后关闭）。
+ * - 公网主机仅 https（红线 R6.x，无例外开关）。
+ * [TASK-MILESTONE-V3] 已移除 allowHttpOverride 测试期开关（HTTPS 已上线）。
  */
-/** [TASK-ACCOUNT-V1-HOTFIX] 测试期允许公网 HTTP（由家长端登录页开关写入，进程内生效） */
-internal var allowHttpOverride: Boolean = false
-
 internal fun <T> httpWithHttpsFirst(host: String, port: Int, block: (base: String) -> T): T {
-    val candidates = if (isLanHost(host) || allowHttpOverride)
+    val candidates = if (isLanHost(host))
         listOf("https://$host:$port", "http://$host:$port")
     else
         listOf("https://$host:$port")
     var sslFailed = false
+    var lastSslError: Exception? = null
     for (base in candidates) {
         try {
             return block(base)
         } catch (e: javax.net.ssl.SSLException) {
             sslFailed = true
+            lastSslError = e
             android.util.Log.w("CloudHttp", "HTTPS 请求失败(SSL)，尝试下一候选: ${e.message}")
+        } catch (e: java.net.UnknownHostException) {
+            // DNS 解析失败：域名错误或无网络
+            throw CloudConnectionException(CloudConnectionException.Kind.NO_NETWORK, e)
+        } catch (e: java.net.SocketTimeoutException) {
+            throw CloudConnectionException(CloudConnectionException.Kind.CANNOT_CONNECT, e)
+        } catch (e: java.net.ConnectException) {
+            throw CloudConnectionException(CloudConnectionException.Kind.CANNOT_CONNECT, e)
+        } catch (e: java.io.IOException) {
+            // 其余网络层异常（无路由、网络不可用等）
+            throw CloudConnectionException(CloudConnectionException.Kind.NO_NETWORK, e)
         }
     }
-    throw IllegalStateException("HTTPS 连接失败" + if (sslFailed) "（服务端未启用 HTTPS）" else "")
+    // 所有候选均失败且最后为 SSL 握手失败：对端未启用 HTTPS（或地址端口有误）
+    throw CloudConnectionException(
+        if (sslFailed) CloudConnectionException.Kind.HTTPS_REQUIRED
+        else CloudConnectionException.Kind.CANNOT_CONNECT,
+        lastSslError
+    )
 }
 
 /**

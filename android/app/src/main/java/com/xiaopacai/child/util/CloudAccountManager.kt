@@ -27,7 +27,6 @@ object CloudAccountManager {
     const val KEY_ACCOUNT_EMAIL = "account_email"
     const val KEY_WEB_HOST = "web_host"
     const val KEY_WEB_PORT = "web_port"
-    const val KEY_ALLOW_HTTP = "allow_http"
     // [TASK-MILESTONE-V3] 需求 13：账号角色（登录响应 user.role），用于中继设置等 admin 功能门控
     const val KEY_ACCOUNT_ROLE = "account_role"
 
@@ -81,18 +80,8 @@ object CloudAccountManager {
     fun getServerPort(context: Context): Int =
         prefs(context).getInt(KEY_WEB_PORT, 5000)
 
-    /**
-     * [TASK-ACCOUNT-V1-HOTFIX] 测试期允许公网 HTTP 开关（服务器尚未启用 HTTPS 时使用）。
-     * 默认关闭；开启后进程内所有云端 HTTP 请求对公网地址也允许 http 回退。
-     */
-    fun saveAllowHttp(context: Context, allow: Boolean) {
-        prefs(context).edit().putBoolean(KEY_ALLOW_HTTP, allow).apply()
-        com.xiaopacai.child.util.allowHttpOverride = allow
-        Log.i(TAG, "测试期允许 HTTP: $allow")
-    }
-
-    fun getAllowHttp(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_ALLOW_HTTP, false)
+    // [TASK-MILESTONE-V3] 132 信需求 1：已移除「测试期允许 HTTP」开关与 allow_http 持久化
+    // （HTTPS 已上线；局域网 HTTP 回退由 CloudHttp.isLanHost 自动处理，无需用户配置）。
 
     /**
      * 已绑定账号邮箱（仅保存邮箱，密码永不落盘）
@@ -143,14 +132,13 @@ object CloudAccountManager {
             return LoginResult.Failed("尚未配置家长端服务器地址，请先在家长端登录页填写服务器地址")
         }
         val port = getServerPort(context)
-        // [TASK-ACCOUNT-V1-HOTFIX] 进程内同步测试期 HTTP 开关（App 重启后仍生效）
-        com.xiaopacai.child.util.allowHttpOverride = getAllowHttp(context)
 
         val (code, respBody, errBody) = try {
             loginClient.postLogin(host, port, email.trim(), password)
         } catch (e: Exception) {
             Log.w(TAG, "云端验证网络异常: ${e.message}")
-            return LoginResult.Failed("网络不可用，家长身份验证需要联网")
+            // [TASK-MILESTONE-V3] 132 信需求 2：失败文案细分
+            return LoginResult.Failed(loginNetworkErrorMessage(context, e))
         }
 
         return when {
@@ -177,6 +165,28 @@ object CloudAccountManager {
             }
             code == 401 -> LoginResult.Failed("邮箱或密码错误")
             else -> LoginResult.Failed("登录失败: HTTP $code ${errBody.take(80)}")
+        }
+    }
+
+    /**
+     * [TASK-MILESTONE-V3] 132 信需求 2：登录失败文案细分
+     * - 设备无网络 → 保留「网络不可用，家长身份验证需要联网」
+     * - DNS/连接超时/被拒绝 → 「无法连接服务器，请检查 Web 服务地址与网络」
+     * - HTTPS 握手失败（对端非 HTTPS）→ 「服务器未启用 HTTPS 或地址有误」
+     */
+    fun loginNetworkErrorMessage(context: Context, e: Exception): String {
+        // 设备当前无任何可用网络（WiFi/移动数据均未连接）
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+        val noNetwork = cm?.activeNetwork == null ||
+            cm.getNetworkCapabilities(cm.activeNetwork) == null
+        if (noNetwork) return "网络不可用，家长身份验证需要联网"
+        return when (e) {
+            is CloudConnectionException -> when (e.kind) {
+                CloudConnectionException.Kind.HTTPS_REQUIRED -> "服务器未启用 HTTPS 或地址有误"
+                CloudConnectionException.Kind.CANNOT_CONNECT -> "无法连接服务器，请检查 Web 服务地址与网络"
+                CloudConnectionException.Kind.NO_NETWORK -> "网络不可用，家长身份验证需要联网"
+            }
+            else -> "无法连接服务器，请检查 Web 服务地址与网络"
         }
     }
 }

@@ -31,8 +31,13 @@ import kotlinx.coroutines.withContext
  * 每次进入 / 切回 / 重启家长端都必须经云端邮箱+密码验证：
  * - 首次使用需先在 Web 3.0 家长控制面板注册账号（网页端两步注册）；
  * - 登录成功仅保存 JWT（KeyStore 加密）与账号邮箱，密码不落盘；
- * - 服务器地址首次填写后持久化，供后续门禁验证使用。
+ * - 服务器地址首次填写后持久化，供后续门禁验证使用；
+ * - [TASK-MILESTONE-V3] 未配置地址时预填生产 HTTPS 域名（xpc.winann.com:443）。
  */
+
+/** [TASK-MILESTONE-V3] 132 信需求 3：未配置服务器地址时的预填值（生产 HTTPS 域名） */
+private const val DEFAULT_WEB_HOST = "xpc.winann.com"
+private const val DEFAULT_WEB_PORT = 443
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ParentLoginScreen(
@@ -42,14 +47,15 @@ fun ParentLoginScreen(
 ) {
     val context = LocalContext.current
 
-    // 服务器地址（优先取已保存配置）
-    var serverHost by remember { mutableStateOf(CloudAccountManager.getServerHost(context) ?: "") }
-    var serverPort by remember { mutableIntStateOf(CloudAccountManager.getServerPort(context)) }
+    // [TASK-MILESTONE-V3] 132 信需求 3：服务器地址预填——已保存配置优先；
+    // 未配置时预填生产 HTTPS 域名 xpc.winann.com:443，降低首装配置门槛
+    val savedHost = CloudAccountManager.getServerHost(context)
+    var serverHost by remember { mutableStateOf(savedHost ?: DEFAULT_WEB_HOST) }
+    var serverPort by remember { mutableIntStateOf(if (savedHost != null) CloudAccountManager.getServerPort(context) else DEFAULT_WEB_PORT) }
 
     // 账号输入（预填已绑定邮箱）
     var email by remember { mutableStateOf(CloudAccountManager.getBoundEmail(context) ?: "") }
     var password by remember { mutableStateOf("") }
-    var allowHttp by remember { mutableStateOf(CloudAccountManager.getAllowHttp(context)) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var passwordVisible by remember { mutableStateOf(false) }
     var isProcessing by remember { mutableStateOf(false) }
@@ -117,7 +123,7 @@ fun ParentLoginScreen(
                 value = serverHost,
                 onValueChange = { serverHost = it; errorMessage = null },
                 label = { Text("Web 服务地址") },
-                placeholder = { Text("192.168.x.x 或域名") },
+                placeholder = { Text("域名（如 xpc.winann.com）或 192.168.x.x") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
@@ -135,26 +141,8 @@ fun ParentLoginScreen(
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            // [TASK-ACCOUNT-V1-HOTFIX] 测试期允许 HTTP（服务器未启用 HTTPS 时显式开启）
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Switch(
-                    checked = allowHttp,
-                    onCheckedChange = { allowHttp = it }
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text("测试期允许 HTTP", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    Text(
-                        "服务器未启用 HTTPS 时勾选（明文传输，生产应配置 HTTPS）",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
+            // [TASK-MILESTONE-V3] 132 信需求 1：已移除「测试期允许 HTTP」开关（HTTPS 已上线，
+            // 公网仅 HTTPS；局域网 HTTP 回退保留在 CloudHttp 内，无需用户配置）
 
             // 账号邮箱
             OutlinedTextField(
@@ -229,7 +217,6 @@ fun ParentLoginScreen(
                         }
                         else -> {
                             // 持久化服务器地址（供后续门禁验证使用）
-                            CloudAccountManager.saveAllowHttp(context, allowHttp)
                             CloudAccountManager.saveServerBase(context, serverHost.trim(), serverPort)
                             GlobalScope.launch(Dispatchers.IO) {
                                 val result = CloudAccountManager.login(context, email, password)
