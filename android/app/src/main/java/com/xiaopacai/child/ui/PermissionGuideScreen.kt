@@ -21,6 +21,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -184,9 +186,11 @@ fun PermissionGuideScreen(
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(8.dp))
+        // [TASK-MILESTONE-V3] 需求 15 走查：进度条补读屏语义
         LinearProgressIndicator(
             progress = doneCount / 4f,
             modifier = Modifier.fillMaxWidth().height(8.dp)
+                .semantics { contentDescription = "权限进度 $doneCount/4" }
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -410,6 +414,8 @@ private fun openPermissionSettings(
             context.startActivity(fallback())
         } catch (e2: Exception) {
             Log.e("PermissionGuide", "回退打开应用详情失败: ${e2.message}")
+            // [TASK-MILESTONE-V3] 需求 15 走查：双失败时用户无感知，补提示（不再静默卡死）
+            Toast.makeText(context, "无法打开系统设置，请手动前往设置开启", Toast.LENGTH_LONG).show()
         }
     }
 }

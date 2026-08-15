@@ -2,6 +2,7 @@ package com.xiaopacai.child.ui.parent
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -52,12 +53,17 @@ fun ParentLoginScreen(
     // 未配置时预填生产 HTTPS 域名 xpc.winann.com:443，降低首装配置门槛
     val savedHost = CloudAccountManager.getServerHost(context)
     var serverHost by remember { mutableStateOf(savedHost ?: DEFAULT_WEB_HOST) }
-    var serverPort by remember { mutableIntStateOf(if (savedHost != null) CloudAccountManager.getServerPort(context) else DEFAULT_WEB_PORT) }
+    // [TASK-MILESTONE-V3] 需求 15 走查：端口改为文本态，允许清空重输，提交时统一校验
+    var portInput by remember {
+        mutableStateOf(if (savedHost != null) CloudAccountManager.getServerPort(context).toString() else DEFAULT_WEB_PORT.toString())
+    }
 
     // 账号输入（预填已绑定邮箱）
     var email by remember { mutableStateOf(CloudAccountManager.getBoundEmail(context) ?: "") }
     var password by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    // [TASK-MILESTONE-V3] 需求 15 走查：错误按字段归属展示（"host"/"port"/"email"/"password"）
+    var errorField by remember { mutableStateOf<String?>(null) }
     var passwordVisible by remember { mutableStateOf(false) }
     var isProcessing by remember { mutableStateOf(false) }
 
@@ -67,13 +73,15 @@ fun ParentLoginScreen(
     var showOldAccountDialog by remember { mutableStateOf(false) }
     var oldEmailInput by remember { mutableStateOf("") }
     var oldPassword by remember { mutableStateOf("") }
+    var oldPasswordVisible by remember { mutableStateOf(false) }
     var oldDialogError by remember { mutableStateOf<String?>(null) }
     var oldDialogBusy by remember { mutableStateOf(false) }
 
     /** 云端登录（登录成功后进入家长端） */
     fun doCloudLogin() {
         // 持久化服务器地址（供后续门禁验证使用）
-        CloudAccountManager.saveServerBase(context, serverHost.trim(), serverPort)
+        val port = portInput.toIntOrNull()?.takeIf { it in 1..65535 } ?: DEFAULT_WEB_PORT
+        CloudAccountManager.saveServerBase(context, serverHost.trim(), port)
         isProcessing = true
         errorMessage = null
         GlobalScope.launch(Dispatchers.IO) {
@@ -87,6 +95,44 @@ fun ParentLoginScreen(
                     }
                     is CloudAccountManager.LoginResult.Failed ->
                         errorMessage = result.reason
+                }
+            }
+        }
+    }
+
+    /** 表单校验 + 提交（登录按钮与键盘「完成」共用入口） */
+    fun submitLogin() {
+        if (isProcessing) return
+        errorMessage = null
+        errorField = null
+        when {
+            serverHost.isBlank() -> {
+                errorMessage = "请填写 Web 服务地址"
+                errorField = "host"
+            }
+            portInput.toIntOrNull()?.takeIf { it in 1..65535 } == null -> {
+                errorMessage = "端口无效（1-65535）"
+                errorField = "port"
+            }
+            email.isBlank() || !email.contains("@") -> {
+                errorMessage = "请输入有效的账号邮箱"
+                errorField = "email"
+            }
+            password.isEmpty() -> {
+                errorMessage = "请输入登录密码"
+                errorField = "password"
+            }
+            else -> {
+                // [TASK-MILESTONE-V3] 需求 3：检测旧账号残留（旧邮箱与本次登录账号不同）
+                val newEmail = email.trim().lowercase()
+                val boundEmail = CloudAccountManager.getBoundEmail(context)?.lowercase()
+                if (boundEmail != null && boundEmail != newEmail) {
+                    oldEmailInput = boundEmail
+                    oldPassword = ""
+                    oldDialogError = null
+                    showOldAccountDialog = true
+                } else {
+                    doCloudLogin()
                 }
             }
         }
@@ -111,7 +157,9 @@ fun ParentLoginScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .padding(horizontal = 32.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                // [TASK-MILESTONE-V3] 需求 15 走查：edge-to-edge 下键盘遮挡，补 imePadding
+                .imePadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -128,7 +176,7 @@ fun ParentLoginScreen(
             // 标题
             Text(
                 text = "云端账号登录",
-                fontSize = 22.sp,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
@@ -140,10 +188,9 @@ fun ParentLoginScreen(
                     "登录 Web 3.0 账号进入家长端（密码不保存在设备上）"
                 else
                     "首次使用请先在 Web 3.0 家长控制面板注册账号，\n再用同一邮箱在此登录",
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                lineHeight = 20.sp
+                textAlign = TextAlign.Center
             )
 
             Spacer(modifier = Modifier.height(28.dp))
@@ -151,23 +198,28 @@ fun ParentLoginScreen(
             // 服务器地址
             OutlinedTextField(
                 value = serverHost,
-                onValueChange = { serverHost = it; errorMessage = null },
+                onValueChange = { serverHost = it; errorMessage = null; errorField = null },
                 label = { Text("Web 服务地址") },
                 placeholder = { Text("域名（如 xpc.winann.com）或 192.168.x.x") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                isError = errorField == "host"
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
-                value = serverPort.toString(),
+                value = portInput,
+                // [TASK-MILESTONE-V3] 需求 15 走查：仅过滤非法字符，允许清空，提交时统一校验
                 onValueChange = { v ->
-                    v.toIntOrNull()?.takeIf { it in 1..65535 }?.let { serverPort = it }
+                    portInput = v.filter { it.isDigit() }.take(5)
+                    errorMessage = null
+                    errorField = null
                 },
                 label = { Text("端口") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                isError = errorField == "port"
             )
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -177,7 +229,7 @@ fun ParentLoginScreen(
             // 账号邮箱
             OutlinedTextField(
                 value = email,
-                onValueChange = { email = it; errorMessage = null },
+                onValueChange = { email = it; errorMessage = null; errorField = null },
                 label = { Text("账号邮箱") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -185,14 +237,14 @@ fun ParentLoginScreen(
                     keyboardType = KeyboardType.Email,
                     imeAction = ImeAction.Next
                 ),
-                isError = errorMessage != null
+                isError = errorField == "email"
             )
             Spacer(modifier = Modifier.height(16.dp))
 
             // 密码
             OutlinedTextField(
                 value = password,
-                onValueChange = { password = it; errorMessage = null },
+                onValueChange = { password = it; errorMessage = null; errorField = null },
                 label = { Text("登录密码") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -202,6 +254,8 @@ fun ParentLoginScreen(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Done
                 ),
+                // [TASK-MILESTONE-V3] 需求 15 走查：键盘「完成」触发登录
+                keyboardActions = KeyboardActions(onDone = { submitLogin() }),
                 trailingIcon = {
                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
                         Icon(
@@ -211,7 +265,7 @@ fun ParentLoginScreen(
                         )
                     }
                 },
-                isError = errorMessage != null
+                isError = errorField == "password"
             )
 
             // 错误消息
@@ -220,7 +274,7 @@ fun ParentLoginScreen(
                 Text(
                     text = errorMessage!!,
                     color = MaterialTheme.colorScheme.error,
-                    fontSize = 14.sp
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
 
@@ -228,38 +282,7 @@ fun ParentLoginScreen(
 
             // 登录按钮（云端验证）
             Button(
-                onClick = {
-                    isProcessing = true
-                    errorMessage = null
-
-                    when {
-                        serverHost.isBlank() -> {
-                            errorMessage = "请填写 Web 服务地址"
-                            isProcessing = false
-                        }
-                        email.isBlank() || !email.contains("@") -> {
-                            errorMessage = "请输入有效的账号邮箱"
-                            isProcessing = false
-                        }
-                        password.isEmpty() -> {
-                            errorMessage = "请输入登录密码"
-                            isProcessing = false
-                        }
-                        else -> {
-                            // [TASK-MILESTONE-V3] 需求 3：检测旧账号残留（旧邮箱与本次登录账号不同）
-                            val newEmail = email.trim().lowercase()
-                            val boundEmail = CloudAccountManager.getBoundEmail(context)?.lowercase()
-                            if (boundEmail != null && boundEmail != newEmail) {
-                                oldEmailInput = boundEmail
-                                oldPassword = ""
-                                oldDialogError = null
-                                showOldAccountDialog = true
-                            } else {
-                                doCloudLogin()
-                            }
-                        }
-                    }
-                },
+                onClick = { submitLogin() },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
@@ -272,7 +295,7 @@ fun ParentLoginScreen(
                         strokeWidth = 2.dp
                     )
                 } else {
-                    Text("验证并进入家长端", fontSize = 16.sp)
+                    Text("验证并进入家长端", style = MaterialTheme.typography.bodyLarge)
                 }
             }
 
@@ -281,7 +304,7 @@ fun ParentLoginScreen(
             // 忘记密码引导（云端邮箱验证码重置，见 Web 端登录页）
             Text(
                 text = "忘记密码？请在 Web 3.0 登录页用邮箱验证码重置",
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
@@ -309,8 +332,7 @@ fun ParentLoginScreen(
                             "• 中继连接配置\n" +
                             "• 本机设备身份（重新生成，旧账号服务器端本机设备记录将同步解绑）\n\n" +
                             "服务器地址配置保留。需旧账号密码验证后继续。",
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp
+                        style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
@@ -327,11 +349,23 @@ fun ParentLoginScreen(
                         label = { Text("旧账号密码") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        visualTransformation = PasswordVisualTransformation()
+                        visualTransformation = if (oldPasswordVisible) VisualTransformation.None
+                            else PasswordVisualTransformation(),
+                        // [TASK-MILESTONE-V3] 需求 15 走查：与主密码框一致的可见性切换
+                        trailingIcon = {
+                            IconButton(onClick = { oldPasswordVisible = !oldPasswordVisible }) {
+                                Icon(
+                                    imageVector = if (oldPasswordVisible) Icons.Filled.VisibilityOff
+                                        else Icons.Filled.Visibility,
+                                    contentDescription = if (oldPasswordVisible) "隐藏密码" else "显示密码"
+                                )
+                            }
+                        }
                     )
                     if (oldDialogError != null) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(oldDialogError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        Text(oldDialogError!!, color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.labelMedium)
                     }
                 }
             },

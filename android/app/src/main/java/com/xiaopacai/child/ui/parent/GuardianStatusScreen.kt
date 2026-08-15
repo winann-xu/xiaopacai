@@ -94,19 +94,35 @@ fun GuardianStatusScreen(
                             Column(Modifier.padding(16.dp)) {
                                 Text("守护状态概览", fontSize = 14.sp, fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                Text("设备: ${selectedDevice.take(16)}… | 最后更新: 等待诊断数据",
+                                // [TASK-MILESTONE-V3] 需求 15 走查：诊断上报当前仅日志记录未落库
+                                // （ParentP2PListenerService），如实展示「暂无数据」，不再显示虚假状态
+                                Text("设备: ${selectedDevice.take(16)}… | 最后更新: 暂无诊断数据",
                                     fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
                             }
                         }
                     }
 
-                    // 守护状态清单（需求6）
-                    item { StatusCard("设备管理器", "device_admin", "防止未授权卸载", true) }
-                    item { StatusCard("无障碍服务", "accessibility", "应用拦截与前台检测", true) }
-                    item { StatusCard("使用情况访问", "usage_stats", "时长统计", true) }
-                    item { StatusCard("开机自启动", "boot_auto", "重启后自动恢复守护", false) }
-                    item { StatusCard("电池优化", "battery_opt", "防止后台被系统杀死", false) }
-                    item { StatusCard("通知权限", "notification", "安全告警与公告推送", true) }
+                    // [TASK-MILESTONE-V3] 需求 15 走查：此前各项硬编码 true/false（虚假状态，
+                    // 可能误导家长）。真实诊断数据落库前统一显示「待上报」并如实说明。
+                    item { StatusCard("设备管理器", "device_admin", "防止未授权卸载", null) }
+                    item { StatusCard("无障碍服务", "accessibility", "应用拦截与前台检测", null) }
+                    item { StatusCard("使用情况访问", "usage_stats", "时长统计", null) }
+                    item { StatusCard("开机自启动", "boot_auto", "重启后自动恢复守护", null) }
+                    item { StatusCard("电池优化", "battery_opt", "防止后台被系统杀死", null) }
+                    item { StatusCard("通知权限", "notification", "安全告警与公告推送", null) }
+
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text("ℹ️ 关于守护状态", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(4.dp))
+                                Text("各项权限状态需儿童端连接后上报诊断数据，当前版本尚未落库展示；" +
+                                    "请以儿童端「设置 → 权限管理」页面为准。",
+                                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                            }
+                        }
+                    }
 
                     item {
                         Card(modifier = Modifier.fillMaxWidth(),
@@ -128,13 +144,14 @@ fun GuardianStatusScreen(
 
 /**
  * 守护状态卡片
+ * @param isReady true=就绪 false=待修复 null=待上报（诊断数据未落库）
  */
 @Composable
 private fun StatusCard(
     name: String,
     key: String,
     description: String,
-    isReady: Boolean
+    isReady: Boolean?
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -147,17 +164,37 @@ private fun StatusCard(
                 Text(description, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val icon = when (isReady) {
+                    true -> Icons.Filled.CheckCircle
+                    false -> Icons.Filled.Warning
+                    null -> Icons.Filled.Info
+                }
+                val desc = when (isReady) {
+                    true -> "正常"
+                    false -> "异常"
+                    null -> "待上报"
+                }
+                val label = when (isReady) {
+                    true -> "就绪"
+                    false -> "待修复"
+                    null -> "待上报"
+                }
+                val tint = when (isReady) {
+                    true -> MaterialTheme.colorScheme.primary
+                    false -> MaterialTheme.colorScheme.error
+                    null -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
                 Icon(
-                    imageVector = if (isReady) Icons.Filled.CheckCircle else Icons.Filled.Warning,
-                    contentDescription = if (isReady) "正常" else "异常",
+                    imageVector = icon,
+                    contentDescription = desc,
                     modifier = Modifier.size(20.dp),
-                    tint = if (isReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    tint = tint
                 )
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    text = if (isReady) "就绪" else "待修复",
+                    text = label,
                     fontSize = 12.sp,
-                    color = if (isReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    color = tint,
                     fontWeight = FontWeight.Medium
                 )
             }

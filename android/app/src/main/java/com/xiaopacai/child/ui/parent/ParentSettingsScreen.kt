@@ -256,7 +256,10 @@ fun ParentSettingsScreen(
                 }
             }
 
-            // === 网页管理入口（IP + 域名双地址）===
+            // === 网页管理入口（跟随账号服务器配置，不再硬编码 IP/HTTP 明文入口） ===
+            // [TASK-MILESTONE-V3] 需求 15 走查：此前硬编码 http://8.217.165.122:5000，
+            // 明文 HTTP 传输登录凭据 + 服务器迁移后入口失效；改为从服务器配置推导，
+            // 公网域名走 HTTPS，局域网地址（HTTP 回退合法场景）才用 http
             SectionTitle("网页管理")
 
             Card(
@@ -269,17 +272,16 @@ fun ParentSettingsScreen(
                     Text("在浏览器中打开家长管理后台", fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(modifier = Modifier.height(10.dp))
+                    val savedHost = CloudAccountManager.getServerHost(context) ?: "xpc.winann.com"
+                    val savedPort = CloudAccountManager.getServerPort(context)
+                    val isLan = savedHost.startsWith("192.168.") || savedHost.startsWith("10.") ||
+                        savedHost.startsWith("172.") || savedHost == "localhost"
+                    val scheme = if (isLan) "http" else "https"
+                    val withPort = !(savedPort == 443 || savedPort == 80)
                     WebConsoleLinkRow(
-                        label = "IP 地址",
-                        url = "http://8.217.165.122:5000",
-                        display = "8.217.165.122:5000",
-                        context = context
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    WebConsoleLinkRow(
-                        label = "域名",
-                        url = "https://xpc.winann.com",
-                        display = "xpc.winann.com",
+                        label = "管理后台",
+                        url = "$scheme://$savedHost" + if (withPort) ":$savedPort" else "",
+                        display = savedHost + if (withPort) ":$savedPort" else "",
                         context = context
                     )
                 }

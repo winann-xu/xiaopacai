@@ -414,8 +414,20 @@ fun GuardianHomeContent(
                 modifier = Modifier.padding(top = 8.dp)
             )
         }
-        items(announcements) { announcement ->
-            AnnouncementCard(announcement)
+        if (announcements.isEmpty()) {
+            // [TASK-MILESTONE-V3] 需求 15 走查：公告空态占位
+            item {
+                Text(
+                    text = "暂无家长公告",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+        } else {
+            items(announcements, key = { it.id }) { announcement ->
+                AnnouncementCard(announcement)
+            }
         }
 
         // === 5. P2P 配对入口（P2P-FIX-B） ===
@@ -1055,7 +1067,8 @@ fun QuickActionButton(
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
+            // [TASK-MILESTONE-V3] 需求 15 走查：文字标签已有语义，图标描述置空避免双重播报
+            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
             Spacer(modifier = Modifier.height(4.dp))
             Text(label, fontSize = 12.sp)
         }

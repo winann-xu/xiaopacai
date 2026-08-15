@@ -8,6 +8,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -18,11 +20,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaopacai.child.data.database.ParentDao
 import com.xiaopacai.child.p2p.ChildDeviceInfo
 import com.xiaopacai.child.p2p.ParentP2PListenerService
+import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.ui.components.SystemGateDialog
 import com.xiaopacai.child.ui.components.AboutDialog
 import com.xiaopacai.child.BuildConfig
@@ -127,7 +131,11 @@ fun ParentHomeScreen(
                 if (!iface.isLoopback && iface.isUp) {
                     iface.inetAddresses.toList().forEach { addr ->
                         val host = addr.hostAddress
-                        if (host != null && !host.contains(':') && host.startsWith("192.168.") || host.startsWith("10.") || host.startsWith("172.")) {
+                        // [TASK-MILESTONE-V3] 需求 15 走查：条件优先级加括号——
+                        // 此前 10./172. 分支未排除含冒号地址（IPv6 会漏入）
+                        if (host != null && !host.contains(':') &&
+                            (host.startsWith("192.168.") || host.startsWith("10.") || host.startsWith("172."))
+                        ) {
                             ips.add(host)
                         }
                     }
@@ -417,11 +425,14 @@ private fun DeviceTab(devices: List<ChildDeviceInfo>, isServiceRunning: Boolean)
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Filled.Circle, contentDescription = null, modifier = Modifier.size(10.dp),
+                                // [TASK-MILESTONE-V3] 需求 15 走查：状态灯补读屏语义
+                                Icon(Icons.Filled.Circle, contentDescription = "在线", modifier = Modifier.size(10.dp),
                                     tint = MaterialTheme.colorScheme.primary)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column {
-                                    Text(device.deviceName, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                    // [TASK-MILESTONE-V3] 需求 15 走查：长设备名单行截断
+                                    Text(device.deviceName, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text("ID: ${device.deviceId.take(16)}…", fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
@@ -450,6 +461,12 @@ private fun DeviceTab(devices: List<ChildDeviceInfo>, isServiceRunning: Boolean)
             confirmButton = {
                 TextButton(onClick = {
                     ParentDao.unbindDevice(context, device.deviceId)
+                    // [TASK-MILESTONE-V3] 需求 15 走查：解绑当前连接设备时断开连接，
+                    // 避免 5 秒轮询把设备重新加回列表（「解绑成功」后设备依然显示）
+                    val p2p = GuardianForegroundService.getP2PConnection()
+                    if (p2p.getConnectedFingerprint() == device.certFingerprint) {
+                        p2p.disconnect()
+                    }
                     showUnbindConfirm = null
                     allDevices = ParentDao.getDevices(context)
                 }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
@@ -566,6 +583,12 @@ private fun PolicyTab() {
         val p = policy ?: run { saveMsg = "策略尚未加载"; return }
         val dev = devices.getOrNull(selectedIdx) ?: run { saveMsg = "请先选择设备"; return }
         if (!online) { saveMsg = "离线状态不可保存，请联网后重试"; return }
+        // [TASK-MILESTONE-V3] 需求 15 走查：就寝时间客户端校验（此前 "99:99" 可直接上云）
+        val timeRe = Regex("^([01]?\\d|2[0-3]):[0-5]\\d$")
+        if (!timeRe.matches(sleepStart.trim()) || !timeRe.matches(sleepEnd.trim())) {
+            saveMsg = "就寝时间格式无效（HH:mm，如 21:00）"
+            return
+        }
         scope.launch {
             isSaving = true
             saveMsg = null
@@ -607,7 +630,15 @@ private fun PolicyTab() {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f))
                     if (!online) {
-                        AssistChip(onClick = {}, label = { Text("离线数据", fontSize = 10.sp) })
+                        // [TASK-MILESTONE-V3] 需求 15 走查：不可点击徽标（AssistChip 空点击易误触）
+                        Surface(
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("离线数据", fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                        }
                         Spacer(Modifier.width(4.dp))
                     }
                     TextButton(onClick = { reloadAll() }, enabled = !loading) { Text("刷新", fontSize = 12.sp) }
@@ -661,14 +692,19 @@ private fun PolicyTab() {
                 // 每日限额
                 item { PolicyCard("每日使用限额", Icons.Filled.Timer) {
                     Text("$dailyLimit 分钟/天", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    Slider(value = dailyLimit.toFloat(), onValueChange = { dailyLimit = it.toInt() }, valueRange = 30f..480f)
+                    // [TASK-MILESTONE-V3] 需求 15 走查：离线禁改——表单控件一并禁用，
+                    // 防止恢复联网后误提交离线期间改动的值
+                    Slider(value = dailyLimit.toFloat(), onValueChange = { dailyLimit = it.toInt() },
+                        valueRange = 30f..480f, enabled = online)
                 }}
                 // 就寝时段
                 item { PolicyCard("就寝时段", Icons.Filled.Bedtime) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(sleepStart, { sleepStart = it }, label = { Text("开始") }, modifier = Modifier.weight(1f), singleLine = true)
+                        OutlinedTextField(sleepStart, { sleepStart = it }, label = { Text("开始") },
+                            modifier = Modifier.weight(1f), singleLine = true, enabled = online)
                         Text("—")
-                        OutlinedTextField(sleepEnd, { sleepEnd = it }, label = { Text("结束") }, modifier = Modifier.weight(1f), singleLine = true)
+                        OutlinedTextField(sleepEnd, { sleepEnd = it }, label = { Text("结束") },
+                            modifier = Modifier.weight(1f), singleLine = true, enabled = online)
                     }
                 }}
                 // [TASK-MILESTONE-V3] 需求 9：分类限额本期隐藏（A8：后端保留，前端不展示，默认 -1 不限）
@@ -680,7 +716,7 @@ private fun PolicyTab() {
                         Triple("none","仅提醒","不强制停用")
                     ).forEach { (mode, title, desc) ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.Top) {
-                            RadioButton(selected = stopMode == mode, onClick = { stopMode = mode })
+                            RadioButton(selected = stopMode == mode, onClick = { stopMode = mode }, enabled = online)
                             Spacer(Modifier.width(8.dp))
                             Column { Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium); Text(desc, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
@@ -838,7 +874,15 @@ private fun AnnouncementTab() {
             Text(if (syncing) "正在同步…" else if (online) "已与服务器同步" else "离线数据 · 本地缓存",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             if (!online) {
-                AssistChip(onClick = {}, label = { Text("离线数据", fontSize = 10.sp) })
+                // [TASK-MILESTONE-V3] 需求 15 走查：不可点击徽标
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("离线数据", fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                }
                 Spacer(Modifier.width(4.dp))
             }
             TextButton(onClick = { syncFromServer() }, enabled = !syncing) { Text("刷新", fontSize = 12.sp) }
@@ -853,11 +897,18 @@ private fun AnnouncementTab() {
         if (announcements.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.Campaign, null, Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-                    Text(if (online) "暂无公告" else "离线且无本地缓存", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = { showEditor = true; editingAnnouncement = null },
-                        enabled = online) { Text("+ 新建公告") }
+                    // [TASK-MILESTONE-V3] 需求 15 走查：首屏同步中显示加载指示，避免误判为空公告
+                    if (syncing) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(12.dp))
+                        Text("正在同步公告…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Icon(Icons.Filled.Campaign, null, Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                        Text(if (online) "暂无公告" else "离线且无本地缓存", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(onClick = { showEditor = true; editingAnnouncement = null },
+                            enabled = online) { Text("+ 新建公告") }
+                    }
                 }
             }
         } else {
@@ -875,8 +926,18 @@ private fun AnnouncementTab() {
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(a.optString("title", "无标题"), fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                                AssistChip(onClick = {}, label = { Text(statusLabel(status), fontSize = 10.sp) })
+                                // [TASK-MILESTONE-V3] 需求 15 走查：长标题单行截断 + 状态改不可点击徽标
+                                Text(a.optString("title", "无标题"), fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Spacer(Modifier.width(8.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(statusLabel(status), fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                                }
                             }
                             val priority = a.optInt("priority")
                             Text(listOf("普通","重要","紧急")[priority.coerceIn(0,2)], fontSize = 12.sp,
@@ -1059,7 +1120,15 @@ private fun ReportTab() {
             Text(if (online) "已与服务器同步" else "离线数据 · 本地缓存",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             if (!online) {
-                AssistChip(onClick = {}, label = { Text("离线数据", fontSize = 10.sp) })
+                // [TASK-MILESTONE-V3] 需求 15 走查：不可点击徽标
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("离线数据", fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                }
                 Spacer(Modifier.width(4.dp))
             }
             TextButton(onClick = { load() }, enabled = !loading) { Text("刷新", fontSize = 12.sp) }
@@ -1126,7 +1195,8 @@ private fun ReportTab() {
                 }
                 if (categories.isNotEmpty()) {
                     item { Text("分类占比", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
-                    items(categories, key = { it.optString("key", it.optString("name")) }) { c ->
+                    // [TASK-MILESTONE-V3] 需求 15 走查：重名分类（多条「其他」）键重复崩溃，改用索引键
+                    itemsIndexed(categories, key = { index, _ -> index }) { _, c ->
                         val pct = c.optDouble("percent", 0.0)
                         Card(Modifier.fillMaxWidth()) {
                             Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

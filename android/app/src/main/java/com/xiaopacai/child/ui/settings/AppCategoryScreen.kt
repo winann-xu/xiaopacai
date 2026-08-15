@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlinx.coroutines.launch
@@ -29,7 +30,6 @@ import com.xiaopacai.child.util.AppCategoryHelper
 import com.xiaopacai.child.util.CategoryTaxonomy
 import com.xiaopacai.child.util.DbPassphraseProvider
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -63,7 +63,8 @@ class AppCategoryActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            XiaopacaiTheme(darkTheme = false) {
+            // [TASK-MILESTONE-V3] 需求 15 走查：跟随系统深色（与主界面一致）
+            XiaopacaiTheme {
                 AppCategoryScreen(onBack = { finish() })
             }
         }
@@ -86,6 +87,9 @@ fun AppCategoryScreen(onBack: () -> Unit) {
     // [REQ] 一键自动分类状态
     var autoClassifying by remember { mutableStateOf(false) }
     var autoClassifyMessage by remember { mutableStateOf<String?>(null) }
+    // [TASK-MILESTONE-V3] 需求 15 走查：加载异常兜底（此前 DB/口令异常直接崩溃且 loading 卡死）
+    var loadError by remember { mutableStateOf(false) }
+    var reloadKey by remember { mutableIntStateOf(0) }
 
     val filteredItems = items.filter {
         searchText.isBlank() ||
@@ -123,6 +127,24 @@ fun AppCategoryScreen(onBack: () -> Unit) {
                     Text("正在加载应用列表…", fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            } else if (loadError) {
+                // [TASK-MILESTONE-V3] 需求 15 走查：错误态（DB/口令异常，可点击重试）
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("加载失败", fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.height(4.dp))
+                    Text("数据库或口令异常，请重试", fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = {
+                        loading = true
+                        loadError = false
+                        reloadKey++
+                    }) { Text("重试") }
+                }
             } else if (items.isEmpty()) {
                 // 空状态：安装应用扫描失败或列表为空
                 Column(
@@ -149,7 +171,8 @@ fun AppCategoryScreen(onBack: () -> Unit) {
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             placeholder = { Text("搜索应用名或包名") },
-                            leadingIcon = { Text("🔍") }
+                            // [TASK-MILESTONE-V3] 需求 15 走查：图标替代 emoji（读屏不播报乱码）
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
                         )
                     }
 
@@ -262,26 +285,32 @@ fun AppCategoryScreen(onBack: () -> Unit) {
         }
     }
 
-    // 页面加载：初始化分类表并读取全量数据
-    LaunchedEffect(Unit) {
-        val passphrase = DbPassphraseProvider.getPassphrase(context)
-        withContext(Dispatchers.IO) {
-            // 1. 扫描已安装应用，生成默认分类（幂等）
-            AppCategoryHelper.ensureInitialized(context, passphrase)
-            // 2. 读取全量分类数据
-            val dao = AppCategoryDao(com.xiaopacai.child.XiaopacaiApp.instance.database)
-            val installed = AppCategoryHelper.getInstalledPackages(context)
-            val rows = dao.getAll(passphrase)
-            items = rows.mapNotNull { row ->
-                val packageName = row["packageName"]?.toString() ?: return@mapNotNull null
-                val appName = row["appName"]?.toString() ?: packageName
-                CategoryItem(
-                    packageName = packageName,
-                    appName = appName,
-                    category = row["category"]?.toString() ?: "other",
-                    source = row["source"]?.toString() ?: "default"
-                )
-            }.filter { it.packageName in installed }.sortedBy { it.appName }
+    // 页面加载：初始化分类表并读取全量数据（reloadKey 变化触发重试）
+    LaunchedEffect(reloadKey) {
+        try {
+            val passphrase = DbPassphraseProvider.getPassphrase(context)
+            withContext(Dispatchers.IO) {
+                // 1. 扫描已安装应用，生成默认分类（幂等）
+                AppCategoryHelper.ensureInitialized(context, passphrase)
+                // 2. 读取全量分类数据
+                val dao = AppCategoryDao(com.xiaopacai.child.XiaopacaiApp.instance.database)
+                val installed = AppCategoryHelper.getInstalledPackages(context)
+                val rows = dao.getAll(passphrase)
+                items = rows.mapNotNull { row ->
+                    val packageName = row["packageName"]?.toString() ?: return@mapNotNull null
+                    val appName = row["appName"]?.toString() ?: packageName
+                    CategoryItem(
+                        packageName = packageName,
+                        appName = appName,
+                        category = row["category"]?.toString() ?: "other",
+                        source = row["source"]?.toString() ?: "default"
+                    )
+                }.filter { it.packageName in installed }.sortedBy { it.appName }
+            }
+            loadError = false
+        } catch (e: Exception) {
+            android.util.Log.e("AppCategory", "加载分类列表失败: ${e.message}")
+            loadError = true
         }
         loading = false
     }

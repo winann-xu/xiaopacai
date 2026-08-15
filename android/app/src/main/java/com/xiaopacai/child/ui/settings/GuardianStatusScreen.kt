@@ -22,6 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -55,7 +57,8 @@ class GuardianStatusActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            XiaopacaiTheme(darkTheme = false) {
+            // [TASK-MILESTONE-V3] 需求 15 走查：跟随系统深色（与主界面一致）
+            XiaopacaiTheme {
                 GuardianStatusScreen(onBack = { finish() })
             }
         }
@@ -215,7 +218,9 @@ fun GuardianStatusScreen(onBack: () -> Unit) {
                                     if (it) "诊断上报已开启" else "诊断上报已关闭",
                                     Toast.LENGTH_SHORT
                                 ).show()
-                            }
+                            },
+                            // [TASK-MILESTONE-V3] 需求 15 走查：开关补读屏语义
+                            modifier = Modifier.semantics { contentDescription = "诊断上报开关" }
                         )
                     }
                     Text(

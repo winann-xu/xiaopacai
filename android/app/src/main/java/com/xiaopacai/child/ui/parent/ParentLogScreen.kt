@@ -1,5 +1,6 @@
 package com.xiaopacai.child.ui.parent
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,7 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -71,7 +72,6 @@ fun ParentLogScreen(onBack: () -> Unit) {
     var fileSize by remember { mutableStateOf(AppLog.fileSizeBytes(context)) }
     var showClearConfirm by remember { mutableStateOf(false) }
     var uploading by remember { mutableStateOf(false) }
-    var notice by remember { mutableStateOf<String?>(null) }
 
     val bound = remember { CloudAccountManager.isBound(context) }
     val lastUploadTs = remember { LogUploader.lastUploadTs(context) }
@@ -90,8 +90,9 @@ fun ParentLogScreen(onBack: () -> Unit) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
+                // [TASK-MILESTONE-V3] 需求 15 走查：与其他家长端页面统一 primaryContainer 顶栏
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
                 ),
             )
         }
@@ -126,7 +127,8 @@ fun ParentLogScreen(onBack: () -> Unit) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {
                             clipboard.setText(AnnotatedString(AppLog.exportText()))
-                            notice = "已复制全部日志到剪贴板"
+                            // [TASK-MILESTONE-V3] 需求 15 走查：反馈改用 Toast（与全局风格一致）
+                            Toast.makeText(context, "已复制全部日志到剪贴板", Toast.LENGTH_SHORT).show()
                         }, modifier = Modifier.weight(1f)) { Text("复制全部", fontSize = 13.sp) }
                         OutlinedButton(onClick = { showClearConfirm = true }, modifier = Modifier.weight(1f)) {
                             Text("清空", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
@@ -136,12 +138,13 @@ fun ParentLogScreen(onBack: () -> Unit) {
                                 if (uploading) return@Button
                                 uploading = true
                                 scope.launch {
-                                    notice = when (val r = LogUploader.uploadNow(context)) {
+                                    val msg = when (val r = LogUploader.uploadNow(context)) {
                                         is LogUploader.UploadResult.Ok ->
                                             if (r.uploaded > 0) "已上传 ${r.uploaded} 条日志到 Web" else "无新日志可上传"
                                         is LogUploader.UploadResult.Err -> r.message
                                         LogUploader.UploadResult.Skipped -> "未登录家长账号，无法上传"
                                     }
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                     uploading = false
                                 }
                             },
@@ -149,15 +152,13 @@ fun ParentLogScreen(onBack: () -> Unit) {
                             modifier = Modifier.weight(1f)
                         ) { Text(if (uploading) "上传中…" else "上传云端", fontSize = 13.sp) }
                     }
-                    if (notice != null) {
-                        Text(notice!!, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-                    }
                 }
             }
 
             // ===== 日志列表（最新在前，滚动查看） =====
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(entries, key = { "${it.ts}-${it.level}-${it.tag}-${it.msg}" }) { e ->
+                // [TASK-MILESTONE-V3] 需求 15 走查：同毫秒同内容日志会键重复崩溃，改用索引键
+                itemsIndexed(entries, key = { index, _ -> index }) { _, e ->
                     LogRow(e)
                 }
             }
@@ -173,7 +174,7 @@ fun ParentLogScreen(onBack: () -> Unit) {
                 TextButton(onClick = {
                     AppLog.clear()
                     refresh()
-                    notice = "日志已清空"
+                    Toast.makeText(context, "日志已清空", Toast.LENGTH_SHORT).show()
                     showClearConfirm = false
                 }) { Text("清空", color = MaterialTheme.colorScheme.error) }
             },
@@ -195,14 +196,15 @@ private fun LogRow(e: AppLog.Entry) {
             modifier = Modifier.padding(top = 2.dp)
         )
         Spacer(Modifier.width(6.dp))
+        val lc = levelColor(e.level)
         Text(
             e.level,
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace,
-            color = levelColor(e.level),
+            color = lc,
             modifier = Modifier
-                .background(levelColor(e.level).copy(alpha = 0.12f), RoundedCornerShape(3.dp))
+                .background(lc.copy(alpha = 0.12f), RoundedCornerShape(3.dp))
                 .padding(horizontal = 4.dp, vertical = 1.dp)
         )
         Spacer(Modifier.width(6.dp))
@@ -215,11 +217,13 @@ private fun LogRow(e: AppLog.Entry) {
     }
 }
 
+// [TASK-MILESTONE-V3] 需求 15 走查：改用主题语义色（深浅色自适应，暗色下对比度达标）
+@Composable
 private fun levelColor(level: String) = when (level) {
-    AppLog.LEVEL_ERROR -> androidx.compose.ui.graphics.Color(0xFFD32F2F)
-    AppLog.LEVEL_WARN -> androidx.compose.ui.graphics.Color(0xFFF57C00)
-    AppLog.LEVEL_DEBUG -> androidx.compose.ui.graphics.Color(0xFF757575)
-    else -> androidx.compose.ui.graphics.Color(0xFF2E7D32)
+    AppLog.LEVEL_ERROR -> MaterialTheme.colorScheme.error
+    AppLog.LEVEL_WARN -> MaterialTheme.colorScheme.tertiary
+    AppLog.LEVEL_DEBUG -> MaterialTheme.colorScheme.onSurfaceVariant
+    else -> MaterialTheme.colorScheme.primary
 }
 
 private fun formatTime(ts: Long): String =

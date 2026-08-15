@@ -72,7 +72,7 @@ fun AboutText(modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(4.dp))
-        // 官网域名（可点击打开）
+        // 官网域名（可点击打开；Compose 1.5 无 Role.Link，读屏可正常播报文案本身）
         Text(
             "官网：xpc.winann.com",
             style = MaterialTheme.typography.bodySmall,

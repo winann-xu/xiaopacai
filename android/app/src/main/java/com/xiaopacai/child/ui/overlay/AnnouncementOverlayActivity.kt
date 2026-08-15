@@ -9,7 +9,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -246,10 +248,9 @@ private fun UrgentAnnouncementScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 紧急标识
+            // 紧急标识（固定头部）
             Text(text = "🚨", fontSize = 56.sp)
             Spacer(modifier = Modifier.height(12.dp))
             Text(
@@ -266,17 +267,24 @@ private fun UrgentAnnouncementScreen(
                 modifier = Modifier.padding(top = 4.dp)
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // 公告内容卡片
+            // [TASK-MILESTONE-V3] 需求 15 走查（P0）：内容区弹性+可滚动，
+            // 长公告/大字体下「我知道了」按钮固定在底部，不会出现死锁
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
                 colors = CardDefaults.cardColors(
                     containerColor = Color.White.copy(alpha = 0.18f)
                 ),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Column(modifier = Modifier.padding(20.dp)) {
+                Column(
+                    modifier = Modifier
+                        .padding(20.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
                     Text(
                         text = title,
                         fontSize = 18.sp,
@@ -293,9 +301,9 @@ private fun UrgentAnnouncementScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // 确认按钮（唯一关闭通道）
+            // 确认按钮（唯一关闭通道，固定底部）
             Button(
                 onClick = onConfirm,
                 modifier = Modifier
