@@ -132,6 +132,31 @@ internal fun httpDeleteJson(
 }
 
 /**
+ * [TASK-MILESTONE-V3] 需求 10：策略保存用 PUT（带 expectedVersion 乐观并发）。
+ * [SEC-P1] HTTPS 优先 + 局域网回退。
+ * @return Triple(状态码, 响应体, 错误体)；非 2xx 时错误体承载服务端返回（如 409 的最新策略）
+ */
+internal fun httpPutJson(
+    host: String, port: Int, path: String, body: String, token: String?
+): Triple<Int, String, String> {
+    return httpWithHttpsFirst(host, port) { base ->
+        val conn = URL("$base$path").openConnection() as HttpURLConnection
+        conn.requestMethod = "PUT"
+        conn.setRequestProperty("Content-Type", "application/json")
+        if (token != null) conn.setRequestProperty("Authorization", "Bearer $token")
+        conn.doOutput = true
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+        OutputStreamWriter(conn.outputStream).use { it.write(body) }
+        val code = conn.responseCode
+        val resp = if (code in 200..299) conn.inputStream.bufferedReader().readText() else ""
+        val err = if (code in 200..299) ""
+            else try { conn.errorStream?.bufferedReader()?.readText() ?: "" } catch (_: Exception) { "" }
+        Triple(code, resp, err)
+    }
+}
+
+/**
  * [SEC-P1] HTTPS 优先 + 局域网回退的 JSON GET。
  * @return Triple(状态码, 响应体, 错误体)
  */

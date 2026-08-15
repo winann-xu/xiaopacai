@@ -29,15 +29,33 @@
   - 新增 `LocalDataWipe`：儿童端+家长端业务表全清（audit 表保留）、Web 凭据、中继配置、设备身份
   - 换账号清理增加服务端本机设备同步解绑（verify-password 操作令牌 + DELETE /api/devices，尽力而为）
   - 清除后三处核对：数据库行数=0 / 配置文件键不存在 / UI 回到未绑定（设置页展示核对清单）
+- 需求 10：家长端策略/公告与 Web 双向同步（ADR 0013，D5 服务端权威；服务端复用既有接口，无改动）
+  - 新增 `ParentCloudSync` 云端同步层：设备列表 / 策略 GET+PUT / 公告 CRUD+发布撤回 / 报告拉取
+  - 策略：按设备配置（服务端账号设备列表），PUT 携带 expectedVersion（A2 乐观并发），
+    409 冲突采纳服务端最新并提示；白名单/黑名单自 GET 的 DTO 原样回传（服务端整体覆盖语义）
+  - 公告：在线全量镜像本地表（web- 前缀），新建/编辑/发布/撤回/删除全走服务端；
+    撤回后可直接再发布（服务端发布不限前置状态）
+  - LAN 直连通道保留：策略保存后写本地镜像（replacePoliciesForDevice，type 级替换），
+    公告发布后补充 LAN 推送（id 与服务端一致去重，紧急 requiresAck）
+  - 离线：快照缓存只读 + 「离线数据」标注，策略/公告离线禁改，联网刷新即同步
+- 需求 11：报告与 Web 同步（ADR 0013，口径完全一致）
+  - 今天=日报 / 7 天=周报 / 30 天=导出聚合；总时长为原始累计口径（UI 明示与 Web 一致）
+  - 新增「今日已用（调整后）」卡片：设备列表合计（调整后已用/限额/剩余/重置偏移，
+    与 Web 设备页同源同口径）
+  - 分类展示名与占比由服务端计算下发；离线展示快照缓存并标注「离线数据」
 
 ### 移除
 - 需求 6：初始化/登录流程中的 ADB/运行命令提示（PermissionGuideScreen 电脑 ADB 一键授权卡片）
 - 需求 8：家长端「电脑 ADB 一条命令快速指南」入口（ParentAdbGuideScreen 删除）
 - 需求 9：家长端分类限额 UI（入口隐藏，保存强制 -1 不限；后端逻辑保留）
+- 需求 10：未接线的三个旧独立页面（ParentPolicyScreen / ParentAnnouncementScreen /
+  ParentReportScreen，功能已并入主页 Tab，删除避免行为分叉）
 
 ### 修复
 - 关于页年份写死 2024 → 动态年份
 - 登录失败文案笼统 → 按原因细分，家长可自查网络/地址/HTTPS 配置
+- 需求 10：公告本地镜像 priority 解析——服务端字符串（normal/important/urgent）被
+  optInt 恒读为 0，紧急/重要公告降级为普通，改为显式映射
 - 需求 5：上滑结束小趴菜后管控失效（ADR 0012）
   - GuardianAlarmReceiver 补 AndroidManifest 声明（此前漏注册，AlarmManager 兜底链路静默失效）
   - onTaskRemoved 抢先注册 5 秒系统侧恢复闹钟（不随进程消亡），恢复后立即重放采集重新拦截

@@ -186,6 +186,51 @@ object ParentDao {
         }
     }
 
+    /**
+     * [TASK-MILESTONE-V3] 需求 10：按设备镜像服务端策略（LAN 握手下发源）。
+     *
+     * 服务端为权威，本表作为「该设备当前策略」的本地镜像：同 policyType 下
+     * 清除旧全局行（target_device_id=''，历史遗留）与本设备旧行，再写入
+     * target_device_id=<childDeviceId> 的新行；其他设备的行不受影响。
+     *
+     * @param rows (policyType, policyName, policyData) 列表
+     */
+    fun replacePoliciesForDevice(
+        context: Context,
+        targetDeviceId: String,
+        rows: List<Triple<String, String, JSONObject>>
+    ) {
+        if (rows.isEmpty()) return
+        try {
+            val db = getDb(context)
+            db.beginTransaction()
+            try {
+                val now = System.currentTimeMillis() / 1000
+                for ((type, name, data) in rows) {
+                    db.execSQL(
+                        "DELETE FROM parent_policies WHERE policy_type = ? AND (target_device_id = '' OR target_device_id = ?)",
+                        arrayOf(type, targetDeviceId)
+                    )
+                    val id = UUID.randomUUID().toString()
+                    db.execSQL("""
+                        INSERT INTO parent_policies
+                        (policy_id, policy_type, policy_name, policy_data, target_device_id, is_active, version, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)
+                    """.trimIndent(), arrayOf(
+                        id, type, name, data.toString(), targetDeviceId, now, now
+                    ))
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+            db.close()
+            Log.i(TAG, "设备策略本地镜像已更新: $targetDeviceId (${rows.size} 项)")
+        } catch (e: Exception) {
+            Log.e(TAG, "更新设备策略镜像失败: ${e.message}")
+        }
+    }
+
     // ==================== 公告管理 ====================
 
     /**
@@ -533,7 +578,13 @@ object ParentDao {
                 val serverId = o.optLong("id", 0)
                 val title = o.optString("title", "")
                 val content = o.optString("content", "")
-                val priority = o.optInt("priority", 0)
+                // [TASK-MILESTONE-V3] 需求 10：服务端 priority 为字符串（normal/important/urgent），
+                // 本地表存 int（0/1/2），此处显式映射（此前 optInt 对字符串恒返回 0，紧急公告降级为普通）
+                val priority = when (o.optString("priority", "normal")) {
+                    "urgent" -> 2
+                    "important" -> 1
+                    else -> 0
+                }
                 val status = o.optString("status", "draft")
                 val targetDeviceId = o.opt("targetDeviceId")?.toString() ?: ""
                 val validFrom = parseIsoToEpochSeconds(o.optString("validFrom", ""))
