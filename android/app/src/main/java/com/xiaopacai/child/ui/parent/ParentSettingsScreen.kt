@@ -285,7 +285,10 @@ fun ParentSettingsScreen(
                 }
             }
 
-            // === Web 云端中继（需求3）===
+            // === Web 云端中继 ===
+            // [TASK-MILESTONE-V3] 需求 13（D3 决策）：对普通家长隐藏，仅 admin 可见；
+            // 服务端自动中继不受影响；非 admin 已保存的中继配置继续生效，仅隐藏配置入口
+            if (CloudAccountManager.isAdmin(context)) {
             SectionTitle("Web 云端中继")
 
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -389,6 +392,7 @@ fun ParentSettingsScreen(
                     }
                 }
             }
+            } // [TASK-MILESTONE-V3] 需求 13：中继设置 admin 门控结束
 
             // === P2P 服务 ===
             SectionTitle("P2P 监听服务")

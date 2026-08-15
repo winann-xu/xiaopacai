@@ -122,7 +122,7 @@ fun PermissionGuideScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // [REQ] 外部授权自动检测：家长用电脑执行 ADB 命令（或从系统设置手动开）时，
+    // 外部授权自动检测：家长从系统设置手动开启权限时，
     // 本页每 2 秒自动刷新状态；全部就绪后无需任何操作，直接进入儿童端。
     LaunchedEffect(Unit) {
         while (true) {
@@ -210,57 +210,8 @@ fun PermissionGuideScreen(
         }
         Spacer(modifier = Modifier.height(16.dp))
 
-        // [REQ] 最快方式：电脑 ADB 一键授权（已在 OPPO/ColorOS 真机验证）
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer
-            )
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Computer, null, Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "最快方式：电脑 ADB 一键授权（约 30 秒）",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "手机开启「开发者选项-USB调试」或用「无线调试」连电脑后，把下面命令复制到电脑执行，全部权限即刻开通。本页每 2 秒自动检测，全部开通后自动进入儿童端。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                val adbCmds = buildString {
-                    appendLine("adb shell pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS")
-                    appendLine("adb shell appops set ${context.packageName} GET_USAGE_STATS allow")
-                    appendLine("adb shell dumpsys deviceidle whitelist +${context.packageName}")
-                    appendLine("adb shell settings put secure enabled_accessibility_services ${context.packageName}/.service.GuardianAccessibilityService")
-                    appendLine("adb shell settings put secure accessibility_enabled 1")
-                }.trimEnd()
-                Text(
-                    text = adbCmds,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(onClick = {
-                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-                        as android.content.ClipboardManager
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("adb", adbCmds))
-                    Toast.makeText(context, "ADB 命令已复制，请粘贴到电脑终端执行", Toast.LENGTH_LONG).show()
-                }) {
-                    Text("复制 ADB 命令")
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(16.dp))
+        // [TASK-MILESTONE-V3] 需求 6：删除初始化流程「电脑 ADB 一键授权」卡片（D4 决策：
+        // 普通用户界面一律不出现 ADB/命令/调试提示；测试通道由 debug 构建的 DebugTriggerActivity 承担）
 
         PermissionCard(
             icon = Icons.Default.Timer,

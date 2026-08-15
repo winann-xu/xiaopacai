@@ -28,6 +28,8 @@ object CloudAccountManager {
     const val KEY_WEB_HOST = "web_host"
     const val KEY_WEB_PORT = "web_port"
     const val KEY_ALLOW_HTTP = "allow_http"
+    // [TASK-MILESTONE-V3] 需求 13：账号角色（登录响应 user.role），用于中继设置等 admin 功能门控
+    const val KEY_ACCOUNT_ROLE = "account_role"
 
     /** 网络登录客户端（可注入替换，便于单元测试网络失败路径） */
     var loginClient: CloudLoginClient = HttpCloudLoginClient
@@ -101,6 +103,14 @@ object CloudAccountManager {
     fun isBound(context: Context): Boolean = getBoundEmail(context) != null
 
     /**
+     * [TASK-MILESTONE-V3] 需求 13：当前账号角色（登录时保存；未登录/旧数据返回 null，按普通家长处理）
+     */
+    fun getAccountRole(context: Context): String? =
+        prefs(context).getString(KEY_ACCOUNT_ROLE, null)?.takeIf { it.isNotBlank() }
+
+    fun isAdmin(context: Context): Boolean = getAccountRole(context) == "admin"
+
+    /**
      * 读取已保存的 JWT（KeyStore 加密存储，读取时解密；无则 null）
      */
     fun getToken(context: Context): String? =
@@ -110,12 +120,13 @@ object CloudAccountManager {
             ?.takeIf { it.isNotBlank() }
 
     /**
-     * 清除账号绑定（JWT + 邮箱；保留服务器地址配置）
+     * 清除账号绑定（JWT + 邮箱 + 角色；保留服务器地址配置）
      */
     fun clearAccount(context: Context) {
         prefs(context).edit()
             .remove(KEY_WEB_TOKEN)
             .remove(KEY_ACCOUNT_EMAIL)
+            .remove(KEY_ACCOUNT_ROLE)
             .apply()
         Log.i(TAG, "云端账号绑定已清除")
     }
@@ -152,11 +163,16 @@ object CloudAccountManager {
                 }
                 // [SEC-K5] JWT 仅用于数据同步接口鉴权；密码不落盘
                 val normalized = email.trim().lowercase()
+                // [TASK-MILESTONE-V3] 需求 13：保存账号角色（user.role），用于 admin 功能门控
+                val role = try {
+                    JSONObject(respBody).optJSONObject("user")?.optString("role", "")
+                } catch (e: Exception) { "" }
                 prefs(context).edit()
                     .putString(KEY_WEB_TOKEN, KeyStoreManager.encryptPrefsValue(token))
                     .putString(KEY_ACCOUNT_EMAIL, normalized)
+                    .putString(KEY_ACCOUNT_ROLE, role)
                     .apply()
-                Log.i(TAG, "云端验证成功: $normalized")
+                Log.i(TAG, "云端验证成功: $normalized (role=$role)")
                 LoginResult.Success(normalized)
             }
             code == 401 -> LoginResult.Failed("邮箱或密码错误")
