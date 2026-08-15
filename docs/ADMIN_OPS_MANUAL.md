@@ -1,6 +1,6 @@
 # 小趴菜系统 · 管理员运维手册
 
-> 版本：V1.0 ｜ 更新日期：2026-08-15 ｜ 适用：阿里云公网生产 + 本机预发布（50.11）
+> 版本：V1.1 ｜ 更新日期：2026-08-15 ｜ 适用：阿里云公网生产 + 本机预发布（50.11）
 > 维护约定：**每次系统升级/部署后必须同步更新本文档**（版本号 + 变更记录 + 相关命令/路径变化）。
 > 凭据策略：本文档不写任何明文密码/密钥；需要时从 `/etc/xiaopacai-web.env`（服务器）或
 > `C:/Users/winann/.codex/skills/xiaopacai-collab/references/current-state.md`（本地技能库）读取。
@@ -12,6 +12,7 @@
 | 版本 | 日期 | 变更内容 | 维护人 |
 |---|---|---|---|
 | V1.0 | 2026-08-15 | 初版：架构/日常运维/升级/备份/安全/排障/巡检/监控 | Codex |
+| V1.1 | 2026-08-15 | 公网域名 `xpc.winann.com` + HTTPS 反代（nginx）已启用；邮箱验证已启用；管理端邮件配置；管理员引导创建说明 | Codex |
 
 > 后续每次发版，在“第九章 附录 B”追加记录，并同步修订正文。
 
@@ -31,7 +32,7 @@
 
 | 环境 | 地址 | 说明 |
 |---|---|---|
-| 阿里云公网生产 | 8.217.165.122 | Web `:5000`、P2P `:9527`；部署目录 `/opt/xiaopacai/app` |
+| 阿里云公网生产 | `https://xpc.winann.com`（nginx 反代） | 入口 443/80 → 本机 `127.0.0.1:5000`；P2P `:9527` 直连；部署目录 `/opt/xiaopacai/app`；IP 直连 `http://8.217.165.122:5000` 仍可用（待收敛） |
 | 本机预发布 | 192.168.50.11 | 部署目录 `/home/winann/xiaopacai-web`；Web `:5000`、P2P `:9527` |
 | 开发机 | 192.168.50.53（Claude）/ 50.20（Codex） | 源码与测试 |
 
@@ -57,9 +58,9 @@ systemd 服务：`xiaopacai-web`。
 
 | 端口 | 用途 | 公网暴露 | 备注 |
 |---|---|---|---|
-| 5000 | Web/API | 当前是 | HTTPS 部署后应收敛为 443 反代 |
+| 443/80 | HTTPS/HTTP（nginx 反代） | 是 | 已启用 `xpc.winann.com`；HTTP 80 当前返回 200，建议改为 301 跳转 HTTPS |
+| 5000 | Web/API（Kestrel 直连） | 当前是 | 建议安全组收敛为仅 nginx 本机来源（127.0.0.1） |
 | 9527 | P2P TLS | 当前是 | 建议后续按来源白名单收敛 |
-| 443/80 | HTTPS | 待部署 | 域名/证书就绪后启用（R3.1） |
 
 ---
 
@@ -74,7 +75,9 @@ curl -s http://127.0.0.1:5000/api/health
 python3 -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:5000/api/health').read().decode())"
 ```
 
-正常返回：`{"status":"healthy","version":"3.0.0-p2",...}`。公网从外部访问 `http://8.217.165.122:5000/api/health` 同理。
+正常返回：`{"status":"healthy","version":"3.0.0-p2",...}`。
+公网入口：`https://xpc.winann.com/api/health`（经 nginx 反代，HSTS 已启用）；
+本机直连：`http://127.0.0.1:5000/api/health`；IP 直连：`http://8.217.165.122:5000/api/health`。
 
 ### 2.2 服务管理
 
@@ -131,11 +134,12 @@ sqlite3 $DB "SELECT action,COUNT(*) FROM audit_logs WHERE CreatedAt>=datetime('n
 ```bash
 ls -lh /opt/xiaopacai/app/wwwroot/downloads/
 md5sum /opt/xiaopacai/app/wwwroot/downloads/*.apk
-# 公网抽查
-curl -sI http://8.217.165.122:5000/downloads/XiaopacaiParent-1.0.0-debug.apk   # 期望 200
+# 公网抽查（域名反代入口）
+curl -sI https://xpc.winann.com/downloads/<最新 Release APK 文件名>   # 期望 200
 ```
 
-> 当前 APK 为 ABI 拆分（arm64-v8a / armeabi-v7a / x86_64）的 Release 签名包；下载中心文件名与页面引用必须一致。
+> 当前 APK 为 ABI 拆分（arm64-v8a / armeabi-v7a / x86_64）的 Release 签名包（旧 debug 已删除）；
+> 下载中心文件名与页面引用必须一致。
 
 ### 2.7 公告 / 策略推送验证
 
@@ -152,6 +156,25 @@ sqlite3 $DB "SELECT Id,Action,TargetType,TargetId,CreatedAt FROM audit_logs ORDE
 - 当前已知缺口：P2P 限速拒绝帧缺少 `error_code`，客户端可能无限重试并把来源 IP 锁 5 分钟+。
 - **在修复完成前，不要用模拟器/脚本频繁连生产 P2P**；真机扫码绑定失败时先等服务端修复（见待办）。
 - 若 IP 被锁：停止客户端重试并等待冷却，或由管理员在服务器侧清理限速计数（修复后提供正式接口/命令）。
+
+### 2.9 邮箱验证与邮件配置（已启用）
+
+注册流程（邮箱验证码）：
+1. 用户在 Web 注册页输入邮箱 → 调用 `POST /api/auth/email-code` 发送 6 位验证码。
+2. 用户查收邮件（含发件人、验证码、有效期）→ 注册时提交 `code` 完成账号创建。
+3. 验证码有有效期与限频（按 IP/小时 + 按邮箱/小时），发送/成功/失败均写入审计。
+
+邮件通道配置（管理员）：
+
+| 接口 | 说明 |
+|---|---|
+| `GET  /api/admin/mail-config` | 查看配置（Secret 脱敏） |
+| `PUT  /api/admin/mail-config` | 保存配置（热生效；Secret 留空=不变） |
+| `POST /api/admin/mail-config/test` | 发送测试邮件 |
+
+- 通道：`api`（阿里云 DirectMail）或 `smtp`；配置项含 SMTP Host/Port/User/SSL；密钥走加密存储（SecretCrypto 主密钥），不回显。
+- 审计关键字：`email_code_sent` / `email_code_send_failed` / `email_code_rate_limited` / `email_code_unconfigured` / `mail_config_update` / `mail_config_test`。
+- 常见故障：收不到验证码 → 先查审计 `email_code_send_failed` 与邮件通道配置；再查垃圾箱/发信限额；最后 `POST /api/admin/mail-config/test` 验证通道。
 
 ---
 
@@ -281,7 +304,9 @@ curl -s http://127.0.0.1:5000/api/health
 
 ### 5.1 账号口令
 
-- 默认口令（admin/admin123、parent/parent123）必须已改强；公网实例已确认 admin 由用户管理、parent 已改强。
+- 注册：新家长账号通过邮箱注册，必须填写邮箱验证码（`/api/auth/email-code`），未验证邮箱不能注册。
+- 管理员引导创建：`users` 表为空时不再播种默认账号；须配置环境变量
+  `ADMIN_EMAIL` + `ADMIN_INITIAL_PASSWORD` 才会创建管理员（`MustChangePassword=true`，首次登录强制改密）。
 - 定期（建议 90 天）轮换；改密走 Web“设置 → 修改密码”（httpOnly Cookie 会话）。
 - 忘记密码：Web 忘记密码 → 家长端 App 扫码确认；admin 重置需服务器/数据库人工处理。
 - 审计：登录失败、改密失败必须能在 `audit_logs` 查到。
@@ -298,13 +323,14 @@ sudo ls -l /opt/xiaopacai/app/Data/certs/
 
 ### 5.3 网络安全
 
-- 阿里云安全组建议最小化：5000/9527 仅放行必要来源（或经 HTTPS 反代收敛）；443/80 待域名就绪开放。
-- HTTPS 部署（待办 R3.1）：证书 → nginx/caddy 反代 5000 → 强制跳转 → HSTS。
+- **HTTPS/反代已启用**：`xpc.winann.com` 经 nginx/1.24 反代到 `127.0.0.1:5000`，HSTS 已开启（30 天）。
+- 建议后续：HTTP 80 → 301 跳转 HTTPS；阿里云安全组将 5000 收敛为仅 nginx 本机来源、9527 按来源白名单。
 - 服务器本机：`sudo ufw status`；仅开放必要端口；禁 root 远程登录建议。
 
 ### 5.4 P2P 安全
 
-- TLS 指纹固定：阿里云 P2P 证书指纹 `562ecbc2e8872b1119849640aa53c6a98a2118107ba66e7454104c30fe7ccab8`；
+- TLS 指纹固定：阿里云 P2P 证书指纹（2026-08-15 清库重装后已更新）
+  `a518ac3b57130ec697e9927de23d4bf69388f844651c6ea46404bb0157ca449e`；
   客户端换服务器/证书后必须重新配对，否则拒绝连接（fingerprint_mismatch）。
 - 配对码：6 位、一次性、限流；已配对设备重连免码按指纹放行（scan-fix 已合入）。
 - 解绑/换绑：Web 解绑会清空归属与配对码，可重新扫码绑定。
@@ -421,12 +447,18 @@ sqlite3 /opt/xiaopacai/app/Data/xiaopacai.db "PRAGMA integrity_check;"
 # 服务与日志
 sudo systemctl {status|restart|stop|start} xiaopacai-web
 sudo journalctl -u xiaopacai-web -f
+# 反代（nginx）
+sudo nginx -t && sudo systemctl reload nginx
+curl -sI https://xpc.winann.com/api/health
 # 健康与端口
+curl -s https://xpc.winann.com/api/health
 curl -s http://127.0.0.1:5000/api/health
 sudo ss -ltnp | grep -E ':5000|:9527'
 # 数据库
 DB=/opt/xiaopacai/app/Data/xiaopacai.db
 sqlite3 $DB "PRAGMA integrity_check;"
+# 邮件配置（mail_config 表）
+sqlite3 $DB "SELECT Id,Channel,IsConfigured,SmtpHost,SmtpPort,LastTestAt FROM mail_config;"
 # 审计
 sqlite3 $DB "SELECT CreatedAt,UserId,Action,Detail FROM audit_logs ORDER BY Id DESC LIMIT 50;"
 ```
@@ -436,15 +468,19 @@ sqlite3 $DB "SELECT CreatedAt,UserId,Action,Detail FROM audit_logs ORDER BY Id D
 | 日期 | 系统版本 | 手册版本 | 变更摘要 | 操作人 |
 |---|---|---|---|---|
 | 2026-08-15 | 3.0.0-p2 | V1.0 | 初版手册 | Codex |
+| 2026-08-15 | 3.0.0-p2 | V1.1 | 域名 xpc.winann.com + HTTPS 反代、邮箱验证与邮件配置运维 | Codex |
 
 ### C. 待办安全/运维项
 
+- [x] HTTPS + 域名 `xpc.winann.com`（R3.1，2026-08-15 已启用）
+- [ ] HTTP 80 → 301 跳转 HTTPS
+- [ ] 生产 5000 端口收敛（仅 nginx 本机来源）
 - [ ] 生产数据库加密（R6.2）
-- [ ] HTTPS + 域名 `xpc.winann.com`（R3.1）
 - [ ] SEC-K3 限速自锁修复与复测
 - [ ] 生产 P2P 端口来源白名单
 - [ ] 监控告警落地（探针/磁盘/审计）
 - [ ] 备份加密与异机存储落地
+- [ ] 邮件通道可用性与发信限额巡检（每月）
 
 ---
 
