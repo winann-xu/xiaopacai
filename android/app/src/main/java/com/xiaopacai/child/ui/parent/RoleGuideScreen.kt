@@ -3,6 +3,8 @@ package com.xiaopacai.child.ui.parent
 import androidx.compose.material3.ExperimentalMaterial3Api
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.SupervisorAccount
@@ -35,7 +37,9 @@ fun RoleGuideScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(32.dp),
+            .padding(32.dp)
+            // [TASK-MILESTONE-V3] 需求 15 走查：小屏/大字体下可滚动，底部内容不被裁剪
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {

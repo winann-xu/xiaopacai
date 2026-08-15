@@ -10,8 +10,10 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -184,83 +186,93 @@ private fun BlockOverlayScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // === 2. 标题（淡入） ===
-            AnimatedVisibility(
-                visible = iconVisible,
-                enter = fadeIn(animationSpec = tween(500)) +
-                        slideInVertically { it / 4 }
+            // [TASK-MILESTONE-V3] 需求 15 走查：中段弹性+可滚动，
+            // 长原因文案/大字体下按钮组固定在底部，避免不可达
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "应用已停用",
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = reason,
-                        fontSize = 15.sp,
-                        color = Color.White.copy(alpha = 0.85f),
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // === 3. 使用情况卡片（滑入） ===
-            AnimatedVisibility(
-                visible = cardVisible,
-                enter = fadeIn(tween(400)) +
-                        slideInVertically(tween(400)) { it / 3 }
-            ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color.White.copy(alpha = 0.18f)
-                    ),
-                    shape = RoundedCornerShape(16.dp)
+                // === 2. 标题（淡入） ===
+                AnimatedVisibility(
+                    visible = iconVisible,
+                    enter = fadeIn(animationSpec = tween(500)) +
+                            slideInVertically { it / 4 }
                 ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "今日使用",
-                            fontSize = 13.sp,
-                            color = Color.White.copy(alpha = 0.75f)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "$usedMinutes / $limitMinutes 分钟",
+                            text = "应用已停用",
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        // 进度条
-                        LinearProgressIndicator(
-                            progress = (usedMinutes.toFloat() / limitMinutes.coerceAtLeast(1)).coerceIn(0f, 1f),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp)),
                             color = Color.White,
-                            trackColor = Color.White.copy(alpha = 0.25f),
+                            textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "限额已用完，请休息一下",
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.65f)
+                            text = reason,
+                            fontSize = 15.sp,
+                            color = Color.White.copy(alpha = 0.85f),
+                            textAlign = TextAlign.Center
                         )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // === 3. 使用情况卡片（滑入） ===
+                AnimatedVisibility(
+                    visible = cardVisible,
+                    enter = fadeIn(tween(400)) +
+                            slideInVertically(tween(400)) { it / 3 }
+                ) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color.White.copy(alpha = 0.18f)
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "今日使用",
+                                fontSize = 13.sp,
+                                color = Color.White.copy(alpha = 0.75f)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "$usedMinutes / $limitMinutes 分钟",
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            // 进度条
+                            LinearProgressIndicator(
+                                progress = (usedMinutes.toFloat() / limitMinutes.coerceAtLeast(1)).coerceIn(0f, 1f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = Color.White,
+                                trackColor = Color.White.copy(alpha = 0.25f),
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "限额已用完，请休息一下",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.65f)
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // === 4. 按钮组（依次淡入） ===
             AnimatedVisibility(
@@ -314,7 +326,7 @@ private fun BlockOverlayScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // === 5. 底部品牌标识（始终可见） ===
             Text(

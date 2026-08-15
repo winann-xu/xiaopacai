@@ -1,11 +1,46 @@
 // [TASK-D1-02] APP 模块构建脚本
 // 小趴菜儿童端 — 应用级构建配置
 
+import java.time.LocalDate
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.kapt")  // 用于 Room 注解处理
 }
+
+// === [TASK-MILESTONE-V3] 需求 1：版本号联动 Git tag（语义化版本） ===
+// versionName 构建时自动读取当前 Git tag（无 tag 的开发构建用 dev-短哈希）；
+// versionCode 由 tag 语义化版本推导：major*10000 + minor*100 + patch，保证单调递增。
+// 规范见 docs/VERSIONING.md；升级流程：更新 CHANGELOG → 打 tag（如 v1.1.0）→ 构建。
+fun execGit(vararg args: String): String? = try {
+    // 在仓库根目录执行 git；git 不可用/失败/无输出时返回 null（构建不因此失败）
+    // 注意必须检查退出码：git describe 无 tag 时会在 stdout 输出 fatal 错误文本
+    val proc = ProcessBuilder(listOf("git") + args)
+        .directory(rootProject.projectDir)
+        .redirectErrorStream(true)
+        .start()
+    val out = proc.inputStream.bufferedReader().readText().trim()
+    if (proc.waitFor() != 0 || out.isEmpty()) null else out
+} catch (_: Exception) { null }
+
+// 当前 HEAD 的精确 tag（如 v1.1.0）；无精确 tag 返回 null
+val gitTag: String? = execGit("describe", "--tags", "--exact-match")?.removePrefix("v")
+// 短提交哈希（dev 版本号与 BuildConfig 记录用）
+val gitCommit: String = execGit("rev-parse", "--short", "HEAD") ?: "unknown"
+
+// 语义化版本 → versionCode：major*10000 + minor*100 + patch（v1.1.0 → 10100）
+fun semverToVersionCode(version: String): Int {
+    val parts = version.split(".").map { it.toIntOrNull() ?: 0 }
+    return (parts.getOrElse(0) { 0 }) * 10000 + (parts.getOrElse(1) { 0 }) * 100 + (parts.getOrElse(2) { 0 })
+}
+
+// 无 tag 的开发构建兜底 versionCode：固定为 1，保证任何正式发布包（≥10000）都能覆盖升级
+val devFallbackVersionCode = 1
+// 正式版本号：打 tag 后由 tag 推导；未打 tag 用 dev-短哈希 标识开发包
+val appVersionName: String = gitTag ?: "dev-$gitCommit"
+val appVersionCode: Int = if (gitTag != null) semverToVersionCode(gitTag) else devFallbackVersionCode
+// === 版本号联动结束 ===
 
 android {
     namespace = "com.xiaopacai.child"
@@ -15,10 +50,16 @@ android {
         applicationId = "com.xiaopacai.child"
         minSdk = 26  // Android 8.0，保证前台服务与通知渠道支持
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"  // [TASK-D3-06] 首版正式发布
+        versionCode = appVersionCode
+        versionName = appVersionName  // [TASK-MILESTONE-V3] 版本号联动 Git tag（docs/VERSIONING.md）
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // [TASK-MILESTONE-V3] 版本信息注入 BuildConfig（关于页展示、日志上报带版本）
+        buildConfigField("String", "VERSION_NAME", "\"$appVersionName\"")
+        buildConfigField("int", "VERSION_CODE", "$appVersionCode")
+        buildConfigField("String", "GIT_COMMIT", "\"$gitCommit\"")
+        buildConfigField("String", "BUILD_TIME", "\"${LocalDate.now()}\"")
 
         // 向量图标兼容
         vectorDrawables {

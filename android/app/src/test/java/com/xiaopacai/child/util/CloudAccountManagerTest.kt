@@ -135,4 +135,50 @@ class CloudAccountManagerTest {
         assertEquals("网络不可用，家长身份验证需要联网",
             (result as CloudAccountManager.LoginResult.Failed).reason)
     }
+
+    // ==================== [TASK-MILESTONE-V3] 132 信：登录失败文案细分 ====================
+
+    /** 模拟设备有可用网络（activeNetwork + capabilities 均非空） */
+    private fun mockContextWithNetwork(webPrefs: SharedPreferences): Context {
+        val context = mockContext(webPrefs)
+        val cm = mock(android.net.ConnectivityManager::class.java)
+        `when`(cm.activeNetwork).thenReturn(mock(android.net.Network::class.java))
+        `when`(cm.getNetworkCapabilities(org.mockito.ArgumentMatchers.any()))
+            .thenReturn(mock(android.net.NetworkCapabilities::class.java))
+        `when`(context.getSystemService(Context.CONNECTIVITY_SERVICE)).thenReturn(cm)
+        return context
+    }
+
+    @Test
+    fun loginNetworkError_httpsRequired_copy() {
+        val context = mockContextWithNetwork(mockPrefs())
+        val e = CloudConnectionException(CloudConnectionException.Kind.HTTPS_REQUIRED)
+        assertEquals("服务器未启用 HTTPS 或地址有误",
+            CloudAccountManager.loginNetworkErrorMessage(context, e))
+    }
+
+    @Test
+    fun loginNetworkError_cannotConnect_copy() {
+        val context = mockContextWithNetwork(mockPrefs())
+        val e = CloudConnectionException(CloudConnectionException.Kind.CANNOT_CONNECT)
+        assertEquals("无法连接服务器，请检查 Web 服务地址与网络",
+            CloudAccountManager.loginNetworkErrorMessage(context, e))
+    }
+
+    @Test
+    fun loginNetworkError_noNetwork_copy() {
+        // mock 无 ConnectivityManager（activeNetwork=null）→ 纯网络不可用文案
+        val context = mockContext(mockPrefs())
+        val e = java.io.IOException("no network")
+        assertEquals("网络不可用，家长身份验证需要联网",
+            CloudAccountManager.loginNetworkErrorMessage(context, e))
+    }
+
+    @Test
+    fun loginNetworkError_genericException_fallsBackToCannotConnect() {
+        val context = mockContextWithNetwork(mockPrefs())
+        val e = RuntimeException("unexpected")
+        assertEquals("无法连接服务器，请检查 Web 服务地址与网络",
+            CloudAccountManager.loginNetworkErrorMessage(context, e))
+    }
 }

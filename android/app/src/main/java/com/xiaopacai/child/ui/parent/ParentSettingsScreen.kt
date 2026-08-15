@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.xiaopacai.child.p2p.P2PConnectionService
 import com.xiaopacai.child.p2p.ParentP2PListenerService
 import com.xiaopacai.child.BuildConfig
+import com.xiaopacai.child.ui.components.AboutText
 import com.xiaopacai.child.ui.scan.QrScannerActivity
 import com.xiaopacai.child.util.CloudAccountManager
 import com.xiaopacai.child.util.httpGetJson
@@ -255,7 +256,10 @@ fun ParentSettingsScreen(
                 }
             }
 
-            // === 网页管理入口（IP + 域名双地址）===
+            // === 网页管理入口（跟随账号服务器配置，不再硬编码 IP/HTTP 明文入口） ===
+            // [TASK-MILESTONE-V3] 需求 15 走查：此前硬编码 http://8.217.165.122:5000，
+            // 明文 HTTP 传输登录凭据 + 服务器迁移后入口失效；改为从服务器配置推导，
+            // 公网域名走 HTTPS，局域网地址（HTTP 回退合法场景）才用 http
             SectionTitle("网页管理")
 
             Card(
@@ -268,23 +272,25 @@ fun ParentSettingsScreen(
                     Text("在浏览器中打开家长管理后台", fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(modifier = Modifier.height(10.dp))
+                    val savedHost = CloudAccountManager.getServerHost(context) ?: "xpc.winann.com"
+                    val savedPort = CloudAccountManager.getServerPort(context)
+                    val isLan = savedHost.startsWith("192.168.") || savedHost.startsWith("10.") ||
+                        savedHost.startsWith("172.") || savedHost == "localhost"
+                    val scheme = if (isLan) "http" else "https"
+                    val withPort = !(savedPort == 443 || savedPort == 80)
                     WebConsoleLinkRow(
-                        label = "IP 地址",
-                        url = "http://8.217.165.122:5000",
-                        display = "8.217.165.122:5000",
-                        context = context
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    WebConsoleLinkRow(
-                        label = "域名",
-                        url = "https://xpc.winann.com",
-                        display = "xpc.winann.com",
+                        label = "管理后台",
+                        url = "$scheme://$savedHost" + if (withPort) ":$savedPort" else "",
+                        display = savedHost + if (withPort) ":$savedPort" else "",
                         context = context
                     )
                 }
             }
 
-            // === Web 云端中继（需求3）===
+            // === Web 云端中继 ===
+            // [TASK-MILESTONE-V3] 需求 13（D3 决策）：对普通家长隐藏，仅 admin 可见；
+            // 服务端自动中继不受影响；非 admin 已保存的中继配置继续生效，仅隐藏配置入口
+            if (CloudAccountManager.isAdmin(context)) {
             SectionTitle("Web 云端中继")
 
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -388,6 +394,7 @@ fun ParentSettingsScreen(
                     }
                 }
             }
+            } // [TASK-MILESTONE-V3] 需求 13：中继设置 admin 门控结束
 
             // === P2P 服务 ===
             SectionTitle("P2P 监听服务")
@@ -419,14 +426,18 @@ fun ParentSettingsScreen(
             )
 
             // === 关于 ===
+            // [TASK-MILESTONE-V3] 需求 7：关于统一组件（版本号跟随 Git，年份动态，官网可点击）
             SectionTitle("关于")
 
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    InfoRow("应用版本", "小趴菜 2.2（双角色 · OPT12）")
+                    InfoRow("应用版本", "v${BuildConfig.VERSION_NAME}（版本码 ${BuildConfig.VERSION_CODE}）")
                     InfoRow("数据库", "SQLCipher AES-256 加密")
                     InfoRow("P2P 协议", "TLS 1.3/1.2 + JSON 帧")
                     InfoRow("开源协议", "Apache-2.0")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // 双端统一关于内容（含动态年份与可点击官网）
+                    AboutText()
                 }
             }
 
@@ -497,6 +508,8 @@ fun ParentSettingsScreen(
         var resetError by remember { mutableStateOf<String?>(null) }
         var resetBusy by remember { mutableStateOf(false) }
         var resetDone by remember { mutableStateOf(false) }
+        // [TASK-MILESTONE-V3] 需求 4：清除后三处核对结果（数据库/配置文件/UI 回到未绑定）
+        var resetVerified by remember { mutableStateOf<List<String>>(emptyList()) }
 
         AlertDialog(
             onDismissRequest = { if (!resetBusy && !resetDone) showAccountReset = false },
@@ -504,10 +517,17 @@ fun ParentSettingsScreen(
             text = {
                 Column {
                     if (resetDone) {
-                        Text("已清除登录凭据、绑定关系与本地数据。将返回登录页，请绑定新账号。",
-                            fontSize = 14.sp)
+                        Text("已清除旧账号数据并完成三处核对：", fontSize = 14.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        resetVerified.forEach { v ->
+                            Text(v, fontSize = 12.sp,
+                                color = if (v.startsWith("✗")) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("将返回登录页，请绑定新账号。", fontSize = 14.sp)
                     } else {
-                        Text("此操作将清除：Web 登录凭据、中继绑定、设备注册、公告、策略与使用记录。需云端验证账号邮箱与密码（离线时无法清除）。",
+                        Text("此操作将清除旧账号的全部数据：公告、策略、应用分类、使用记录与报告缓存、Web 登录凭据、中继配置；本机设备身份将重置（重绑生成全新身份），旧账号服务器端本机设备记录同步解绑。服务器地址配置保留。需旧账号邮箱与密码验证（离线时无法清除）。",
                             fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedTextField(
@@ -544,7 +564,10 @@ fun ParentSettingsScreen(
                                 withContext(Dispatchers.Main) {
                                     resetBusy = false
                                     when (result) {
-                                        is ParentAccountReset.ResetResult.Success -> resetDone = true
+                                        is ParentAccountReset.ResetResult.Success -> {
+                                            resetVerified = result.verified
+                                            resetDone = true
+                                        }
                                         is ParentAccountReset.ResetResult.Failed -> resetError = result.reason
                                     }
                                 }

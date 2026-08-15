@@ -92,6 +92,10 @@ class TimeoutExecutor(private val context: Context) {
     ) {
         Log.w(TAG, "=== 超时停用触发 === 模式: $stopMode, 已用: ${usedMinutes}分钟/${limitMinutes}分钟")
 
+        // 0. [TASK-MILESTONE-V3] 需求 5：管控生效打标（进程被杀后恢复链路依据此标记
+        //    立即重放采集与恢复通知）
+        markEnforcement(true, stopMode)
+
         // 1. 记录超时事件到数据库
         logTimeoutEvent("timeout_start", stopMode, mapOf(
             "usedMinutes" to usedMinutes,
@@ -149,11 +153,30 @@ class TimeoutExecutor(private val context: Context) {
     private fun onTimeoutEnded(stopMode: String) {
         Log.i(TAG, "超时停用已解除，模式: $stopMode")
 
+        // [TASK-MILESTONE-V3] 需求 5：管控解除打标（恢复链路不再重放）
+        markEnforcement(false, null)
+
         // 记录解除事件
         logTimeoutEvent("timeout_end", stopMode, emptyMap())
 
         // 关闭封锁界面（如果正在显示）
         dismissBlockOverlay()
+    }
+
+    /**
+     * [TASK-MILESTONE-V3] 需求 5：管控生效标记（guardian_prefs）。
+     * 进程被结束后 GuardianForegroundService/GuardianAlarmReceiver 依据该标记
+     * 立即重放采集恢复拦截，并选择「管控重新生效」通知文案。
+     */
+    private fun markEnforcement(active: Boolean, mode: String?) {
+        try {
+            val editor = context.getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE).edit()
+            editor.putBoolean("enforcement_active", active)
+            if (mode != null) editor.putString("enforcement_mode", mode)
+            editor.apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "管控标记写入失败: ${e.message}")
+        }
     }
 
     /**

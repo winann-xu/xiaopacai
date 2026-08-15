@@ -21,6 +21,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -122,7 +124,7 @@ fun PermissionGuideScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // [REQ] 外部授权自动检测：家长用电脑执行 ADB 命令（或从系统设置手动开）时，
+    // 外部授权自动检测：家长从系统设置手动开启权限时，
     // 本页每 2 秒自动刷新状态；全部就绪后无需任何操作，直接进入儿童端。
     LaunchedEffect(Unit) {
         while (true) {
@@ -184,9 +186,11 @@ fun PermissionGuideScreen(
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(8.dp))
+        // [TASK-MILESTONE-V3] 需求 15 走查：进度条补读屏语义
         LinearProgressIndicator(
             progress = doneCount / 4f,
             modifier = Modifier.fillMaxWidth().height(8.dp)
+                .semantics { contentDescription = "权限进度 $doneCount/4" }
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -210,57 +214,8 @@ fun PermissionGuideScreen(
         }
         Spacer(modifier = Modifier.height(16.dp))
 
-        // [REQ] 最快方式：电脑 ADB 一键授权（已在 OPPO/ColorOS 真机验证）
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer
-            )
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Computer, null, Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "最快方式：电脑 ADB 一键授权（约 30 秒）",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "手机开启「开发者选项-USB调试」或用「无线调试」连电脑后，把下面命令复制到电脑执行，全部权限即刻开通。本页每 2 秒自动检测，全部开通后自动进入儿童端。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                val adbCmds = buildString {
-                    appendLine("adb shell pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS")
-                    appendLine("adb shell appops set ${context.packageName} GET_USAGE_STATS allow")
-                    appendLine("adb shell dumpsys deviceidle whitelist +${context.packageName}")
-                    appendLine("adb shell settings put secure enabled_accessibility_services ${context.packageName}/.service.GuardianAccessibilityService")
-                    appendLine("adb shell settings put secure accessibility_enabled 1")
-                }.trimEnd()
-                Text(
-                    text = adbCmds,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(onClick = {
-                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-                        as android.content.ClipboardManager
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("adb", adbCmds))
-                    Toast.makeText(context, "ADB 命令已复制，请粘贴到电脑终端执行", Toast.LENGTH_LONG).show()
-                }) {
-                    Text("复制 ADB 命令")
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(16.dp))
+        // [TASK-MILESTONE-V3] 需求 6：删除初始化流程「电脑 ADB 一键授权」卡片（D4 决策：
+        // 普通用户界面一律不出现 ADB/命令/调试提示；测试通道由 debug 构建的 DebugTriggerActivity 承担）
 
         PermissionCard(
             icon = Icons.Default.Timer,
@@ -360,6 +315,24 @@ fun PermissionGuideScreen(
             )
         }
 
+        // [TASK-MILESTONE-V3] 需求 5：能力边界如实说明（上滑结束/强制停止）
+        Spacer(modifier = Modifier.height(12.dp))
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Text(
+                text = "能力边界说明：Android 不允许任何应用阻止用户手动结束进程。\n" +
+                    "• 孩子在最近任务上滑结束小趴菜：守护会在约 5 秒内自动恢复并重新执行管控，同时通知家长；\n" +
+                    "• 在系统设置中「强制停止」小趴菜：系统会一并取消恢复机制，需重新打开小趴菜才能恢复守护（打开即恢复并通知家长）。\n" +
+                    "完成以上授权（尤其「忽略电池优化」与「自启动」）可显著降低被系统结束的概率。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+
         Spacer(modifier = Modifier.height(32.dp))
     }
 }
@@ -441,6 +414,8 @@ private fun openPermissionSettings(
             context.startActivity(fallback())
         } catch (e2: Exception) {
             Log.e("PermissionGuide", "回退打开应用详情失败: ${e2.message}")
+            // [TASK-MILESTONE-V3] 需求 15 走查：双失败时用户无感知，补提示（不再静默卡死）
+            Toast.makeText(context, "无法打开系统设置，请手动前往设置开启", Toast.LENGTH_LONG).show()
         }
     }
 }

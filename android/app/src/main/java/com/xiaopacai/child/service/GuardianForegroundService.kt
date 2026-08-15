@@ -38,6 +38,23 @@ class GuardianForegroundService : Service() {
         private const val TAG = "GuardianService"
         private const val NOTIFICATION_ID = 1001
 
+        /** [TASK-MILESTONE-V3] 需求 5：心跳键与判定阈值（超过即视为进程曾被结束） */
+        private const val PREFS_GUARDIAN = "guardian_prefs"
+        private const val KEY_HEARTBEAT_MS = "guardian_heartbeat_ms"
+        private const val KEY_BOOT_EPOCH = "guardian_boot_epoch"
+        private const val KEY_SWIPE_PENDING = "swipe_recover_pending"
+        const val KILL_GAP_MS = 5 * 60 * 1000L   // 5 分钟无心跳 = 曾被杀死
+        private const val HEARTBEAT_INTERVAL_MS = 60 * 1000L
+
+        /** 心跳间隔超阈值即判定进程曾被结束（纯函数，便于单元测试） */
+        fun isKillRecovery(lastHeartbeatMs: Long, nowMs: Long): Boolean =
+            lastHeartbeatMs > 0 && nowMs - lastHeartbeatMs > KILL_GAP_MS
+
+        /** 管控是否曾生效（TimeoutExecutor 打标） */
+        fun isEnforcementActive(context: Context): Boolean =
+            context.getSharedPreferences(PREFS_GUARDIAN, Context.MODE_PRIVATE)
+                .getBoolean("enforcement_active", false)
+
         /** 采集器实例（静态，跨服务重启保持） */
         @Volatile
         private var collector: UsageStatsCollector? = null
@@ -125,7 +142,84 @@ class GuardianForegroundService : Service() {
         // 4. 启动通知更新定时器（每 2 分钟刷新通知显示）
         startNotificationUpdater()
 
+        // 5. [TASK-MILESTONE-V3] 需求 5：心跳打标 + 进程被杀检测
+        startHeartbeat()
+        detectKillRecovery()
+
+        // 6. [TASK-MILESTONE-V3] 需求 5：管控曾生效时立即重放采集（快速恢复拦截，
+        //    不等 30 秒初始延迟——上滑结束后被拦截应用恢复可用的窗口越短越好）
+        if (isEnforcementActive(this)) {
+            Log.i(TAG, "检测到管控曾生效，立即重放采集以快速恢复拦截")
+            serviceScope.launch(Dispatchers.IO) {
+                runCatching { collector?.collectAndPersist() }
+                    .onFailure { Log.e(TAG, "重放采集失败: ${it.message}") }
+            }
+        }
+
         return START_STICKY  // 服务被杀后自动重启
+    }
+
+    /**
+     * [TASK-MILESTONE-V3] 需求 5：每分钟心跳打标（供杀进程检测）
+     */
+    private fun startHeartbeat() {
+        serviceScope.launch {
+            while (isActive) {
+                val prefs = getSharedPreferences(PREFS_GUARDIAN, MODE_PRIVATE)
+                prefs.edit()
+                    .putLong(KEY_HEARTBEAT_MS, System.currentTimeMillis())
+                    .putLong(KEY_BOOT_EPOCH, currentBootEpoch())
+                    .apply()
+                delay(HEARTBEAT_INTERVAL_MS)
+            }
+        }
+    }
+
+    /** 本机开机时刻（epoch 毫秒）：用于区分「设备重启」与「进程被杀」 */
+    private fun currentBootEpoch(): Long =
+        System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
+
+    /**
+     * [TASK-MILESTONE-V3] 需求 5：进程被杀检测（非上滑路径——上滑路径由
+     * GuardianAlarmReceiver 通知，避免重复；此处覆盖 OEM 后台杀/异常杀）
+     */
+    private fun detectKillRecovery() {
+        try {
+            val prefs = getSharedPreferences(PREFS_GUARDIAN, MODE_PRIVATE)
+            val pendingSwipe = prefs.getBoolean(KEY_SWIPE_PENDING, false)
+            if (pendingSwipe) return  // 上滑恢复通知由 AlarmReceiver 负责
+            val lastHeartbeat = prefs.getLong(KEY_HEARTBEAT_MS, 0L)
+            // 设备重启导致的心跳间隔属正常（开机自启恢复），不误报为「被杀」
+            val lastBootEpoch = prefs.getLong(KEY_BOOT_EPOCH, -1L)
+            if (lastBootEpoch >= 0 && lastBootEpoch != currentBootEpoch()) {
+                Log.i(TAG, "设备重启后恢复（开机自启），跳过被杀检测")
+                return
+            }
+            if (!isKillRecovery(lastHeartbeat, System.currentTimeMillis())) return
+
+            Log.w(TAG, "检测到守护进程曾被结束（心跳间隔超阈值），已恢复")
+            val wasEnforcing = isEnforcementActive(this)
+            AntiBypassService.notifySecurityEvent(
+                this,
+                "守护已自动恢复" + if (wasEnforcing) "，管控重新生效" else "",
+                "检测到小趴菜后台进程曾被系统结束" +
+                    if (wasEnforcing) "（期间管控可能短暂失效）" else "" +
+                    "，守护已自动恢复。建议在系统设置中允许自启动并关闭电池优化。"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "杀进程检测失败: ${e.message}")
+        }
+    }
+
+    /**
+     * [TASK-MILESTONE-V3] 需求 5：上滑结束进程时抢先注册系统侧恢复闹钟。
+     * 说明：无法阻止进程被杀（Android 能力边界），但恢复闹钟在系统侧不随进程消亡，
+     * 5 秒后拉起守护；管控曾生效时恢复后立即重新拦截并通知。
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.i(TAG, "检测到上滑结束小趴菜（onTaskRemoved），注册恢复闹钟")
+        GuardianAlarmReceiver.scheduleSwipeRecovery(this)
+        super.onTaskRemoved(rootIntent)
     }
 
     /**

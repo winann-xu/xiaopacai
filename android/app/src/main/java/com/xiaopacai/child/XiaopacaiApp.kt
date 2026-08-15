@@ -6,7 +6,9 @@ import android.app.NotificationManager
 import android.os.Build
 import android.util.Log
 import com.xiaopacai.child.data.database.AppDatabase
+import com.xiaopacai.child.util.AppLog
 import com.xiaopacai.child.util.KeyStoreManager
+import com.xiaopacai.child.util.LogUploader
 
 /**
  * [TASK-D3-02] 小趴菜儿童端 Application
@@ -24,6 +26,9 @@ class XiaopacaiApp : Application() {
         super.onCreate()
         instance = this
 
+        // [TASK-MILESTONE-V3] 需求 14：运行日志环形缓冲初始化（越早越好，覆盖全生命周期）
+        AppLog.init(this)
+
         // 1. 初始化加密数据库 [TASK-D3-02] 使用 KeyStore 密钥
         initDatabase()
 
@@ -36,7 +41,12 @@ class XiaopacaiApp : Application() {
             com.xiaopacai.child.service.DiagnosticsCollector.start(this)
         } catch (e: Exception) {
             Log.e(TAG, "诊断采集初始化失败: ${e.message}")
+            AppLog.e("App", "诊断采集初始化失败", e)
         }
+
+        // [TASK-MILESTONE-V3] 需求 14：日志自动上传（每 6 小时，未登录账号时快速跳过）
+        LogUploader.schedulePeriodic(this)
+        AppLog.i("App", "应用启动 v${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）")
     }
 
     /**

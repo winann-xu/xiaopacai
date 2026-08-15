@@ -38,12 +38,14 @@ import com.xiaopacai.child.p2p.rejectionHintText
 import com.xiaopacai.child.p2p.isRateLimitedRejectionCode
 import com.xiaopacai.child.BuildConfig
 import com.xiaopacai.child.ui.components.SystemGateDialog
+import com.xiaopacai.child.ui.components.AboutDialog
 import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.service.UsageStatsCollector
 import com.xiaopacai.child.ui.settings.AppCategoryActivity
 import com.xiaopacai.child.ui.settings.GuardianStatusActivity
 import com.xiaopacai.child.ui.scan.QrScannerActivity
 import com.xiaopacai.child.ui.parent.QrCodeGenerator
+import com.xiaopacai.child.util.LocalDataWipe
 import org.json.JSONObject
 
 /**
@@ -120,6 +122,19 @@ fun GuardianHomeContent(
     var showParentPwd by remember { mutableStateOf(false) }
     var pendingProtectedAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
+    // [TASK-MILESTONE-V3] 需求 3：儿童端换绑前旧账号残留确认（本地业务数据/旧绑定信息）
+    var pendingRebindAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    /** 配对入口统一把关：有旧残留先弹确认（确认后全清），无残留静默重置设备身份（D2 新身份） */
+    fun requestPairing(action: () -> Unit) {
+        if (LocalDataWipe.hasChildResidue(context)) {
+            pendingRebindAction = action
+        } else {
+            LocalDataWipe.resetDeviceIdentitySilently(context)
+            action()
+        }
+    }
+
     fun handleQrScanResult(text: String) {
         try {
             val obj = JSONObject(text)
@@ -134,28 +149,32 @@ fun GuardianHomeContent(
                         scanMessage = "二维码缺少可连接地址"
                         return
                     }
-                    val prefs = context.getSharedPreferences("guardian_prefs", android.content.Context.MODE_PRIVATE)
-                    val deviceId = prefs.getString("device_id", null) ?: java.util.UUID.randomUUID().toString()
-                    val scope = kotlinx.coroutines.CoroutineScope(
-                        kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()
-                    )
-                    scope.launch {
-                        GuardianForegroundService.getP2PConnection().connect(
-                            host = host,
-                            port = port,
-                            // [SEC-P1] 二维码携带可信指纹（Web 3.0 已下发）时固定比对；
-                            // 旧服务端二维码无指纹时仅扫码引导流程允许 TOFU（红线 R3.x）
-                            expectedFingerprint = fp.ifBlank { null },
-                            deviceId = deviceId,
-                            deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim(),
-                            pairingCode = code,
-                            // [REQ] web_relay 二维码 → 经 Web 中继连接（否则服务器不登记中继会话，无法路由）
-                            isRelay = obj.optString("type") == "web_relay",
-                            allowTofu = fp.isBlank(),
-                            scope = scope
+                    // [TASK-MILESTONE-V3] 需求 3：旧残留确认后再连接；device_id 在清除后读取（全新身份）
+                    val action = {
+                        val prefs = context.getSharedPreferences("guardian_prefs", android.content.Context.MODE_PRIVATE)
+                        val deviceId = prefs.getString("device_id", null) ?: java.util.UUID.randomUUID().toString()
+                        val scope = kotlinx.coroutines.CoroutineScope(
+                            kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()
                         )
+                        scope.launch {
+                            GuardianForegroundService.getP2PConnection().connect(
+                                host = host,
+                                port = port,
+                                // [SEC-P1] 二维码携带可信指纹（Web 3.0 已下发）时固定比对；
+                                // 旧服务端二维码无指纹时仅扫码引导流程允许 TOFU（红线 R3.x）
+                                expectedFingerprint = fp.ifBlank { null },
+                                deviceId = deviceId,
+                                deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim(),
+                                pairingCode = code,
+                                // [REQ] web_relay 二维码 → 经 Web 中继连接（否则服务器不登记中继会话，无法路由）
+                                isRelay = obj.optString("type") == "web_relay",
+                                allowTofu = fp.isBlank(),
+                                scope = scope
+                            )
+                        }
+                        scanMessage = "已通过扫码连接家长端 $host:$port"
                     }
-                    scanMessage = "已通过扫码连接家长端 $host:$port"
+                    requestPairing(action)
                 }
                 else -> scanMessage = "二维码内容无法识别"
             }
@@ -395,8 +414,20 @@ fun GuardianHomeContent(
                 modifier = Modifier.padding(top = 8.dp)
             )
         }
-        items(announcements) { announcement ->
-            AnnouncementCard(announcement)
+        if (announcements.isEmpty()) {
+            // [TASK-MILESTONE-V3] 需求 15 走查：公告空态占位
+            item {
+                Text(
+                    text = "暂无家长公告",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+        } else {
+            items(announcements, key = { it.id }) { announcement ->
+                AnnouncementCard(announcement)
+            }
         }
 
         // === 5. P2P 配对入口（P2P-FIX-B） ===
@@ -596,25 +627,62 @@ fun GuardianHomeContent(
         item { Spacer(modifier = Modifier.height(16.dp)) }
     }
 
-    // BUG-0810-10: 关于对话框
+    // [TASK-MILESTONE-V3] 需求 7：关于对话框（双端统一组件，版本号跟随 Git，年份动态）
     if (showAboutDialog) {
+        AboutDialog(onDismiss = { showAboutDialog = false })
+    }
+
+    // [TASK-MILESTONE-V3] 需求 3：儿童端检测到旧账号数据，确认后才清除并继续绑定新家长
+    if (pendingRebindAction != null) {
+        var rebindError by remember { mutableStateOf<String?>(null) }
+        var rebindBusy by remember { mutableStateOf(false) }
         AlertDialog(
-            onDismissRequest = { showAboutDialog = false },
-            title = {
-                Text("关于小趴菜 🥬", fontWeight = FontWeight.Bold)
-            },
+            onDismissRequest = { if (!rebindBusy) pendingRebindAction = null },
+            title = { Text("检测到旧账号数据") },
             text = {
-                Text(
-                    "小趴菜儿童守护 v1.0.0\n\n" +
-                    "开源家长监控软件，帮助家长管理儿童设备使用时长，" +
-                    "拦截不适宜内容，守护儿童健康成长。\n\n" +
-                    "© 2024 小趴菜开源社区\n" +
-                    "github.com/xiaopacai"
-                )
+                Column {
+                    Text(
+                        "本设备已绑定过家长账号并存在历史数据（公告、策略、使用记录等）。\n\n" +
+                            "继续绑定新家长将清除旧数据并重置设备身份，旧家长将无法再管控本设备。清除范围：\n" +
+                            "• 公告、策略、应用分类、使用记录与报告缓存\n" +
+                            "• 中继连接配置与本地缓存\n" +
+                            "• 本机设备身份（重新生成）",
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp
+                    )
+                    if (rebindError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(rebindError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
+                }
             },
             confirmButton = {
-                TextButton(onClick = { showAboutDialog = false }) {
-                    Text("知道了")
+                TextButton(
+                    onClick = {
+                        val action = pendingRebindAction ?: return@TextButton
+                        rebindBusy = true
+                        rebindError = null
+                        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            val wipe = LocalDataWipe.wipeAll(context)
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                rebindBusy = false
+                                when (wipe) {
+                                    is LocalDataWipe.WipeResult.Success -> {
+                                        pendingRebindAction = null
+                                        action()
+                                    }
+                                    is LocalDataWipe.WipeResult.Failed -> rebindError = wipe.reason
+                                }
+                            }
+                        }
+                    },
+                    enabled = !rebindBusy,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text(if (rebindBusy) "清除中…" else "清除并继续绑定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRebindAction = null }, enabled = !rebindBusy) {
+                    Text("取消")
                 }
             }
         )
@@ -640,7 +708,8 @@ fun GuardianHomeContent(
                         discoveredParents.forEach { parent ->
                             OutlinedButton(
                                 onClick = {
-                                    pairingManager.connectToParent(parent, pairingCode)
+                                    // [TASK-MILESTONE-V3] 需求 3：旧残留确认后再连接
+                                    requestPairing { pairingManager.connectToParent(parent, pairingCode) }
                                     showPairingDialog = false
                                 },
                                 modifier = Modifier.fillMaxWidth(),
@@ -707,7 +776,8 @@ fun GuardianHomeContent(
                         val port = manualPort.toIntOrNull() ?: 9527
                         if (manualHost.isNotBlank()) {
                             val parent = pairingManager.addManualParent(manualHost, port)
-                            pairingManager.connectToParent(parent, pairingCode)
+                            // [TASK-MILESTONE-V3] 需求 3：旧残留确认后再连接
+                            requestPairing { pairingManager.connectToParent(parent, pairingCode) }
                         }
                         showPairingDialog = false
                     }
@@ -997,7 +1067,8 @@ fun QuickActionButton(
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
+            // [TASK-MILESTONE-V3] 需求 15 走查：文字标签已有语义，图标描述置空避免双重播报
+            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
             Spacer(modifier = Modifier.height(4.dp))
             Text(label, fontSize = 12.sp)
         }
