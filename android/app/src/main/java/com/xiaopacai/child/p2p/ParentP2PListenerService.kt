@@ -488,6 +488,8 @@ class ParentP2PListenerService : Service() {
             // [TASK-OPT-12-P1] 协议扩展：故障诊断上报 / 紧急公告确认回执
             "diagnostics_report" -> handleDiagnosticsReport(message, deviceId)
             "announcement_ack" -> handleAnnouncementAck(message, deviceId)
+            // [TASK-HARDENING-V1.1.1] Bug1-D：守护失守事件 + 健康度上报
+            "guard_event" -> handleGuardEvent(message, deviceId)
             else -> {
                 Log.d(TAG, "未处理的消息类型: ${message.type}")
                 null
@@ -688,10 +690,86 @@ class ParentP2PListenerService : Service() {
                 "networkType=${obj.optString("networkType", "?")}, " +
                 "dbSizeBytes=${obj.optLong("dbSizeBytes", 0)}, " +
                 "recentCrashes=${obj.optJSONArray("recentCrashes")?.length() ?: 0}")
+            // [TASK-HARDENING-V1.1.1] Bug1-D/1-B：诊断含健康度快照 → 家长端落库展示
+            obj.optJSONObject("health")?.let { health ->
+                com.xiaopacai.child.util.ParentGuardData.saveHealth(this, deviceId, health)
+            }
             null // 无响应
         } catch (e: Exception) {
             Log.e(TAG, "解析诊断信息失败: ${e.message}")
             null
+        }
+    }
+
+    /**
+     * [TASK-HARDENING-V1.1.1] Bug1-D：处理儿童端守护失守事件（guard_event）。
+     * 消息格式：{guardEvent: {event, startTs, endTs?, durationSec?, reason,
+     * restoredReason?, wasEnforcing, deviceId, health}}
+     *
+     * 处理：家长端本地落库（健康度 + 事件历史）→ 高优通知家长 →
+     * 异步转传云端（Web 展示，ParentCloudSync）。
+     */
+    private fun handleGuardEvent(message: P2PMessage, deviceId: String): P2PMessage? {
+        val eventJson = message.payload["guardEvent"]?.toString()
+            ?: return null
+        return try {
+            val event = org.json.JSONObject(eventJson)
+            val eventType = event.optString("event", "unknown")
+            val health = event.optJSONObject("health")
+            val guardData = com.xiaopacai.child.util.ParentGuardData
+            guardData.saveHealth(this, deviceId, health)
+            guardData.addEvent(this, deviceId, event)
+            Log.i(TAG, "收到守护事件: device=$deviceId event=$eventType " +
+                "reason=${event.optString("reason", "?")}")
+
+            // 高优通知家长（失守与恢复均告知；恢复附失守时长）
+            notifyGuardEvent(deviceId, event)
+
+            // 异步转传云端（离线/未登录时跳过，事件仍保留本地）
+            val eventCopy = event.toString()
+            val deviceCopy = deviceId
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                runCatching {
+                    com.xiaopacai.child.util.ParentCloudSync.uploadGuardEvent(applicationContext, deviceCopy, eventCopy)
+                }.onFailure { Log.w(TAG, "守护事件转传云端失败: ${it.message}") }
+            }
+            null // 无响应
+        } catch (e: Exception) {
+            Log.e(TAG, "解析守护事件失败: ${e.message}")
+            null
+        }
+    }
+
+    /** [TASK-HARDENING-V1.1.1] 守护事件高优通知（家长可见即可，勿扰儿童端） */
+    private fun notifyGuardEvent(deviceId: String, event: org.json.JSONObject) {
+        try {
+            val isDown = event.optString("event") == "guard_down"
+            val durationSec = event.optLong("durationSec", 0L)
+            val title = if (isDown) "⚠️ 儿童设备守护失守" else "✅ 儿童设备守护已恢复"
+            val text = if (isDown) {
+                "设备 ${deviceId.take(8)}… 守护失效（${event.optString("reason", "原因未知")}），" +
+                    "期间管控可能失效，请关注。"
+            } else {
+                "设备 ${deviceId.take(8)}… 守护已恢复（${event.optString("restoredReason", "自动恢复")}）" +
+                    if (durationSec > 0) "，失守时长 ${durationSec / 60} 分 ${durationSec % 60} 秒" else ""
+            }
+            val notification = androidx.core.app.NotificationCompat.Builder(
+                this, com.xiaopacai.child.XiaopacaiApp.CHANNEL_SECURITY
+            )
+                .setContentTitle(title)
+                .setContentText(text)
+                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(
+                    "$text\n\n详情可在「守护状态」页查看。"
+                ))
+                .setSmallIcon(com.xiaopacai.child.R.drawable.ic_notification)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .build()
+            val nm = getSystemService(android.content.Context.NOTIFICATION_SERVICE)
+                as android.app.NotificationManager
+            nm.notify(4001, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "守护事件通知失败: ${e.message}")
         }
     }
 

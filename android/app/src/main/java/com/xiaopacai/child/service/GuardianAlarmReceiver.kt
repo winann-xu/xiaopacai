@@ -108,6 +108,8 @@ class GuardianAlarmReceiver : BroadcastReceiver() {
                 }
                 context.getSharedPreferences(PREFS_GUARDIAN, Context.MODE_PRIVATE)
                     .edit().putBoolean(KEY_SWIPE_PENDING, true).apply()
+                // [TASK-HARDENING-V1.1.1] Bug1-D：上滑即失守（进程可能被 OEM 立即杀死）
+                GuardDownMonitor.onGuardLost(context, "swipe_killed")
                 Log.i(TAG, "上滑恢复闹钟已注册（${SWIPE_RECOVERY_DELAY_MS / 1000}s 后拉起）")
             } catch (e: Exception) {
                 Log.e(TAG, "注册上滑恢复闹钟失败: ${e.message}")
@@ -183,6 +185,9 @@ class GuardianAlarmReceiver : BroadcastReceiver() {
         } catch (e: Exception) {
             Log.e(TAG, "拉起守护服务失败: ${e.message}")
         }
+
+        // [TASK-HARDENING-V1.1.1] Bug1-D：上滑失守结算（上报家长端）
+        GuardDownMonitor.onGuardRestored(context, "swipe_recovery")
 
         // 2. 若管控曾生效：通知「已自动恢复」（内容点击回到小趴菜）
         val wasEnforcing = isEnforcementActive(context)

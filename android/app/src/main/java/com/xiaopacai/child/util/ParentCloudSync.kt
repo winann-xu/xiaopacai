@@ -465,4 +465,66 @@ object ParentCloudSync {
         }
         return out
     }
+
+    // ==================== 守护事件（V1.1.1 Bug1-D/1-B） ====================
+
+    /**
+     * POST /api/guard-events：转传儿童端守护失守事件（含健康度快照）到云端。
+     * 服务端按账号校验设备归属（家长仅自己账号设备）。
+     */
+    suspend fun uploadGuardEvent(context: Context, deviceId: String, eventJson: String): Result<JSONObject> {
+        val (host, port) = hostPort(context) ?: return Result.Err(false, "尚未配置服务器地址")
+        val tk = token(context) ?: return Result.Err(false, "登录已过期，请重新登录")
+        return ioCall(context) {
+            val body = JSONObject().apply {
+                put("deviceId", deviceId)
+                put("events", JSONArray().apply { put(JSONObject(eventJson)) })
+            }
+            val (code, resp, err) = httpPostJson(host, port, "/api/guard-events", body.toString(), tk)
+            when {
+                code in 200..299 -> {
+                    AppLog.i(TAG, "守护事件已转传云端: device=$deviceId")
+                    Result.Ok(JSONObject(resp))
+                }
+                code == 401 -> Result.Err(false, "登录已过期，请重新登录")
+                else -> Result.Err(false, parseError(err, "转传守护事件失败: HTTP $code"))
+            }
+        }
+    }
+
+    /**
+     * GET /api/guard-events：拉取守护事件历史（服务端按账号隔离，parent 仅自己账号）。
+     */
+    suspend fun fetchGuardEvents(context: Context, deviceId: String? = null, limit: Int = 50): Result<JSONObject> {
+        val (host, port) = hostPort(context) ?: return Result.Err(false, "尚未配置服务器地址")
+        val tk = token(context) ?: return Result.Err(false, "登录已过期，请重新登录")
+        return ioCall(context) {
+            val query = buildString {
+                append("/api/guard-events?limit=${limit.coerceIn(1, 100)}")
+                if (!deviceId.isNullOrBlank()) append("&deviceId=$deviceId")
+            }
+            val (code, body, err) = httpGetJson(host, port, query, tk)
+            when {
+                code in 200..299 -> Result.Ok(JSONObject(body))
+                code == 401 -> Result.Err(false, "登录已过期，请重新登录")
+                else -> Result.Err(false, parseError(err, "获取守护事件失败: HTTP $code"))
+            }
+        }
+    }
+
+    /**
+     * GET /api/guard-events/health：拉取某设备最新健康度快照。
+     */
+    suspend fun fetchGuardHealth(context: Context, deviceId: String): Result<JSONObject> {
+        val (host, port) = hostPort(context) ?: return Result.Err(false, "尚未配置服务器地址")
+        val tk = token(context) ?: return Result.Err(false, "登录已过期，请重新登录")
+        return ioCall(context) {
+            val (code, body, err) = httpGetJson(host, port, "/api/guard-events/health?deviceId=$deviceId", tk)
+            when {
+                code in 200..299 -> Result.Ok(JSONObject(body))
+                code == 401 -> Result.Err(false, "登录已过期，请重新登录")
+                else -> Result.Err(false, parseError(err, "获取健康度失败: HTTP $code"))
+            }
+        }
+    }
 }

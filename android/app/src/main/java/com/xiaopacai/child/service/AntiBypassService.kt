@@ -74,8 +74,16 @@ object AntiBypassService {
         val issues = mutableListOf<String>()
 
         // 1. 检查无障碍服务是否启用
-        if (!isAccessibilityServiceEnabled(context)) {
+        // [TASK-HARDENING-V1.1.1] Bug1-D/4-A：无障碍被移除且管控生效 = 拦截失守；
+        // 恢复时结算失守事件并补发健康度（家长端/Web 实时看到）
+        val accessibilityEnabled = isAccessibilityServiceEnabled(context)
+        if (!accessibilityEnabled) {
             issues.add("无障碍服务已关闭")
+            if (GuardianForegroundService.isEnforcementActive(context)) {
+                GuardDownMonitor.onGuardLost(context, "accessibility_disabled")
+            }
+        } else if (GuardDownMonitor.pendingReason(context) == "accessibility_disabled") {
+            GuardDownMonitor.onGuardRestored(context, "accessibility_reenabled")
         }
 
         // 2. 检查使用情况访问权限

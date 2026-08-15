@@ -199,6 +199,9 @@ class GuardianForegroundService : Service() {
 
             Log.w(TAG, "检测到守护进程曾被结束（心跳间隔超阈值），已恢复")
             val wasEnforcing = isEnforcementActive(this)
+            // [TASK-HARDENING-V1.1.1] Bug1-D：失守事件结算（startTs 取最后心跳，近似失守起点）
+            GuardDownMonitor.onGuardLost(this, "process_killed", startTs = lastHeartbeat)
+            GuardDownMonitor.onGuardRestored(this, "auto_recovered")
             AntiBypassService.notifySecurityEvent(
                 this,
                 "守护已自动恢复" + if (wasEnforcing) "，管控重新生效" else "",

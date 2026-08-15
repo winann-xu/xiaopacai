@@ -58,6 +58,8 @@ class SyncManager(
             while (isActive) {
                 try {
                     syncUsageReports()
+                    // [TASK-HARDENING-V1.1.1] Bug1-D：补传守护失守事件与健康度（离线缓存）
+                    com.xiaopacai.child.service.GuardDownMonitor.sendPending(context)
                     delay(SYNC_INTERVAL_MS)
                 } catch (e: Exception) {
                     Log.e(TAG, "同步失败: ${e.message}", e)

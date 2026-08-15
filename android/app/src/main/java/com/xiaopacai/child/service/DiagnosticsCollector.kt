@@ -152,6 +152,9 @@ object DiagnosticsCollector {
         // 7. 网络类型
         report.put("networkType", getNetworkType(context))
 
+        // 8. [TASK-HARDENING-V1.1.1] 守护健康度快照（Bug1-B/1-D：家长端/Web 展示）
+        report.put("health", GuardDownMonitor.computeHealth(context))
+
         return report
     }
 
