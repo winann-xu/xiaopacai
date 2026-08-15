@@ -172,6 +172,27 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
     }
 
     /**
+     * [TASK-MILESTONE-V3] B5 批量删除本地公告：服务端删除公告后下发清除指令/墓碑，
+     * 本地行一并删除（多端一致；撤回只置过期、删除则彻底移除）
+     *
+     * @return 实际删除行数
+     */
+    fun deleteByIds(announcementIds: List<String>, passphrase: ByteArray): Int {
+        if (announcementIds.isEmpty()) return 0
+        val db = dbHelper.getWritable(passphrase)
+        return try {
+            val placeholders = announcementIds.joinToString(",") { "?" }
+            db.delete(
+                "announcements",
+                "announcement_id IN ($placeholders)",
+                announcementIds.toTypedArray()
+            )
+        } finally {
+            db.close()
+        }
+    }
+
+    /**
      * 获取所有有效公告（未过期，按优先级和创建时间排序）
      *
      * [TASK-OPT-12-P1] 结果新增 requiresAck / acknowledgedAt 字段（公告协议扩展）。

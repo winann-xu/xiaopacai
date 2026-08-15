@@ -84,6 +84,8 @@ class SyncManager(
         when (message.type) {
             "policy_update" -> handlePolicyUpdate(message)
             "announcement_push" -> handleAnnouncementPush(message)
+            // [TASK-MILESTONE-V3] B5 服务端删除公告后的本地清除指令
+            "announcement_clear" -> handleAnnouncementClear(message)
             "limit_reset" -> handleLimitReset(message)
             "sync_ack" -> handleSyncAck(message)
             "heartbeat_ack" -> { /* 心跳 ACK 由连接层处理 */ }
@@ -187,6 +189,8 @@ class SyncManager(
 
     /**
      * 处理策略更新消息
+     * [TASK-MILESTONE-V3] A2 客户端版本防线：同 policyType 旧版本不覆盖新版本
+     * （服务端版本单调递增，正常链路不会触发；防御重复帧/乱序帧回退策略）
      */
     private fun handlePolicyUpdate(message: P2PMessage) {
         try {
@@ -200,6 +204,13 @@ class SyncManager(
                     val policyJson = policiesArray.getString(i)
                     val policyObj = JSONObject(policyJson)
                     val policyType = policyObj.optString("policyType", "")
+                    val version = policyObj.optInt("version", 1)
+
+                    // [TASK-MILESTONE-V3] A2：版本比对，旧帧不覆盖新缓存
+                    if (cachedPolicyVersion(db, policyType) >= version) {
+                        Log.d(TAG, "策略 $policyType 版本 $version 不高于本地缓存，跳过")
+                        continue
+                    }
 
                     // 更新策略缓存表
                     db.execSQL(
@@ -209,7 +220,7 @@ class SyncManager(
                         arrayOf(
                             policyType,
                             policyJson,
-                            policyObj.optInt("version", 1).toString(),
+                            version.toString(),
                             (System.currentTimeMillis() / 1000).toString()
                         )
                     )
@@ -224,6 +235,18 @@ class SyncManager(
     }
 
     /**
+     * [TASK-MILESTONE-V3] A2 读取本地缓存的策略版本（无缓存返回 0）
+     */
+    private fun cachedPolicyVersion(db: net.sqlcipher.database.SQLiteDatabase, policyType: String): Int {
+        db.rawQuery(
+            "SELECT version FROM policy_cache WHERE policy_type = ?",
+            arrayOf(policyType)
+        ).use { c ->
+            return if (c.moveToFirst()) c.getString(0)?.toIntOrNull() ?: 0 else 0
+        }
+    }
+
+    /**
      * 处理公告推送消息
      *
      * [TASK-PRELAUNCH-P3] 去重展示（见 docs/adr/0004）：
@@ -231,62 +254,111 @@ class SyncManager(
      * - 已显示且内容哈希未变 → 不弹窗、不通知、不置顶（upsert 内已保留状态）
      * - 紧急公告已确认 → 不再全屏
      * - 新公告/内容变化 → 展示并写 displayed_at，上报 announcement_displayed
+     *
+     * [TASK-MILESTONE-V3] B8：紧急未确认公告即使内容未变（upsert=unchanged）也必须重新全屏
+     * （重连补推场景，否则确认入口丢失、未确认紧急公告形同失效）
+     * [TASK-MILESTONE-V3] 133 修复：单条异常不中断整批（此前一条入库异常导致后续公告
+     * 全部跳过且 displayed 回执不上报，服务端 60s 补偿也会继续错过）
+     * [TASK-MILESTONE-V3] B5：同步帧可携带 cleared_ids（服务端删除墓碑），清除本地残留
      */
     private fun handleAnnouncementPush(message: P2PMessage) {
         try {
             val passphrase = getPassphrase()
             val action = message.payload["action"]?.toString() ?: ""
+
+            // [TASK-MILESTONE-V3] B5：删除墓碑随同步下发（离线路径；在线路径走 announcement_clear）
+            val clearedIdsArray = message.payload["cleared_ids"]?.toString()
+                ?.let { JSONArray(it) }
+            if (clearedIdsArray != null && clearedIdsArray.length() > 0) {
+                val clearedIds = mutableListOf<String>()
+                for (i in 0 until clearedIdsArray.length()) {
+                    val id = clearedIdsArray.optString(i)
+                    if (id.isNotBlank()) clearedIds.add(id)
+                }
+                val cleared = announcementDao.deleteByIds(clearedIds, passphrase)
+                if (cleared > 0)
+                    Log.i(TAG, "已按服务端墓碑清除 $cleared 条本地公告")
+            }
+
             val announcementsArray = message.payload["announcements"]?.toString()
                 ?.let { JSONArray(it) } ?: return
 
             var count = 0
             var shownCount = 0
             for (i in 0 until announcementsArray.length()) {
-                val obj = announcementsArray.getJSONObject(i)
-                val id = obj.optString("id", UUID.randomUUID().toString())
-                val priority = obj.optInt("priority", 0)
+                // [TASK-MILESTONE-V3] 133 修复：单条异常仅跳过该条
+                try {
+                    val obj = announcementsArray.getJSONObject(i)
+                    val id = obj.optString("id", UUID.randomUUID().toString())
+                    val priority = obj.optInt("priority", 0)
 
-                // [TASK-PRELAUNCH-P3] 撤回：仅置过期，不展示；行记录保留（重新发布同内容不重复打扰）
-                if (action == "revoke") {
-                    announcementDao.revokeLocally(id, passphrase)
-                    count++
-                    continue
-                }
+                    // [TASK-PRELAUNCH-P3] 撤回：仅置过期，不展示；行记录保留（重新发布同内容不重复打扰）
+                    if (action == "revoke") {
+                        announcementDao.revokeLocally(id, passphrase)
+                        count++
+                        continue
+                    }
 
-                val result = announcementDao.upsert(
-                    announcementId = id,
-                    title = obj.optString("title", ""),
-                    content = obj.optString("content", ""),
-                    priority = priority,
-                    requiresAck = obj.optBoolean("requires_ack", false),
-                    contentHash = obj.optString("content_hash", ""),
-                    expiresAt = obj.optLong("expires_at", 0),
-                    passphrase = passphrase
-                )
-
-                // 去重判定：内容未变（unchanged）→ 不打扰；紧急已确认 → 不再全屏
-                // （内容变化时 upsert 已重置 acknowledged_at，紧急会重新全屏）
-                val urgentAcked = priority >= 2 && announcementDao.isAcknowledged(id, passphrase)
-                val shouldShow = result != "unchanged" && !urgentAcked
-                if (shouldShow) {
-                    // [TASK-OPT-4] 公告到达直接展示：紧急公告全屏置顶，其余系统通知直达
-                    showAnnouncementImmediately(
-                        id = id,
-                        title = obj.optString("title", "家长公告"),
+                    val result = announcementDao.upsert(
+                        announcementId = id,
+                        title = obj.optString("title", ""),
                         content = obj.optString("content", ""),
-                        priority = priority
+                        priority = priority,
+                        requiresAck = obj.optBoolean("requires_ack", false),
+                        contentHash = obj.optString("content_hash", ""),
+                        expiresAt = obj.optLong("expires_at", 0),
+                        passphrase = passphrase
                     )
-                    announcementDao.markDisplayed(id, passphrase)
-                    sendAnnouncementDisplayed(id)
-                    shownCount++
-                } else {
-                    Log.d(TAG, "公告去重跳过: $id（内容未变=${result == "unchanged"}, 已确认=$urgentAcked）")
+
+                    // 去重判定：内容未变（unchanged）→ 不打扰；紧急已确认 → 不再全屏
+                    // （内容变化时 upsert 已重置 acknowledged_at，紧急会重新全屏）
+                    // [TASK-MILESTONE-V3] B8：紧急公告只要未确认就必须重新全屏，无视 upsert 去重
+                    val urgentAcked = priority >= 2 && announcementDao.isAcknowledged(id, passphrase)
+                    val shouldShow = if (priority >= 2) !urgentAcked else result != "unchanged"
+                    if (shouldShow) {
+                        // [TASK-OPT-4] 公告到达直接展示：紧急公告全屏置顶，其余系统通知直达
+                        showAnnouncementImmediately(
+                            id = id,
+                            title = obj.optString("title", "家长公告"),
+                            content = obj.optString("content", ""),
+                            priority = priority
+                        )
+                        announcementDao.markDisplayed(id, passphrase)
+                        sendAnnouncementDisplayed(id)
+                        shownCount++
+                    } else {
+                        Log.d(TAG, "公告去重跳过: $id（内容未变=${result == "unchanged"}, 已确认=$urgentAcked）")
+                    }
+                    count++
+                } catch (e: Exception) {
+                    Log.e(TAG, "公告条目处理失败（跳过该条）: ${e.message}")
                 }
-                count++
             }
             Log.i(TAG, "已接收 $count 条公告（展示 $shownCount 条，去重/已确认跳过 ${count - shownCount} 条）")
         } catch (e: Exception) {
             Log.e(TAG, "公告推送处理失败: ${e.message}", e)
+        }
+    }
+
+    /**
+     * [TASK-MILESTONE-V3] B5 处理“清除本地公告”指令（announcement_clear）：
+     * 服务端删除公告后实时下发，客户端按 id 删除本地记录（多端一致）
+     */
+    private fun handleAnnouncementClear(message: P2PMessage) {
+        try {
+            val passphrase = getPassphrase()
+            val idsArray = message.payload["announcementIds"]?.toString()
+                ?.let { JSONArray(it) } ?: return
+            val ids = mutableListOf<String>()
+            for (i in 0 until idsArray.length()) {
+                val id = idsArray.optString(i)
+                if (id.isNotBlank()) ids.add(id)
+            }
+            if (ids.isEmpty()) return
+            val deleted = announcementDao.deleteByIds(ids, passphrase)
+            Log.i(TAG, "已按清除指令删除 $deleted 条本地公告")
+        } catch (e: Exception) {
+            Log.e(TAG, "公告清除指令处理失败: ${e.message}", e)
         }
     }
 
