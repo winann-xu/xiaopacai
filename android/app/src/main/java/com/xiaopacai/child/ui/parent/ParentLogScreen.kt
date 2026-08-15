@@ -74,7 +74,18 @@ fun ParentLogScreen(onBack: () -> Unit) {
     var uploading by remember { mutableStateOf(false) }
 
     val bound = remember { CloudAccountManager.isBound(context) }
-    val lastUploadTs = remember { LogUploader.lastUploadTs(context) }
+    // [TASK-HARDENING-V1.1.1] Bug3-C：上传状态可刷新（上次成功时间 + 失败原因/重试计划）
+    var lastUploadTs by remember { mutableStateOf(LogUploader.lastUploadTs(context)) }
+    var lastFailTs by remember { mutableStateOf(LogUploader.lastFailTs(context)) }
+    var lastFailReason by remember { mutableStateOf(LogUploader.lastFailReason(context)) }
+    var retryCount by remember { mutableStateOf(LogUploader.retryCount(context)) }
+
+    fun refreshUploadStatus() {
+        lastUploadTs = LogUploader.lastUploadTs(context)
+        lastFailTs = LogUploader.lastFailTs(context)
+        lastFailReason = LogUploader.lastFailReason(context)
+        retryCount = LogUploader.retryCount(context)
+    }
 
     fun refresh() {
         entries = AppLog.entries()
@@ -116,14 +127,24 @@ fun ParentLogScreen(onBack: () -> Unit) {
                     )
                     Text(
                         if (bound) {
-                            "已登录家长账号，每 6 小时自动上传云端；Web 端保留最近 7 天" +
-                                if (lastUploadTs > 0) " · 上次上传 ${formatTime(lastUploadTs)}" else ""
+                            // [TASK-HARDENING-V1.1.1] Bug3-C：如实展示上次成功时间
+                            "已登录家长账号，登录即传 + 失败指数退避（5/15/60 分钟）+ 每 6 小时兜底；Web 端保留最近 7 天" +
+                                if (lastUploadTs > 0) " · 上次成功 ${formatTime(lastUploadTs)}" else " · 尚无成功记录"
                         } else {
                             "未登录家长账号，登录后自动上传云端；当前可离线查看/复制/清空"
                         },
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    // [TASK-HARDENING-V1.1.1] Bug3-C：上次失败原因与自动重试计划（成功即自动消失）
+                    if (lastFailReason.isNotBlank()) {
+                        Text(
+                            "⚠️ 上次上传失败（${formatTime(lastFailTs)}）：$lastFailReason" +
+                                " · 已自动安排 ${LogUploader.retryDelayMinutes(retryCount)} 分钟后重试",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {
                             clipboard.setText(AnnotatedString(AppLog.exportText()))
@@ -145,6 +166,8 @@ fun ParentLogScreen(onBack: () -> Unit) {
                                         LogUploader.UploadResult.Skipped -> "未登录家长账号，无法上传"
                                     }
                                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    // [TASK-HARDENING-V1.1.1] Bug3-C：上传后立即刷新状态展示
+                                    refreshUploadStatus()
                                     uploading = false
                                 }
                             },

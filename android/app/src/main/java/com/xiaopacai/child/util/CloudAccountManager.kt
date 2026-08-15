@@ -2,6 +2,7 @@ package com.xiaopacai.child.util
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /**
@@ -164,6 +165,15 @@ object CloudAccountManager {
                     .apply()
                 Log.i(TAG, "云端验证成功: $normalized (role=$role)")
                 AppLog.i("Account", "云端登录成功 $normalized (role=$role)")
+                // [TASK-HARDENING-V1.1.1] Bug3-B：登录/绑定成功后立即上传日志
+                // （登录日志即刻入库 Web，失败自动进入 5/15/60 分钟指数退避）
+                try {
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        runCatching { LogUploader.uploadBlocking(context) }
+                    }
+                } catch (e: Exception) {
+                    AppLog.w("Account", "登录后触发日志上传失败: ${e.message}")
+                }
                 LoginResult.Success(normalized)
             }
             code == 401 -> {
