@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.xiaopacai.child.p2p.P2PConnectionService
 import com.xiaopacai.child.p2p.ParentP2PListenerService
 import com.xiaopacai.child.BuildConfig
+import com.xiaopacai.child.ui.components.AboutText
 import com.xiaopacai.child.ui.scan.QrScannerActivity
 import com.xiaopacai.child.util.CloudAccountManager
 import com.xiaopacai.child.util.httpGetJson
@@ -419,14 +420,18 @@ fun ParentSettingsScreen(
             )
 
             // === 关于 ===
+            // [TASK-MILESTONE-V3] 需求 7：关于统一组件（版本号跟随 Git，年份动态，官网可点击）
             SectionTitle("关于")
 
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    InfoRow("应用版本", "小趴菜 2.2（双角色 · OPT12）")
+                    InfoRow("应用版本", "v${BuildConfig.VERSION_NAME}（版本码 ${BuildConfig.VERSION_CODE}）")
                     InfoRow("数据库", "SQLCipher AES-256 加密")
                     InfoRow("P2P 协议", "TLS 1.3/1.2 + JSON 帧")
                     InfoRow("开源协议", "Apache-2.0")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // 双端统一关于内容（含动态年份与可点击官网）
+                    AboutText()
                 }
             }
 

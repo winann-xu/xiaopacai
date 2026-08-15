@@ -38,6 +38,7 @@ import com.xiaopacai.child.p2p.rejectionHintText
 import com.xiaopacai.child.p2p.isRateLimitedRejectionCode
 import com.xiaopacai.child.BuildConfig
 import com.xiaopacai.child.ui.components.SystemGateDialog
+import com.xiaopacai.child.ui.components.AboutDialog
 import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.service.UsageStatsCollector
 import com.xiaopacai.child.ui.settings.AppCategoryActivity
@@ -596,28 +597,9 @@ fun GuardianHomeContent(
         item { Spacer(modifier = Modifier.height(16.dp)) }
     }
 
-    // BUG-0810-10: 关于对话框
+    // [TASK-MILESTONE-V3] 需求 7：关于对话框（双端统一组件，版本号跟随 Git，年份动态）
     if (showAboutDialog) {
-        AlertDialog(
-            onDismissRequest = { showAboutDialog = false },
-            title = {
-                Text("关于小趴菜 🥬", fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Text(
-                    "小趴菜儿童守护 v1.0.0\n\n" +
-                    "开源家长监控软件，帮助家长管理儿童设备使用时长，" +
-                    "拦截不适宜内容，守护儿童健康成长。\n\n" +
-                    "© 2024 小趴菜开源社区\n" +
-                    "github.com/xiaopacai"
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { showAboutDialog = false }) {
-                    Text("知道了")
-                }
-            }
-        )
+        AboutDialog(onDismiss = { showAboutDialog = false })
     }
 
     // P2P-FIX-B: 手动连接 / 发现设备对话框

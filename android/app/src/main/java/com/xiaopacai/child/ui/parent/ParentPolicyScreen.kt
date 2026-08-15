@@ -40,10 +40,10 @@ fun ParentPolicyScreen(
     var dailyLimit by remember { mutableIntStateOf(120) }
     var sleepStart by remember { mutableStateOf("21:00") }
     var sleepEnd by remember { mutableStateOf("07:00") }
+    // [TASK-MILESTONE-V3] 需求 9：分类限额 UI 已隐藏，状态仅用于读取旧数据（保存时固定写 -1）
     var gameLimit by remember { mutableIntStateOf(60) }
     var socialLimit by remember { mutableIntStateOf(90) }
     var videoLimit by remember { mutableIntStateOf(120) }
-    var studyUnlimited by remember { mutableStateOf(true) }
     var stopMode by remember { mutableStateOf("full") }  // full / partial / none
     var isLoading by remember { mutableStateOf(true) }
     var isSaving by remember { mutableStateOf(false) }
@@ -101,20 +101,21 @@ fun ParentPolicyScreen(
                 context, null, "sleep_time", "就寝时段",
                 JSONObject().put("startTime", sleepStart).put("endTime", sleepEnd)
             )
+            // [TASK-MILESTONE-V3] 需求 9：分类限额隐藏期间固定写入 -1（不限），后端保留分类字段能力
             // 3. 游戏限额
             ParentDao.savePolicy(
                 context, null, "category_limit", "游戏限额",
-                JSONObject().put("category", "game").put("limitMinutes", gameLimit)
+                JSONObject().put("category", "game").put("limitMinutes", -1)
             )
             // 4. 社交限额
             ParentDao.savePolicy(
                 context, null, "category_limit", "社交限额",
-                JSONObject().put("category", "social").put("limitMinutes", socialLimit)
+                JSONObject().put("category", "social").put("limitMinutes", -1)
             )
             // 5. 视频限额
             ParentDao.savePolicy(
                 context, null, "category_limit", "视频限额",
-                JSONObject().put("category", "video").put("limitMinutes", videoLimit)
+                JSONObject().put("category", "video").put("limitMinutes", -1)
             )
             // 6. 超时处理方式
             ParentDao.savePolicy(
@@ -245,22 +246,7 @@ fun ParentPolicyScreen(
                     }
                 }
 
-                // 3. 分类限额
-                PolicySection(title = "分类限额", icon = Icons.Filled.Category) {
-                    CategoryLimitRow("🎮 游戏", gameLimit, 0..300) { gameLimit = it }
-                    CategoryLimitRow("💬 社交", socialLimit, 0..300) { socialLimit = it }
-                    CategoryLimitRow("🎬 视频", videoLimit, 0..300) { videoLimit = it }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 8.dp)
-                    ) {
-                        Checkbox(
-                            checked = studyUnlimited,
-                            onCheckedChange = { studyUnlimited = it }
-                        )
-                        Text("📚 学习类应用不限时", fontSize = 14.sp)
-                    }
-                }
+                // [TASK-MILESTONE-V3] 需求 9：分类限额本期隐藏（A8 决策：后端保留，前端不展示，隐藏期间默认 -1 不限）
 
                 // 4. 超时处理方式
                 PolicySection(title = "超时处理方式", icon = Icons.Filled.Block) {
@@ -334,28 +320,3 @@ private fun PolicySection(
     }
 }
 
-/**
- * 分类限额行（标签 + 滑杆 + 数值）
- */
-@Composable
-private fun CategoryLimitRow(
-    label: String,
-    value: Int,
-    range: IntRange,
-    onValueChange: (Int) -> Unit
-) {
-    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(label, fontSize = 14.sp)
-            Text("${value}分钟", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-        }
-        Slider(
-            value = value.toFloat(),
-            onValueChange = { onValueChange(it.toInt()) },
-            valueRange = range.first.toFloat()..range.last.toFloat()
-        )
-    }
-}

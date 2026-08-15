@@ -24,6 +24,7 @@ import com.xiaopacai.child.data.database.ParentDao
 import com.xiaopacai.child.p2p.ChildDeviceInfo
 import com.xiaopacai.child.p2p.ParentP2PListenerService
 import com.xiaopacai.child.ui.components.SystemGateDialog
+import com.xiaopacai.child.ui.components.AboutDialog
 import com.xiaopacai.child.BuildConfig
 import com.xiaopacai.child.ui.scan.QrScannerActivity
 import kotlinx.coroutines.delay
@@ -62,9 +63,6 @@ fun ParentHomeScreen(
     var localIps by remember { mutableStateOf(emptyList<String>()) }
     // [REQ] 扫码识别到的儿童设备信息（对话框展示）
     var scanChildInfo by remember { mutableStateOf<String?>(null) }
-    // [REQ] 首页快捷入口：孩子手机快速授权指南（电脑 ADB）
-    var showAdbGuide by remember { mutableStateOf(false) }
-
     val childScanLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -105,6 +103,7 @@ fun ParentHomeScreen(
             }
         )
     }
+
 
     // 定时刷新 P2P 状态
     LaunchedEffect(Unit) {
@@ -174,9 +173,7 @@ fun ParentHomeScreen(
             }
         }
     ) { paddingValues ->
-        if (showAdbGuide) {
-            ParentAdbGuideScreen(onBack = { showAdbGuide = false })
-        } else Column(
+        Column(
             modifier = Modifier.fillMaxSize().padding(paddingValues)
         ) {
             // P2P 状态条
@@ -220,35 +217,7 @@ fun ParentHomeScreen(
                 }
             )
 
-            // [REQ] 首页快捷入口：孩子手机快速授权指南（家长最容易找到）
-            Card(
-                onClick = { showAdbGuide = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                )
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Filled.School, null, Modifier.size(26.dp),
-                        tint = MaterialTheme.colorScheme.onTertiaryContainer)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("孩子手机快速授权指南",
-                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer)
-                        Text("电脑 ADB 一条命令 · 约 30 秒 · 设置一次永久生效",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.75f))
-                    }
-                    Icon(Icons.Filled.ChevronRight, null,
-                        tint = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.5f))
-                }
-            }
+            // [TASK-MILESTONE-V3] 需求 8：删除家长端 ADB 快速指南卡片（普通用户界面不再出现调试命令）
 
             // [DEBUG] 模拟器无真实相机，调试构建提供扫码结果注入入口
             if (BuildConfig.DEBUG) {
@@ -499,6 +468,7 @@ private fun PolicyTab() {
     var dailyLimit by remember { mutableIntStateOf(120) }
     var sleepStart by remember { mutableStateOf("21:00") }
     var sleepEnd by remember { mutableStateOf("07:00") }
+    // [TASK-MILESTONE-V3] 需求 9：分类限额 UI 已隐藏，状态仅用于读取旧数据（保存时固定写 -1）
     var gameLimit by remember { mutableIntStateOf(60) }
     var socialLimit by remember { mutableIntStateOf(90) }
     var videoLimit by remember { mutableIntStateOf(120) }
@@ -533,9 +503,10 @@ private fun PolicyTab() {
         try {
             ParentDao.savePolicy(context, null, "daily_limit", "每日限额", JSONObject().put("limitMinutes", dailyLimit))
             ParentDao.savePolicy(context, null, "sleep_time", "就寝时段", JSONObject().put("startTime", sleepStart).put("endTime", sleepEnd))
-            ParentDao.savePolicy(context, null, "category_limit", "游戏限额", JSONObject().put("category", "game").put("limitMinutes", gameLimit))
-            ParentDao.savePolicy(context, null, "category_limit", "社交限额", JSONObject().put("category", "social").put("limitMinutes", socialLimit))
-            ParentDao.savePolicy(context, null, "category_limit", "视频限额", JSONObject().put("category", "video").put("limitMinutes", videoLimit))
+            // [TASK-MILESTONE-V3] 需求 9：分类限额隐藏期间固定写入 -1（不限），后端保留分类字段能力
+            ParentDao.savePolicy(context, null, "category_limit", "游戏限额", JSONObject().put("category", "game").put("limitMinutes", -1))
+            ParentDao.savePolicy(context, null, "category_limit", "社交限额", JSONObject().put("category", "social").put("limitMinutes", -1))
+            ParentDao.savePolicy(context, null, "category_limit", "视频限额", JSONObject().put("category", "video").put("limitMinutes", -1))
             ParentDao.savePolicy(context, null, "stop_mode", "超时处理", JSONObject().put("mode", stopMode))
             saveMsg = "策略已保存" + if (ParentP2PListenerService.isRunning) "（已连接设备将自动同步）" else ""
         } catch (e: Exception) { saveMsg = "保存失败: ${e.message}" }
@@ -579,12 +550,7 @@ private fun PolicyTab() {
                     OutlinedTextField(sleepEnd, { sleepEnd = it }, label = { Text("结束") }, modifier = Modifier.weight(1f), singleLine = true)
                 }
             }}
-            // 分类限额
-            item { PolicyCard("分类限额", Icons.Filled.Category) {
-                CategoryRow("🎮 游戏", gameLimit, 0..300) { gameLimit = it }
-                CategoryRow("💬 社交", socialLimit, 0..300) { socialLimit = it }
-                CategoryRow("🎬 视频", videoLimit, 0..300) { videoLimit = it }
-            }}
+            // [TASK-MILESTONE-V3] 需求 9：分类限额本期隐藏（A8：后端保留，前端不展示，默认 -1 不限）
             // 超时处理
             item { PolicyCard("超时处理方式", Icons.Filled.Block) {
                 listOf(
@@ -616,17 +582,6 @@ private fun PolicyCard(title: String, icon: androidx.compose.ui.graphics.vector.
             Spacer(Modifier.height(12.dp))
             content()
         }
-    }
-}
-
-@Composable
-private fun CategoryRow(label: String, value: Int, range: IntRange, onChange: (Int) -> Unit) {
-    Column(Modifier.padding(vertical = 2.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, fontSize = 14.sp)
-            Text("${value}分钟", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-        }
-        Slider(value.toFloat(), { onChange(it.toInt()) }, valueRange = range.first.toFloat()..range.last.toFloat())
     }
 }
 
@@ -913,6 +868,8 @@ private fun catEmoji(c: String) = when(c) { "game"->"🎮"; "social"->"💬"; "v
 private fun SettingsTab(onLogout: () -> Unit) {
     // [TASK-OPT-12-P3] Web 云端中继设置页（ParentSettingsScreen）入口
     var showWebRelay by remember { mutableStateOf(false) }
+    // [TASK-MILESTONE-V3] 需求 7：关于对话框（双端统一组件）
+    var showAboutDialog by remember { mutableStateOf(false) }
 
     if (showWebRelay) {
         ParentSettingsScreen(
@@ -956,11 +913,12 @@ private fun SettingsTab(onLogout: () -> Unit) {
         }
 
         item {
-            Card(Modifier.fillMaxWidth()) {
+            // [TASK-MILESTONE-V3] 需求 7：关于卡点击打开统一关于对话框
+            Card(onClick = { showAboutDialog = true }, modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Info, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) { Text("关于", fontSize = 14.sp, fontWeight = FontWeight.Medium); Text("小趴菜 2.1（双角色版）· Apache-2.0", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    Column(Modifier.weight(1f)) { Text("关于", fontSize = 14.sp, fontWeight = FontWeight.Medium); Text("小趴菜 v${BuildConfig.VERSION_NAME} · Apache-2.0", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
         }
@@ -974,6 +932,10 @@ private fun SettingsTab(onLogout: () -> Unit) {
         }
     }
 
+    // [TASK-MILESTONE-V3] 需求 7：关于对话框（双端统一组件）
+    if (showAboutDialog) {
+        AboutDialog(onDismiss = { showAboutDialog = false })
+    }
 }
 
 private fun formatLastSeen(ts: Long): String {
