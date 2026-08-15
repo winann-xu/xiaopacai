@@ -41,6 +41,8 @@ import com.xiaopacai.child.ui.components.SystemGateDialog
 import com.xiaopacai.child.ui.components.AboutDialog
 import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.service.UsageStatsCollector
+import com.xiaopacai.child.service.UsageStatsCollector.CountdownSnapshot
+import com.xiaopacai.child.service.UsageStatsCollector.Companion.formatHms
 import com.xiaopacai.child.ui.settings.AppCategoryActivity
 import com.xiaopacai.child.ui.settings.GuardianStatusActivity
 import com.xiaopacai.child.ui.scan.QrScannerActivity
@@ -265,27 +267,37 @@ fun GuardianHomeContent(
         }
     }
 
-    // 定时刷新数据（每 30 秒从采集器同步最新值）
+    // [TASK-HARDENING-V1.1.1] Bug2-A：每秒本地倒计时（HH:MM:SS）
+    // 剩余 = 今日限额 −（最近采集已用 + 距最近采集的交互增量）；
+    // 采集失效/服务未运行 → healthy=false，如实显示「守护失效」，不假倒计时
+    var countdown by remember { mutableStateOf(CountdownSnapshot.EMPTY) }
     LaunchedEffect(Unit) {
         while (true) {
-            kotlinx.coroutines.delay(30_000L)
             val c = GuardianForegroundService.getCollector()
             if (c != null) {
-                // [TASK-PRELAUNCH-P4] 已用按调整后口径
+                countdown = c.countdownSnapshot()
+                // [TASK-HARDENING-V1.1.1] Bug2-B：归零立即锁定（双保险消除 ≤60s 采集空窗）
+                c.lockIfCountdownExpired()
+                // [TASK-PRELAUNCH-P4] 已用按调整后口径（每 tick 同步）
                 todayUsedMinutes = c.todayAdjustedMinutes.toInt()
                 dailyLimitMinutes = c.todayLimitMinutes.toInt().coerceAtLeast(1)
                 stopMode = c.stopMode
                 isTimeoutActive = c.isTimeoutActive
                 resetOffsetMinutes = c.resetOffsetMinutes.toInt()
+            } else {
+                // 守护服务未运行 → 守护失效
+                countdown = CountdownSnapshot.EMPTY
             }
+            kotlinx.coroutines.delay(1000)
         }
     }
 
-    // 计算剩余时长
-    val remainingMinutes = maxOf(0, dailyLimitMinutes - todayUsedMinutes)
-    val usagePercent = if (dailyLimitMinutes > 0)
-        (todayUsedMinutes.toFloat() / dailyLimitMinutes) else 0f
-    val isNearLimit = remainingMinutes <= 15 && remainingMinutes > 0
+    // 进度/告警按秒级快照计算（快照失效时进度条不虚构）
+    val usagePercent = if (countdown.limitMillis > 0)
+        (countdown.usedMillis.toFloat() / countdown.limitMillis).coerceIn(0f, 1f) else 0f
+    val isNearLimit = countdown.healthy && countdown.limitMillis > 0 &&
+        !countdown.isTimeoutActive &&
+        countdown.remainingMillis in 1..(15 * 60_000L)
 
     // 从数据库加载公告（30 秒刷新一次）
     var announcements by remember { mutableStateOf(emptyList<Announcement>()) }
@@ -389,12 +401,12 @@ fun GuardianHomeContent(
             RemainingTimeCard(
                 usedMinutes = todayUsedMinutes,
                 limitMinutes = dailyLimitMinutes,
-                remainingMinutes = remainingMinutes,
                 usagePercent = usagePercent,
                 isNearLimit = isNearLimit,
                 isTimeoutActive = isTimeoutActive,
                 stopMode = stopMode,
-                resetOffsetMinutes = resetOffsetMinutes
+                resetOffsetMinutes = resetOffsetMinutes,
+                countdown = countdown
             )
         }
 
@@ -819,23 +831,32 @@ fun ConnectionStatusBar(state: P2PConnectionState) {
 
 /**
  * 剩余时长卡片
- * 显示今日使用进度、剩余分钟数、限额信息
+ *
+ * [TASK-HARDENING-V1.1.1] Bug2：秒级倒计时 HH:MM:SS。
+ * - countdown.healthy=false（采集失效/服务未运行）→ 如实显示「守护失效」，
+ *   禁止用旧数据假倒计时（平台边界：权限被关后无数据可采）
+ * - 正常 → 剩余 HH:MM:SS（含最近采集以来的交互增量）+ 进度条
+ * - 归零由采集器 lockIfCountdownExpired 双保险立即锁定，此处同步显示已超时
  */
 @Composable
 fun RemainingTimeCard(
     usedMinutes: Int,
     limitMinutes: Int,
-    remainingMinutes: Int,
     usagePercent: Float,
     isNearLimit: Boolean,
     isTimeoutActive: Boolean,
     stopMode: String,
-    resetOffsetMinutes: Int = 0
+    resetOffsetMinutes: Int = 0,
+    countdown: CountdownSnapshot = CountdownSnapshot.EMPTY
 ) {
+    // [TASK-HARDENING-V1.1.1] Bug2-A：守护失效（采集中断/权限被关/服务未运行）
+    val guardDown = !countdown.healthy
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (isTimeoutActive)
+            containerColor = if (guardDown)
+                Color(0xFF546E7A)  // 蓝灰：守护失效（诚实状态，非错误红）
+            else if (isTimeoutActive)
                 Color(0xFFE53935)  // 超时红色
             else if (isNearLimit)
                 Color(0xFFFF9800)  // 警告橙色
@@ -850,51 +871,82 @@ fun RemainingTimeCard(
         ) {
             // 状态标题
             val titleText = when {
+                guardDown -> "🛡️ 守护失效"
                 isTimeoutActive && stopMode == "full" -> "🔒 设备已停用"
                 isTimeoutActive && stopMode == "partial" -> "⚠️ 娱乐应用已停用"
                 isNearLimit -> "⏰ 即将超时"
                 else -> "🥬 今日使用时长"
             }
+            val brightBg = guardDown || isTimeoutActive || isNearLimit
             Text(
                 text = titleText,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = if (isTimeoutActive) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+                color = if (brightBg) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 剩余时长数字
+            // 剩余时长数字：失效/超时/未设置限额如实展示，其余 HH:MM:SS 秒级倒计时
+            val bigText = when {
+                guardDown -> "守护失效"
+                isTimeoutActive -> "00:00:00"
+                countdown.limitMillis <= 0 -> "未设置限额"
+                else -> formatHms(countdown.remainingMillis)
+            }
             Text(
-                text = if (isTimeoutActive) "00:00" else formatMinutes(remainingMinutes),
-                fontSize = 56.sp,
+                text = bigText,
+                fontSize = if (guardDown || countdown.limitMillis <= 0) 34.sp else 56.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (isTimeoutActive) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+                color = if (brightBg) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
             )
             Text(
-                text = if (isTimeoutActive) "已超时" else "剩余分钟",
+                text = when {
+                    guardDown -> "时长采集已中断"
+                    isTimeoutActive -> "已超时"
+                    countdown.limitMillis <= 0 -> "家长端尚未设置每日限额"
+                    else -> "剩余时长"
+                },
                 fontSize = 14.sp,
-                color = if (isTimeoutActive)
+                color = if (brightBg)
                     Color.White.copy(alpha = 0.8f)
                 else
                     MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
             )
 
+            // [TASK-HARDENING-V1.1.1] Bug2-A：失效原因与恢复引导（如实说明，不假装还在守护）
+            if (guardDown) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "使用情况访问权限可能被关闭或采集服务中断。\n" +
+                        "请到「设置 → 权限管理」检查并重新授权；恢复后倒计时自动继续。",
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.85f),
+                    textAlign = TextAlign.Center
+                )
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             // 进度条
             LinearProgressIndicator(
-                progress = if (isTimeoutActive) 1f else usagePercent.coerceIn(0f, 1f),
+                progress = when {
+                    guardDown -> 0f
+                    isTimeoutActive -> 1f
+                    countdown.limitMillis > 0 -> usagePercent.coerceIn(0f, 1f)
+                    else -> 0f
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(8.dp)
                     .clip(RoundedCornerShape(4.dp)),
                 color = when {
+                    guardDown -> Color.White.copy(alpha = 0.6f)
                     isTimeoutActive -> Color.White
                     isNearLimit -> Color.White
                     else -> MaterialTheme.colorScheme.primary
                 },
-                trackColor = if (isTimeoutActive || isNearLimit)
+                trackColor = if (brightBg)
                     Color.White.copy(alpha = 0.3f)
                 else
                     MaterialTheme.colorScheme.primaryContainer,
@@ -902,23 +954,26 @@ fun RemainingTimeCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 限额信息
+            // 限额信息（失效时不虚构已用/剩余数字）
             Text(
-                text = "今日限额 $limitMinutes 分钟 · 已用 $usedMinutes 分钟",
+                text = if (guardDown)
+                    "采集恢复后自动继续计时"
+                else
+                    "今日限额 $limitMinutes 分钟 · 已用 $usedMinutes 分钟",
                 fontSize = 12.sp,
-                color = if (isTimeoutActive)
+                color = if (brightBg)
                     Color.White.copy(alpha = 0.7f)
                 else
                     MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
             )
 
             // [TASK-PRELAUNCH-P4] 已重置提示（家长端重置过当日限额）
-            if (resetOffsetMinutes > 0) {
+            if (!guardDown && resetOffsetMinutes > 0) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "今日限额已重置（重置前 $resetOffsetMinutes 分钟不计入）",
                     fontSize = 11.sp,
-                    color = if (isTimeoutActive)
+                    color = if (brightBg)
                         Color.White.copy(alpha = 0.6f)
                     else
                         MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)

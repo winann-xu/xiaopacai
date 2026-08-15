@@ -2,6 +2,7 @@ package com.xiaopacai.child.service
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.PowerManager
 import android.util.Log
 import com.xiaopacai.child.XiaopacaiApp
 import com.xiaopacai.child.data.database.UsageRecordDao
@@ -136,6 +137,60 @@ class UsageStatsCollector(
 
         /** 供其他模块复用的分类规则（AppCategoryHelper 等） */
         fun getCategoryRules(): List<Pair<String, String>> = CATEGORY_RULES
+
+        // [TASK-HARDENING-V1.1.1] Bug2-A：采集失效判定阈值（超过 3 个采集周期未成功 → 守护失效）
+        const val COLLECT_STALE_THRESHOLD_MS = 3 * COLLECT_INTERVAL_MS
+
+        /**
+         * [TASK-HARDENING-V1.1.1] Bug2-A 纯函数（单测）：
+         * 剩余 = 今日限额 −（最近一次采集已用 + 距最近采集的增量）。
+         * 增量仅在屏幕交互（isInteractive）时累计——熄屏不计使用时长，
+         * 与 UsageStats 口径一致（避免夜间熄屏倒计时虚减）。
+         */
+        fun computeRemainingMillis(
+            limitMillis: Long,
+            lastUsedMillis: Long,
+            lastCollectAtMs: Long,
+            nowMs: Long,
+            screenInteractive: Boolean
+        ): Long {
+            if (limitMillis <= 0) return 0
+            if (lastCollectAtMs <= 0) return limitMillis  // 尚未完成首次采集：不虚构已用
+            val delta = if (screenInteractive) (nowMs - lastCollectAtMs).coerceAtLeast(0) else 0
+            return (limitMillis - lastUsedMillis - delta).coerceAtLeast(0)
+        }
+
+        /** 采集是否已失效（最近一次成功采集距今超过阈值） */
+        fun isCollectStale(
+            lastCollectAtMs: Long,
+            nowMs: Long,
+            staleThresholdMs: Long = COLLECT_STALE_THRESHOLD_MS
+        ): Boolean = lastCollectAtMs > 0 && nowMs - lastCollectAtMs > staleThresholdMs
+
+        /** 毫秒 → HH:MM:SS（秒级倒计时展示） */
+        fun formatHms(millis: Long): String {
+            val totalSec = (millis / 1000).coerceAtLeast(0)
+            val h = totalSec / 3600
+            val m = (totalSec % 3600) / 60
+            val s = totalSec % 60
+            return String.format(Locale.ROOT, "%02d:%02d:%02d", h, m, s)
+        }
+    }
+
+    /** [TASK-HARDENING-V1.1.1] Bug2：秒级倒计时快照（UI 每秒轮询） */
+    data class CountdownSnapshot(
+        val healthy: Boolean,        // 采集健康（权限正常、未超时失效）；false → UI 显示「守护失效」
+        val limitMillis: Long,       // 今日限额（毫秒；0=未设置限额）
+        val usedMillis: Long,        // 调整后已用（含最近采集以来的交互增量）
+        val remainingMillis: Long,   // 剩余（毫秒，>=0）
+        val isTimeoutActive: Boolean,
+        val stopMode: String,
+        val resetOffsetMinutes: Long
+    ) {
+        companion object {
+            /** 守护未启动/失效时的占位快照 */
+            val EMPTY = CountdownSnapshot(false, 0, 0, 0, false, "none", 0)
+        }
     }
 
     private val dao = UsageRecordDao(XiaopacaiApp.instance.database)
@@ -174,6 +229,17 @@ class UsageStatsCollector(
     private var _todayLimitMinutes: Long = 0
     val todayLimitMinutes: Long get() = _todayLimitMinutes
 
+    // [TASK-HARDENING-V1.1.1] Bug2-A：秒级倒计时锚点（最近一次成功采集）
+    @Volatile
+    private var _lastCollectAtMs: Long = 0L
+
+    @Volatile
+    private var _lastCollectAdjustedUsedMs: Long = 0L
+
+    /** 采集健康状态：权限撤销/采集异常 = false → UI 显示「守护失效」，禁止假倒计时 */
+    @Volatile
+    private var _collectHealthy: Boolean = false
+
     /**
      * 启动定时采集循环
      */
@@ -185,6 +251,8 @@ class UsageStatsCollector(
                 try {
                     collectAndPersist()
                 } catch (e: Exception) {
+                    // [TASK-HARDENING-V1.1.1] Bug2-A：采集异常 → 守护失效展示，不假倒计时
+                    _collectHealthy = false
                     Log.e(TAG, "采集失败: ${e.message}", e)
                 }
                 delay(COLLECT_INTERVAL_MS)
@@ -203,6 +271,63 @@ class UsageStatsCollector(
     }
 
     /**
+     * [TASK-HARDENING-V1.1.1] Bug2-A：秒级倒计时快照（UI 每秒调用）
+     *
+     * 剩余 = 今日限额 −（最近采集已用 + 距最近采集的交互增量）；
+     * 采集失效（权限撤销/异常/超时未采集）→ healthy=false，
+     * UI 如实显示「守护失效」，禁止用旧数据假倒计时。
+     */
+    fun countdownSnapshot(): CountdownSnapshot {
+        val now = System.currentTimeMillis()
+        val hasCollected = _lastCollectAtMs > 0
+        val healthy = hasCollected && _collectHealthy && !isCollectStale(_lastCollectAtMs, now)
+        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val interactive = pm?.isInteractive ?: true
+        val limitMillis = _todayLimitMinutes * 60_000L
+        val usedMillis = if (hasCollected) {
+            _lastCollectAdjustedUsedMs +
+                (if (interactive) (now - _lastCollectAtMs).coerceAtLeast(0) else 0)
+        } else 0L
+        return CountdownSnapshot(
+            healthy = healthy,
+            limitMillis = limitMillis,
+            usedMillis = usedMillis,
+            remainingMillis = computeRemainingMillis(
+                limitMillis, _lastCollectAdjustedUsedMs, _lastCollectAtMs, now, interactive),
+            isTimeoutActive = _isTimeoutActive,
+            stopMode = _stopMode,
+            resetOffsetMinutes = _resetOffsetMinutes
+        )
+    }
+
+    /**
+     * [TASK-HARDENING-V1.1.1] Bug2-B：倒计时归零立即锁定（双保险消除 ≤60s 采集空窗）
+     *
+     * UI 每秒调用：健康快照归零且尚未锁定 → 立即走 TimeoutExecutor 锁定链路，
+     * 不等下一个采集周期。采集失效时不虚构锁定（只展示守护失效）。
+     */
+    @Synchronized
+    fun lockIfCountdownExpired(): Boolean {
+        val snap = countdownSnapshot()
+        if (!snap.healthy || snap.limitMillis <= 0) return false
+        if (snap.remainingMillis <= 0 && !_isTimeoutActive) {
+            Log.i(TAG, "秒级倒计时归零 → 立即锁定（双保险）")
+            val passphrase = getPassphrase()
+            _isTimeoutActive = true
+            _stopMode = getRestrictMode(passphrase)
+            timeoutExecutor.checkAndExecute(
+                isTimeout = true,
+                stopMode = _stopMode,
+                usedMinutes = todayAdjustedMinutes,
+                limitMinutes = _todayLimitMinutes,
+                triggerReason = null
+            )
+            return true
+        }
+        return false
+    }
+
+    /**
      * 执行一次完整的采集 + 持久化流程
      */
     // [REQ] 加锁：收到 limit_reset 时可能从 SyncManager 立即触发重采，避免与定时采集并发冲突
@@ -216,7 +341,15 @@ class UsageStatsCollector(
         loadResetOffset(today)
 
         // 1. 从 UsageStatsManager 获取原始数据
-        val usageMap = UsageStatsHelper.getDailyUsageMinutes(context, calendar)
+        // [TASK-HARDENING-V1.1.1] Bug2-A：使用情况权限被撤销 → 采集失效，
+        // 标记不健康（UI 显示「守护失效」），禁止用旧数据假倒计时
+        val hasUsagePermission = AntiBypassService.isUsageStatsPermissionGranted(context)
+        val usageMap = if (hasUsagePermission) {
+            UsageStatsHelper.getDailyUsageMinutes(context, calendar)
+        } else {
+            _collectHealthy = false
+            emptyMap()
+        }
         _currentUsage.clear()
         _currentUsage.putAll(usageMap)
         val rawTotal = usageMap.values.sum()
@@ -225,6 +358,14 @@ class UsageStatsCollector(
         // 注意：usage_records 仍写入原始分钟数，使用报告照常统计重置前浪费的额度
         val resetOffset = _resetOffsetMinutes
         _todayTotalMinutes = (rawTotal - resetOffset).coerceAtLeast(0L)
+
+        // [TASK-HARDENING-V1.1.1] Bug2-A：成功采集即更新倒计时锚点
+        // （权限正常时即使当日无使用数据也视为健康——零使用日不是失效）
+        if (hasUsagePermission) {
+            _collectHealthy = true
+            _lastCollectAtMs = System.currentTimeMillis()
+            _lastCollectAdjustedUsedMs = todayAdjustedMinutes * 60_000L
+        }
 
         if (usageMap.isEmpty()) {
             Log.d(TAG, "今日无使用数据")
