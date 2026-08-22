@@ -171,20 +171,27 @@ class UsageStatsCollector(
 
         /**
          * [FIX-COUNTDOWN] 分钟粒度采集回跳修复（纯函数，单测）：
-         * 合并新采集分钟值与旧估算，返回 Pair(新估算已用毫秒, 是否推进锚点)。
-         * - 估算只增不减（倒计时不回跳）：max(采集值, 旧估算)；
-         * - 封顶领先采集值一个采集周期：防空闲/熄屏漂移导致提前锁定；
-         * - 采集值大幅回落（家长重置限额/跨天）→ 采信新值并推进锚点。
+         * 估算 = max(新采集分钟值, 旧估算 + 交互增量)，交互增量封顶一个采集周期。
+         * - 估算只增不减：倒计时不回跳、不冻结（交互时间随采集周期延续）；
+         * - 交互增量封顶一个采集周期：熄屏/采集延迟不虚增；
+         * - 重置/跨天判定用「上次权威采集值」对比，估算领先采集值不会误判为重置。
+         * @return Pair(新估算已用毫秒, 是否推进锚点)
          */
         fun reconcileCollect(
             prevUsedMs: Long,
+            prevCollectedMs: Long,
             prevAnchorMs: Long,
+            nowMs: Long,
             collectedUsedMs: Long,
+            screenInteractive: Boolean,
             collectIntervalMs: Long = COLLECT_INTERVAL_MS
         ): Pair<Long, Boolean> {
-            val resetDrop = collectedUsedMs < prevUsedMs - collectIntervalMs
+            val resetDrop = prevCollectedMs > 0 &&
+                collectedUsedMs < prevCollectedMs - collectIntervalMs
             if (resetDrop) return collectedUsedMs to true
-            val estimate = minOf(maxOf(collectedUsedMs, prevUsedMs), collectedUsedMs + collectIntervalMs)
+            val delta = interactiveDeltaMs(prevAnchorMs, nowMs, screenInteractive, collectIntervalMs)
+            val carried = if (prevAnchorMs > 0) prevUsedMs + delta else 0L
+            val estimate = maxOf(collectedUsedMs, carried)
             val advanceAnchor = prevAnchorMs <= 0 || estimate != prevUsedMs
             return estimate to advanceAnchor
         }
@@ -268,6 +275,10 @@ class UsageStatsCollector(
 
     @Volatile
     private var _lastCollectAdjustedUsedMs: Long = 0L
+
+    /** [FIX-COUNTDOWN] 上次权威采集的已用值（用于重置/跨天判定，估算领先不误判） */
+    @Volatile
+    private var _lastCollectedUsedMs: Long = 0L
 
     /** 采集健康状态：权限撤销/采集异常 = false → UI 显示「守护失效」，禁止假倒计时 */
     @Volatile
@@ -395,16 +406,23 @@ class UsageStatsCollector(
         // （权限正常时即使当日无使用数据也视为健康——零使用日不是失效）
         if (hasUsagePermission) {
             _collectHealthy = true
-            _lastCollectAtMs = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            _lastCollectAtMs = now
             // [FIX-COUNTDOWN] 分钟粒度回跳：合并旧估算，锚点仅在估算推进时更新，
-            // 避免采集周期内分钟未进位时剩余时长回跳（倒计时“卡在一个分钟上”）。
+            // 交互增量随采集周期延续，避免采集分钟未进位时剩余时长回跳/冻结。
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val interactive = pm?.isInteractive ?: true
             val (newUsed, advanceAnchor) = reconcileCollect(
                 prevUsedMs = _lastCollectAdjustedUsedMs,
+                prevCollectedMs = _lastCollectedUsedMs,
                 prevAnchorMs = _countdownAnchorMs,
-                collectedUsedMs = todayAdjustedMinutes * 60_000L
+                nowMs = now,
+                collectedUsedMs = todayAdjustedMinutes * 60_000L,
+                screenInteractive = interactive
             )
             _lastCollectAdjustedUsedMs = newUsed
-            if (advanceAnchor) _countdownAnchorMs = _lastCollectAtMs
+            _lastCollectedUsedMs = todayAdjustedMinutes * 60_000L
+            if (advanceAnchor) _countdownAnchorMs = now
         }
 
         if (usageMap.isEmpty()) {
