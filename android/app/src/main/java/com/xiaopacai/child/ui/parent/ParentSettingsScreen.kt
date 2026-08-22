@@ -33,7 +33,9 @@ import com.xiaopacai.child.util.CloudAccountManager
 import com.xiaopacai.child.util.httpGetJson
 import com.xiaopacai.child.util.httpPostJson
 import com.xiaopacai.child.util.ParentAccountReset
+import com.xiaopacai.child.util.UpdateManager
 import com.xiaopacai.child.data.database.ParentDao
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -86,6 +88,13 @@ fun ParentSettingsScreen(
 
     // [TASK-ACCOUNT-V1] 退出登录确认
     var showLogoutConfirm by remember { mutableStateOf(false) }
+
+    // [TASK-APP-UPDATE-V1] C5/C6：更新软件（手动检查）+ 自动下载开关（默认关）
+    var updateAutoDownload by remember { mutableStateOf(UpdateManager.isAutoDownloadEnabled(context)) }
+    var updateChecking by remember { mutableStateOf(false) }
+    var updateDialogInfo by remember { mutableStateOf<UpdateManager.UpdateInfo?>(null) }
+    var updateDownloadedFile by remember { mutableStateOf<File?>(null) }
+    var updateCheckError by remember { mutableStateOf<String?>(null) }
 
     fun handleWebLoginQr(text: String) {
         try {
@@ -438,6 +447,64 @@ fun ParentSettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     // 双端统一关于内容（含动态年份与可点击官网）
                     AboutText()
+
+                    // [TASK-APP-UPDATE-V1] C5/C6：手动检查更新 + 自动下载开关
+                    Divider(modifier = Modifier.padding(vertical = 12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("自动下载新版本", fontSize = 14.sp)
+                            Text(
+                                "新版本发布后自动下载并校验（安装仍需确认），默认关闭",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = updateAutoDownload,
+                            onCheckedChange = {
+                                updateAutoDownload = it
+                                UpdateManager.setAutoDownloadEnabled(context, it)
+                            }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            if (updateChecking) return@Button
+                            updateChecking = true
+                            GlobalScope.launch(Dispatchers.IO) {
+                                val result = UpdateManager.check(context, manual = true)
+                                withContext(Dispatchers.Main) {
+                                    updateChecking = false
+                                    when (result) {
+                                        is UpdateManager.CheckResult.Update -> {
+                                            updateDialogInfo = result.info
+                                            updateDownloadedFile = UpdateManager.lastDownloadedApk(
+                                                context, result.info.versionCode)
+                                        }
+                                        is UpdateManager.CheckResult.UpToDate ->
+                                            Toast.makeText(context, "已是最新版本", Toast.LENGTH_SHORT).show()
+                                        is UpdateManager.CheckResult.Failed ->
+                                            updateCheckError = result.reason
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !updateChecking,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (updateChecking) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("检查中…")
+                        } else {
+                            Text("更新软件")
+                        }
+                    }
                 }
             }
 
@@ -582,6 +649,47 @@ fun ParentSettingsScreen(
                 if (!resetDone) {
                     TextButton(onClick = { showAccountReset = false }, enabled = !resetBusy) { Text("取消") }
                 }
+            }
+        )
+    }
+
+    // === [TASK-APP-UPDATE-V1] C2：更新弹窗（可选更新：以后再说/跳过此版本；强制更新不可跳过） ===
+    updateDialogInfo?.let { info ->
+        UpdateDialog(
+            info = info,
+            downloadedFile = updateDownloadedFile,
+            onDismiss = { updateDialogInfo = null },
+            onSkip = {
+                UpdateManager.markSkipped(context, info.versionCode)
+                updateDialogInfo = null
+            },
+            onCloseAfterInstall = { updateDialogInfo = null }
+        )
+    }
+
+    // === [TASK-APP-UPDATE-V1] C5：检查失败 → 提示 + 官网兜底（https://xpc.winann.com） ===
+    updateCheckError?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { updateCheckError = null },
+            title = { Text("检查更新失败") },
+            text = { Text("$msg。\n\n可前往官网下载最新版本。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    updateCheckError = null
+                    try {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse("https://xpc.winann.com")
+                            )
+                        )
+                    } catch (_: Exception) {
+                        Toast.makeText(context, "无法打开浏览器", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("打开官网") }
+            },
+            dismissButton = {
+                TextButton(onClick = { updateCheckError = null }) { Text("关闭") }
             }
         )
     }

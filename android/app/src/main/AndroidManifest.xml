@@ -45,6 +45,9 @@
     <!-- 忽略电池优化（保活增强） -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- [TASK-APP-UPDATE-V1] 安装更新包（PackageInstaller/ACTION_VIEW 均需「允许安装未知来源」） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- === 应用配置 === -->
     <application
         android:name=".XiaopacaiApp"
@@ -173,6 +176,22 @@
                 <action android:name="android.app.action.DEVICE_ADMIN_DISABLE_REQUESTED" />
             </intent-filter>
         </receiver>
+
+        <!-- [TASK-APP-UPDATE-V1] 安装会话结果接收器（PackageInstaller session commit 回执，仅日志） -->
+        <receiver
+            android:name=".util.InstallResultReceiver"
+            android:exported="false" />
+
+        <!-- [TASK-APP-UPDATE-V1] FileProvider：向系统安装器暴露已校验的更新包（仅 app-updates 目录） -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updatefileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 

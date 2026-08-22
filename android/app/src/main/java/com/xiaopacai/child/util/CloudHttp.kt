@@ -1,5 +1,6 @@
 package com.xiaopacai.child.util
 
+import java.io.File
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
@@ -174,5 +175,40 @@ internal fun httpGetJson(
         val err = if (code in 200..299) ""
             else try { conn.errorStream?.bufferedReader()?.readText() ?: "" } catch (_: Exception) { "" }
         Triple(code, resp, err)
+    }
+}
+
+/**
+ * [TASK-APP-UPDATE-V1] 流式下载到本地文件（APK 更新包）。
+ * HTTPS 优先 + 局域网回退（与 JSON 通道同策略）；进度回调运行在调用线程。
+ * @return 已写入字节数
+ * @throws IOException 非 2xx 或写入失败
+ */
+internal fun httpDownloadFile(
+    host: String, port: Int, path: String, destFile: File,
+    onProgress: ((downloaded: Long, total: Long) -> Unit)? = null
+): Long {
+    return httpWithHttpsFirst(host, port) { base ->
+        val conn = URL("$base$path").openConnection() as HttpURLConnection
+        conn.requestMethod = "GET"
+        conn.connectTimeout = 10000
+        conn.readTimeout = 30000
+        val code = conn.responseCode
+        if (code !in 200..299) throw java.io.IOException("下载失败：HTTP $code")
+        val total = conn.contentLengthLong
+        var done = 0L
+        destFile.parentFile?.mkdirs()
+        conn.inputStream.use { input ->
+            destFile.outputStream().use { out ->
+                val buf = ByteArray(81920)
+                var read: Int
+                while (input.read(buf).also { read = it } > 0) {
+                    out.write(buf, 0, read)
+                    done += read
+                    onProgress?.invoke(done, total)
+                }
+            }
+        }
+        done
     }
 }

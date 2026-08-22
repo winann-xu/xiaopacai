@@ -160,6 +160,17 @@ class XiaopacaiApp : Application() {
                 setShowBadge(true)
             }
             manager.createNotificationChannel(securityChannel)
+
+            // [TASK-APP-UPDATE-V1] 应用更新渠道（更新可用/下载进度/安装结果，与公告渠道并列）
+            val updateChannel = NotificationChannel(
+                CHANNEL_UPDATES,
+                "应用更新",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "新版本通知与下载进度"
+                setShowBadge(true)
+            }
+            manager.createNotificationChannel(updateChannel)
         }
     }
 
@@ -170,6 +181,7 @@ class XiaopacaiApp : Application() {
         const val CHANNEL_GUARDIAN = "channel_guardian"
         const val CHANNEL_ANNOUNCEMENT = "channel_announcement"
         const val CHANNEL_SECURITY = "channel_security"  // [TASK-D3-02]
+        const val CHANNEL_UPDATES = "channel_updates"  // [TASK-APP-UPDATE-V1]
 
         /** 全局 Application 实例（方便组件访问） */
         lateinit var instance: XiaopacaiApp

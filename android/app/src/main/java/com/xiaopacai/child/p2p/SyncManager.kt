@@ -8,6 +8,8 @@ import com.xiaopacai.child.util.DbPassphraseProvider
 import com.xiaopacai.child.data.database.UsageRecordDao
 import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.service.UsageStatsCollector
+import com.xiaopacai.child.util.UpdateManager
+import com.xiaopacai.child.util.UpdateNotifier
 import com.xiaopacai.child.util.UsageStatsHelper
 import kotlinx.coroutines.*
 import org.json.JSONArray
@@ -91,6 +93,8 @@ class SyncManager(
             "limit_reset" -> handleLimitReset(message)
             "sync_ack" -> handleSyncAck(message)
             "heartbeat_ack" -> { /* 心跳 ACK 由连接层处理 */ }
+            // [TASK-APP-UPDATE-V1] D2：服务端发布新版本后的实时推送
+            "update_available" -> handleUpdateAvailable(message)
             else -> Log.d(TAG, "未处理的消息类型: ${message.type}")
         }
     }
@@ -468,6 +472,39 @@ class SyncManager(
             }
         } catch (e: Exception) {
             Log.e(TAG, "公告立即展示失败: ${e.message}")
+        }
+    }
+
+    /**
+     * [TASK-APP-UPDATE-V1] D2/D6：处理服务端「update_available」推送。
+     * 载荷仅作触发信号（含版本码），权威清单仍以 /api/update/check 为准（防伪造/防降级）。
+     * - 儿童端守护不被打断：只发普通通知，绝不弹窗/全屏；
+     * - 频控与弹窗同源（版本+每日一次）；强制更新每次推送都通知；
+     * - 已开启自动下载（C6）时后台静默下载，SHA-256 校验通过后通知点击安装。
+     */
+    private fun handleUpdateAvailable(message: P2PMessage) {
+        scope.launch {
+            try {
+                val result = UpdateManager.check(context, manual = false)
+                if (result !is UpdateManager.CheckResult.Update) return@launch
+                val info = result.info
+                if (!info.force && !UpdateManager.shouldPrompt(context, info)) return@launch
+                UpdateManager.markPrompted(context, info)
+                UpdateNotifier.notifyAvailable(context, info)
+                if (!UpdateManager.isAutoDownloadEnabled(context)) return@launch
+
+                val file = UpdateManager.downloadApk(context, info) { done, total ->
+                    val percent = if (total > 0) ((done * 100) / total).toInt() else 0
+                    UpdateNotifier.notifyDownloadProgress(context, info.versionName, percent)
+                }
+                if (file != null) {
+                    UpdateNotifier.notifyDownloadComplete(context, info)
+                } else {
+                    UpdateNotifier.notifyDownloadFailed(context, info.versionName)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "更新推送处理失败: ${e.message}")
+            }
         }
     }
 
