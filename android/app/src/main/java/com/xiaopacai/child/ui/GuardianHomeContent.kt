@@ -337,7 +337,6 @@ fun GuardianHomeContent(
                         ))
                     }
                 }
-                db.close()
                 announcements = list
 
                 // [TASK-OPT-12-P2] 挑选一条未展示过的普通公告弹窗（紧急公告走全屏覆盖层）

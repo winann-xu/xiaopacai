@@ -237,7 +237,6 @@ class TimeoutExecutor(private val context: Context) {
                     SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
                 ))
             } finally {
-                db.close()
             }
 
             Log.i(TAG, "超时事件已记录: type=$eventType, mode=$stopMode, device=$deviceId")
@@ -275,7 +274,6 @@ class TimeoutExecutor(private val context: Context) {
                 }
                 results
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.e(TAG, "查询超时事件失败: ${e.message}")

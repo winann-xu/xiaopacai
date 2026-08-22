@@ -255,7 +255,6 @@ class AppInterceptor(private val context: Context) {
                     } else false
                 }
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.w(TAG, "黑名单查询失败: ${e.message}")
@@ -281,7 +280,6 @@ class AppInterceptor(private val context: Context) {
                     } else false
                 }
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.w(TAG, "白名单查询失败: ${e.message}")
@@ -339,7 +337,6 @@ class AppInterceptor(private val context: Context) {
 
                 used >= limit
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.w(TAG, "分类限额检查失败: ${e.message}")

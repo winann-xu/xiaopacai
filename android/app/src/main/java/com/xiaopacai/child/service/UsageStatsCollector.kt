@@ -545,7 +545,6 @@ class UsageStatsCollector(
                     } else 0L
                 }
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.w(TAG, "读取限额失败: ${e.message}")
@@ -581,7 +580,6 @@ class UsageStatsCollector(
                     return if (s < e) cur >= s && cur < e else cur >= s || cur < e
                 }
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.w(TAG, "读取就寝时段失败: ${e.message}")
@@ -645,7 +643,6 @@ class UsageStatsCollector(
                     } else "full"
                 }
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.w(TAG, "读取停用模式失败，默认 full: ${e.message}")

@@ -596,7 +596,6 @@ class ParentP2PListenerService : Service() {
                 val removed = db.delete("device_registry", "device_id LIKE 'unknown-%'", null)
                 if (removed > 0) Log.i(TAG, "已清理 $removed 条临时设备记录")
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.w(TAG, "清理临时设备记录失败: ${e.message}")
@@ -638,7 +637,6 @@ class ParentP2PListenerService : Service() {
                     db.endTransaction()
                 }
             } finally {
-                db.close()
             }
 
             Log.i(TAG, "已接收 $deviceId 的 ${recordsArray.length()} 条使用记录")
@@ -878,7 +876,6 @@ class ParentP2PListenerService : Service() {
                     if (cursor.moveToFirst()) cursor.getString(0)?.takeIf { it.isNotBlank() } else null
                 }
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.w(TAG, "查询设备注册指纹失败: ${e.message}")
@@ -902,7 +899,6 @@ class ParentP2PListenerService : Service() {
                     (System.currentTimeMillis() / 1000).toString()
                 ))
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.e(TAG, "设备持久化失败: ${e.message}")
@@ -929,7 +925,6 @@ class ParentP2PListenerService : Service() {
                     }
                 }
             } finally {
-                db.close()
             }
         } catch (_: Exception) {
             // 数据库未就绪

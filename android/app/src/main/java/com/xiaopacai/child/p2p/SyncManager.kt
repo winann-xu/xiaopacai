@@ -229,7 +229,6 @@ class SyncManager(
                 }
                 Log.i(TAG, "已接收 ${policiesArray.length()} 条策略")
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.e(TAG, "策略更新处理失败: ${e.message}", e)

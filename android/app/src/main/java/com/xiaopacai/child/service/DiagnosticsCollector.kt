@@ -231,7 +231,6 @@ object DiagnosticsCollector {
                 )
                 cursor.use { if (it.moveToFirst()) it.getLong(0) else 0L }
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.w(TAG, "查询配对时间失败: ${e.message}")

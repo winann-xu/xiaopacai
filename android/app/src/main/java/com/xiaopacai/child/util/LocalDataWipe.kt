@@ -64,7 +64,6 @@ object LocalDataWipe {
                 }
                 return false
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             Log.e(TAG, "残留检测失败: ${e.message}")
@@ -102,7 +101,6 @@ object LocalDataWipe {
             try {
                 (CHILD_TABLES + PARENT_TABLES).forEach { db.execSQL("DELETE FROM $it") }
             } finally {
-                db.close()
             }
             cleared += "business_tables"
 
@@ -154,7 +152,6 @@ object LocalDataWipe {
                     }
                 }
             } finally {
-                db.close()
             }
         } catch (e: Exception) {
             out += "✗ 数据库核对失败: ${e.message}"
