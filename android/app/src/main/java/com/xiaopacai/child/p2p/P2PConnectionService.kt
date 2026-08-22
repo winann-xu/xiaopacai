@@ -344,6 +344,7 @@ class P2PConnectionService {
      */
     private suspend fun performConnect(host: String, port: Int) {
         _connectionState.value = P2PConnectionState.CONNECTING
+        closeCurrentSocket()
 
         try {
             // 1. 创建 TCP 连接
@@ -423,6 +424,7 @@ class P2PConnectionService {
 
         } catch (e: Exception) {
             Log.e(TAG, "连接失败: ${e.message}", e)
+            closeCurrentSocket()
             _connectionState.value = P2PConnectionState.DISCONNECTED
             scheduleReconnect(host, port)
         }
@@ -448,7 +450,7 @@ class P2PConnectionService {
         val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
         kmf.init(keyStore, charArrayOf())
 
-        val sslContext = SSLContext.getInstance("TLSv1.3")
+        val sslContext = SSLContext.getInstance("TLS")
         sslContext.init(kmf.keyManagers, arrayOf(trustManager), SecureRandom())
 
         val sslSocket = sslContext.socketFactory.createSocket(
@@ -458,9 +460,15 @@ class P2PConnectionService {
             true  // autoClose
         ) as SSLSocket
 
-        // 启用 TLS 1.3 优先、TLS 1.2 回退（部分 Windows/Schannel 环境不支持 TLS 1.3）
-        sslSocket.enabledProtocols = arrayOf("TLSv1.3", "TLSv1.2")
+        // [FIX-TLS] 仅启用本机实际支持的协议：Android 8.0 无 TLSv1.3，自动回退 TLS 1.2
+        val supportedProtocols = sslSocket.supportedProtocols.toSet()
+        sslSocket.enabledProtocols = listOf("TLSv1.3", "TLSv1.2")
+            .filter { it in supportedProtocols }
+            .toTypedArray()
+        // [FIX-TLS] 只保留安全且本机支持的密码套件（TLS 1.3 与 ECDHE-AES-GCM）
+        val supportedSuites = sslSocket.supportedCipherSuites.toSet()
         sslSocket.enabledCipherSuites = sslSocket.enabledCipherSuites
+            .filter { it in supportedSuites }
             .filter {
                 it.startsWith("TLS_AES") || it.startsWith("TLS_CHACHA") ||
                     (it.startsWith("TLS_ECDHE") && it.contains("AES") && it.contains("GCM"))
@@ -657,6 +665,7 @@ class P2PConnectionService {
                     if (heartbeatMissCount >= HEARTBEAT_TIMEOUT_COUNT) {
                         Log.w(TAG, "心跳超时（${heartbeatMissCount}次无响应），断开连接")
                         disconnect()
+                        scheduleReconnect(_host, _port)
                     }
                 }
             }
@@ -748,6 +757,16 @@ class P2PConnectionService {
         } catch (e: Exception) {
             Log.w(TAG, "清除持久化配对码失败: ${e.message}")
         }
+    }
+
+    /** 关闭当前 socket 与流（幂等），防止连接失败或重连时文件描述符泄漏 */
+    private fun closeCurrentSocket() {
+        try { outputStream?.close() } catch (_: Exception) {}
+        try { inputStream?.close() } catch (_: Exception) {}
+        try { socket?.close() } catch (_: Exception) {}
+        outputStream = null
+        inputStream = null
+        socket = null
     }
 
     /** 断开连接 */
