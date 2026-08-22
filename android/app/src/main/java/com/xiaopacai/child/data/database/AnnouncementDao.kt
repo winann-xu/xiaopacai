@@ -115,7 +115,6 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
             db.update("announcements", values, "announcement_id = ?", arrayOf(announcementId))
             return "unchanged"
         } finally {
-            db.close()
         }
     }
 
@@ -152,7 +151,6 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
                 arrayOf(now.toString(), announcementId)
             )
         } finally {
-            db.close()
         }
     }
 
@@ -167,7 +165,6 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
             val values = ContentValues().apply { put("expires_at", now) }
             db.update("announcements", values, "announcement_id = ?", arrayOf(announcementId))
         } finally {
-            db.close()
         }
     }
 
@@ -188,7 +185,6 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
                 announcementIds.toTypedArray()
             )
         } finally {
-            db.close()
         }
     }
 
@@ -231,7 +227,6 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
             }
             results
         } finally {
-            db.close()
         }
     }
 
@@ -251,7 +246,6 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
                 if (it.moveToFirst()) it.getInt(0) else 0
             }
         } finally {
-            db.close()
         }
     }
 
@@ -266,7 +260,6 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
             }
             db.update("announcements", values, "announcement_id = ?", arrayOf(announcementId))
         } finally {
-            db.close()
         }
     }
 
@@ -285,7 +278,6 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
             }
             db.update("announcements", values, "announcement_id = ?", arrayOf(announcementId))
         } finally {
-            db.close()
         }
     }
 
@@ -301,7 +293,6 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
             )
             cursor.use { it.moveToFirst() && it.getLong(0) > 0 }
         } finally {
-            db.close()
         }
     }
 
@@ -317,7 +308,6 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
             )
             cursor.use { if (it.moveToFirst()) it.getLong(0) else 0L }
         } finally {
-            db.close()
         }
     }
 
@@ -347,7 +337,6 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
                 } else null
             }
         } finally {
-            db.close()
         }
     }
 
@@ -360,7 +349,6 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
             val nowTimestamp = System.currentTimeMillis() / 1000
             db.delete("announcements", "expires_at > 0 AND expires_at < ?", arrayOf(nowTimestamp.toString()))
         } finally {
-            db.close()
         }
     }
 }

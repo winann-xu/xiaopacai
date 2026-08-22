@@ -43,7 +43,6 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
             }
             results
         } finally {
-            db.close()
         }
     }
 
@@ -63,7 +62,6 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
                 if (it.moveToFirst()) it.getString(0) else null
             }
         } finally {
-            db.close()
         }
     }
 
@@ -80,7 +78,6 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
             }
             set
         } finally {
-            db.close()
         }
     }
 
@@ -100,7 +97,6 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
             }
             set
         } finally {
-            db.close()
         }
     }
 
@@ -126,7 +122,6 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
             }
             map
         } finally {
-            db.close()
         }
     }
 
@@ -156,7 +151,6 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
                 )
             )
         } finally {
-            db.close()
         }
     }
 
@@ -185,7 +179,6 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
-            db.close()
         }
     }
 
@@ -213,7 +206,6 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
-            db.close()
         }
     }
 
@@ -242,7 +234,6 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
                 SQLiteDatabase.CONFLICT_REPLACE
             )
         } finally {
-            db.close()
         }
     }
 
@@ -266,7 +257,6 @@ class AppCategoryDao(private val dbHelper: AppDatabase) {
                 arrayOf(packageName)
             ) > 0
         } finally {
-            db.close()
         }
     }
 }

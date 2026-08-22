@@ -50,7 +50,6 @@ class UsageRecordDao(private val dbHelper: AppDatabase) {
                 SQLiteDatabase.CONFLICT_REPLACE
             )
         } finally {
-            db.close()
         }
     }
 
@@ -91,7 +90,6 @@ class UsageRecordDao(private val dbHelper: AppDatabase) {
             count
         } finally {
             db.endTransaction()
-            db.close()
         }
     }
 
@@ -126,7 +124,6 @@ class UsageRecordDao(private val dbHelper: AppDatabase) {
             }
             results
         } finally {
-            db.close()
         }
     }
 
@@ -147,7 +144,6 @@ class UsageRecordDao(private val dbHelper: AppDatabase) {
                 if (it.moveToFirst()) it.getLong(0) else 0L
             }
         } finally {
-            db.close()
         }
     }
 
@@ -189,7 +185,6 @@ class UsageRecordDao(private val dbHelper: AppDatabase) {
                 SQLiteDatabase.CONFLICT_REPLACE
             )
         } finally {
-            db.close()
         }
     }
 
@@ -223,7 +218,6 @@ class UsageRecordDao(private val dbHelper: AppDatabase) {
                 } else null
             }
         } finally {
-            db.close()
         }
     }
 
@@ -259,7 +253,6 @@ class UsageRecordDao(private val dbHelper: AppDatabase) {
             }
             results
         } finally {
-            db.close()
         }
     }
 
@@ -283,7 +276,6 @@ class UsageRecordDao(private val dbHelper: AppDatabase) {
                 ids.map { it.toString() }.toTypedArray()
             )
         } finally {
-            db.close()
         }
     }
 
@@ -298,7 +290,6 @@ class UsageRecordDao(private val dbHelper: AppDatabase) {
             db.delete("usage_records", "date = ?", arrayOf(date))
             db.delete("daily_summary", "date = ?", arrayOf(date))
         } finally {
-            db.close()
         }
     }
 }

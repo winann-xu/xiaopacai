@@ -54,7 +54,6 @@ object ParentDao {
                     ))
                 }
             }
-            db.close()
         } catch (e: Exception) {
             Log.e(TAG, "获取设备列表失败: ${e.message}")
         }
@@ -71,7 +70,6 @@ object ParentDao {
                 "UPDATE device_registry SET is_active = 0 WHERE device_id = ?",
                 arrayOf(deviceId)
             )
-            db.close()
             Log.i(TAG, "设备已解绑: $deviceId")
             true
         } catch (e: Exception) {
@@ -111,7 +109,6 @@ object ParentDao {
                     arr.put(obj)
                 }
             }
-            db.close()
         } catch (e: Exception) {
             Log.e(TAG, "获取策略列表失败: ${e.message}")
         }
@@ -163,7 +160,6 @@ object ParentDao {
                     targetDeviceId, if (isActive) 1 else 0, now, now
                 ))
             }
-            db.close()
             Log.i(TAG, "策略已保存: $id ($policyName)")
         } catch (e: Exception) {
             Log.e(TAG, "保存策略失败: ${e.message}")
@@ -178,7 +174,6 @@ object ParentDao {
         return try {
             val db = getDb(context)
             db.execSQL("DELETE FROM parent_policies WHERE policy_id = ?", arrayOf(policyId))
-            db.close()
             true
         } catch (e: Exception) {
             Log.e(TAG, "删除策略失败: ${e.message}")
@@ -224,7 +219,6 @@ object ParentDao {
             } finally {
                 db.endTransaction()
             }
-            db.close()
             Log.i(TAG, "设备策略本地镜像已更新: $targetDeviceId (${rows.size} 项)")
         } catch (e: Exception) {
             Log.e(TAG, "更新设备策略镜像失败: ${e.message}")
@@ -262,7 +256,6 @@ object ParentDao {
                     arr.put(obj)
                 }
             }
-            db.close()
         } catch (e: Exception) {
             Log.e(TAG, "获取公告列表失败: ${e.message}")
         }
@@ -316,7 +309,6 @@ object ParentDao {
                     targetDeviceId, validFrom, validUntil, now, now
                 ))
             }
-            db.close()
             Log.i(TAG, "公告已保存: $id ($title)")
         } catch (e: Exception) {
             Log.e(TAG, "保存公告失败: ${e.message}")
@@ -335,7 +327,6 @@ object ParentDao {
                 "UPDATE parent_announcements SET status = 'published', updated_at = ? WHERE announcement_id = ?",
                 arrayOf(now, announcementId)
             )
-            db.close()
             true
         } catch (e: Exception) {
             Log.e(TAG, "发布公告失败: ${e.message}")
@@ -354,7 +345,6 @@ object ParentDao {
                 "UPDATE parent_announcements SET status = 'revoked', updated_at = ? WHERE announcement_id = ?",
                 arrayOf(now, announcementId)
             )
-            db.close()
             true
         } catch (e: Exception) {
             Log.e(TAG, "撤回公告失败: ${e.message}")
@@ -369,7 +359,6 @@ object ParentDao {
         return try {
             val db = getDb(context)
             db.execSQL("DELETE FROM parent_announcements WHERE announcement_id = ?", arrayOf(announcementId))
-            db.close()
             true
         } catch (e: Exception) {
             Log.e(TAG, "删除公告失败: ${e.message}")
@@ -428,7 +417,6 @@ object ParentDao {
                     arr.put(obj)
                 }
             }
-            db.close()
         } catch (e: Exception) {
             Log.e(TAG, "获取使用汇总失败: ${e.message}")
         }
@@ -484,7 +472,6 @@ object ParentDao {
                     arr.put(obj)
                 }
             }
-            db.close()
         } catch (e: Exception) {
             Log.e(TAG, "获取每日汇总失败: ${e.message}")
         }
@@ -531,7 +518,6 @@ object ParentDao {
                     arr.put(obj)
                 }
             }
-            db.close()
         } catch (e: Exception) {
             Log.e(TAG, "获取分类统计失败: ${e.message}")
         }
@@ -552,7 +538,6 @@ object ParentDao {
             db.execSQL("DELETE FROM parent_policies")
             db.execSQL("DELETE FROM parent_announcements")
             db.execSQL("DELETE FROM parent_usage_summary")
-            db.close()
             Log.i(TAG, "家长端业务数据已清除（四张表）")
         } catch (e: Exception) {
             Log.e(TAG, "清除家长端数据失败: ${e.message}")
@@ -611,7 +596,6 @@ object ParentDao {
             throw e
         } finally {
             db.endTransaction()
-            db.close()
         }
     }
 
@@ -635,7 +619,6 @@ object ParentDao {
                 "INSERT INTO parent_audit_log (action, detail) VALUES (?, ?)",
                 arrayOf(action, detail)
             )
-            db.close()
         } catch (e: Exception) {
             Log.e(TAG, "写审计日志失败: ${e.message}")
         }
