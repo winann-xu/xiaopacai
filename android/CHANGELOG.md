@@ -4,6 +4,31 @@
 
 ---
 
+## [1.2.0] — 2026-08-23（[TASK-APP-UPDATE-V1]，交付）
+
+> 自动更新闭环首版（ADR 0017）：服务端发布即 P2P 推送，客户端检查/下载/校验/安装全链路；
+> versionCode 10200，minVersionCode=10200（1.1.x 全量强制）。升级不触碰任何本地数据。
+
+### 新增
+- **应用自动更新**（UpdateManager）
+  - 检查触发：家长端启动静默检查 / 服务端 `update_available` P2P 推送 / 家长端「关于-更新软件」手动检查
+  - 强制/可选判定（minVersionCode 阈值）+ 频控（可选每版本每日一次；强制每次提示）+ 跳过此版本
+  - 自动下载开关（默认关；允许移动网络下载，D3 产品决策）；私有目录下载 + SHA-256 校验（失败拒绝并删除）
+  - PackageInstaller session 安装 + ACTION_VIEW 兜底 + 未知来源权限引导；安装结果广播回调
+  - 通知渠道 channel_updates + 进度/完成/失败通知；儿童端收到推送不弹窗、守护不打断
+  - 家长端关于页「更新软件」按钮（检查失败兜底官网 xpc.winann.com）
+  - Manifest：REQUEST_INSTALL_PACKAGES + FileProvider + InstallResultReceiver；res/xml/file_paths.xml 最小暴露面
+- 单测 160 → 178（UpdateLogicTest 18 例：解析/频控/跳过/防降级/SHA-256/下载校验）
+
+### 包含热修复（1.1.2–1.1.6）
+- P2P 连接（Android 8.0 TLS 1.2 回退 + socket 泄漏修复）
+- 今日倒计时卡分钟 / 冻结 00:29:00（估算延续 + 权威采集判定）
+- 数据库并发关闭共享 SQLCipher 连接导致守护失效（移除 67 处 db.close()）
+
+---
+
+## [1.1.1] — 2026-08-15（[TASK-HARDENING-V1.1.1]，交付）
+
 ## [1.1.1] — 2026-08-15（[TASK-HARDENING-V1.1.1]，交付）
 
 > V1.1.1 加固版：修复 OPPO 真机回归 4 项 P0 缺陷（140 信任务书）。版本由 tag v1.1.1
