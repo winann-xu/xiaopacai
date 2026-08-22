@@ -93,4 +93,86 @@ class CountdownLogicTest {
         assertEquals("02:03:05", UsageStatsCollector.formatHms((2 * 3600 + 3 * 60 + 5) * 1000L))
         assertEquals("25:00:00", UsageStatsCollector.formatHms(25 * 3600_000L))  // 超 24 小时如实显示
     }
+
+    // ==================== [FIX-COUNTDOWN] 分钟粒度回跳修复 ====================
+
+    @Test
+    fun interactiveDelta_cappedAtCollectInterval() {
+        // 距锚点超过一个采集周期 → 增量封顶 60s（防空闲/熄屏漂移）
+        assertEquals(60_000L, UsageStatsCollector.interactiveDeltaMs(1_000_000L, 1_000_000L + 100_000L, true))
+        // 熄屏 → 0
+        assertEquals(0L, UsageStatsCollector.interactiveDeltaMs(1_000_000L, 1_000_000L + 100_000L, false))
+        // 无锚点 → 0
+        assertEquals(0L, UsageStatsCollector.interactiveDeltaMs(0L, 1_000_000L + 100_000L, true))
+        // 正常子分钟增量
+        assertEquals(5_000L, UsageStatsCollector.interactiveDeltaMs(1_000_000L, 1_000_000L + 5_000L, true))
+    }
+
+    @Test
+    fun reconcile_stuckMinute_keepsEstimateAndAnchor() {
+        // 采集分钟值未进位：估算保持、锚点不推进（避免 delta 重计导致倒计时回跳）
+        val r = UsageStatsCollector.reconcileCollect(
+            prevUsedMs = 30 * 60_000L,
+            prevAnchorMs = 1_000_000L,
+            collectedUsedMs = 30 * 60_000L)
+        assertEquals(30 * 60_000L, r.first)
+        assertFalse(r.second)
+    }
+
+    @Test
+    fun reconcile_cappedEstimate_doesNotDrift() {
+        // 估算已封顶（采集值 + 一个采集周期）：下一周期仍封顶，不无限漂移
+        val r = UsageStatsCollector.reconcileCollect(
+            prevUsedMs = 31 * 60_000L,
+            prevAnchorMs = 1_000_000L,
+            collectedUsedMs = 30 * 60_000L)
+        assertEquals(31 * 60_000L, r.first)
+        assertFalse(r.second)
+    }
+
+    @Test
+    fun reconcile_tickingMinute_advancesAnchor() {
+        // 采集分钟值正常进位 → 采信新值并推进锚点
+        val r = UsageStatsCollector.reconcileCollect(
+            prevUsedMs = 30 * 60_000L,
+            prevAnchorMs = 1_000_000L,
+            collectedUsedMs = 31 * 60_000L)
+        assertEquals(31 * 60_000L, r.first)
+        assertTrue(r.second)
+    }
+
+    @Test
+    fun reconcile_resetDrop_trustsCollected() {
+        // 家长重置限额/跨天：采集值大幅回落 → 采信新值并推进锚点
+        val r = UsageStatsCollector.reconcileCollect(
+            prevUsedMs = 45 * 60_000L,
+            prevAnchorMs = 1_000_000L,
+            collectedUsedMs = 0L)
+        assertEquals(0L, r.first)
+        assertTrue(r.second)
+    }
+
+    @Test
+    fun countdown_monotonic_whenCollectedMinuteStuck() {
+        // [回归] 采集分钟值卡在 30m 三个采集周期时，剩余时长必须单调不增（不得回跳）
+        val limit = 120 * 60_000L
+        var used = 0L
+        var anchor = 0L
+        var t = 1_000_000L
+        val first = UsageStatsCollector.reconcileCollect(used, anchor, 30 * 60_000L)
+        used = first.first
+        anchor = t
+        var prevRemain = Long.MAX_VALUE / 4
+        for (cycle in 1..3) {
+            val remainAt59 = UsageStatsCollector.computeRemainingMillis(limit, used, anchor, t + 59_000L, true)
+            assertTrue("剩余时长回跳（周期 $cycle，59s 时）: $remainAt59 > $prevRemain", remainAt59 <= prevRemain + 1_000L)
+            t += 60_000L
+            val next = UsageStatsCollector.reconcileCollect(used, anchor, 30 * 60_000L)
+            used = next.first
+            if (next.second) anchor = t
+            val remainAfter = UsageStatsCollector.computeRemainingMillis(limit, used, anchor, t, true)
+            assertTrue("剩余时长回跳（周期 $cycle，采集后）: $remainAfter > $remainAt59", remainAfter <= remainAt59 + 1_000L)
+            prevRemain = remainAfter
+        }
+    }
 }

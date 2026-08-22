@@ -156,8 +156,37 @@ class UsageStatsCollector(
         ): Long {
             if (limitMillis <= 0) return 0
             if (lastCollectAtMs <= 0) return limitMillis  // 尚未完成首次采集：不虚构已用
-            val delta = if (screenInteractive) (nowMs - lastCollectAtMs).coerceAtLeast(0) else 0
+            val delta = interactiveDeltaMs(lastCollectAtMs, nowMs, screenInteractive)
             return (limitMillis - lastUsedMillis - delta).coerceAtLeast(0)
+        }
+
+        /** [FIX-COUNTDOWN] 距锚点的交互增量（毫秒），封顶一个采集周期，防止熄屏/延迟导致漂移 */
+        fun interactiveDeltaMs(
+            anchorMs: Long,
+            nowMs: Long,
+            screenInteractive: Boolean,
+            capMs: Long = COLLECT_INTERVAL_MS
+        ): Long = if (screenInteractive && anchorMs > 0)
+            (nowMs - anchorMs).coerceIn(0, capMs) else 0L
+
+        /**
+         * [FIX-COUNTDOWN] 分钟粒度采集回跳修复（纯函数，单测）：
+         * 合并新采集分钟值与旧估算，返回 Pair(新估算已用毫秒, 是否推进锚点)。
+         * - 估算只增不减（倒计时不回跳）：max(采集值, 旧估算)；
+         * - 封顶领先采集值一个采集周期：防空闲/熄屏漂移导致提前锁定；
+         * - 采集值大幅回落（家长重置限额/跨天）→ 采信新值并推进锚点。
+         */
+        fun reconcileCollect(
+            prevUsedMs: Long,
+            prevAnchorMs: Long,
+            collectedUsedMs: Long,
+            collectIntervalMs: Long = COLLECT_INTERVAL_MS
+        ): Pair<Long, Boolean> {
+            val resetDrop = collectedUsedMs < prevUsedMs - collectIntervalMs
+            if (resetDrop) return collectedUsedMs to true
+            val estimate = minOf(maxOf(collectedUsedMs, prevUsedMs), collectedUsedMs + collectIntervalMs)
+            val advanceAnchor = prevAnchorMs <= 0 || estimate != prevUsedMs
+            return estimate to advanceAnchor
         }
 
         /** 采集是否已失效（最近一次成功采集距今超过阈值） */
@@ -233,6 +262,10 @@ class UsageStatsCollector(
     @Volatile
     private var _lastCollectAtMs: Long = 0L
 
+    /** [FIX-COUNTDOWN] 倒计时增量锚点（仅在估算推进时更新，避免采集分钟未进位时回跳） */
+    @Volatile
+    private var _countdownAnchorMs: Long = 0L
+
     @Volatile
     private var _lastCollectAdjustedUsedMs: Long = 0L
 
@@ -285,15 +318,14 @@ class UsageStatsCollector(
         val interactive = pm?.isInteractive ?: true
         val limitMillis = _todayLimitMinutes * 60_000L
         val usedMillis = if (hasCollected) {
-            _lastCollectAdjustedUsedMs +
-                (if (interactive) (now - _lastCollectAtMs).coerceAtLeast(0) else 0)
+            _lastCollectAdjustedUsedMs + interactiveDeltaMs(_countdownAnchorMs, now, interactive)
         } else 0L
         return CountdownSnapshot(
             healthy = healthy,
             limitMillis = limitMillis,
             usedMillis = usedMillis,
             remainingMillis = computeRemainingMillis(
-                limitMillis, _lastCollectAdjustedUsedMs, _lastCollectAtMs, now, interactive),
+                limitMillis, _lastCollectAdjustedUsedMs, _countdownAnchorMs, now, interactive),
             isTimeoutActive = _isTimeoutActive,
             stopMode = _stopMode,
             resetOffsetMinutes = _resetOffsetMinutes
@@ -364,7 +396,15 @@ class UsageStatsCollector(
         if (hasUsagePermission) {
             _collectHealthy = true
             _lastCollectAtMs = System.currentTimeMillis()
-            _lastCollectAdjustedUsedMs = todayAdjustedMinutes * 60_000L
+            // [FIX-COUNTDOWN] 分钟粒度回跳：合并旧估算，锚点仅在估算推进时更新，
+            // 避免采集周期内分钟未进位时剩余时长回跳（倒计时“卡在一个分钟上”）。
+            val (newUsed, advanceAnchor) = reconcileCollect(
+                prevUsedMs = _lastCollectAdjustedUsedMs,
+                prevAnchorMs = _countdownAnchorMs,
+                collectedUsedMs = todayAdjustedMinutes * 60_000L
+            )
+            _lastCollectAdjustedUsedMs = newUsed
+            if (advanceAnchor) _countdownAnchorMs = _lastCollectAtMs
         }
 
         if (usageMap.isEmpty()) {
