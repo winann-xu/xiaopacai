@@ -108,6 +108,8 @@ class PairingProvisionService : Service() {
                         "设备已是 Device Owner，无需重复预置"
                     AdbOutputParser.DpmOutcome.TEST_ONLY_BUILD ->
                         "当前为调试包，请安装正式版本"
+                    AdbOutputParser.DpmOutcome.COLOROS_SIGNATURE_BLOCKED ->
+                        "本机型 ColorOS 禁止第三方应用成为设备所有者（签名白名单校验未通过）。此 ROM 暂不支持强管制；若已安装专用 testkey 版仍失败，说明该构建仅放行系统级签名。"
                     AdbOutputParser.DpmOutcome.ROM_REJECTED ->
                         "本机型系统拒绝第三方 Device Owner 预置"
                     else -> "预置失败：${dpmRes?.output?.ifBlank { "未知错误" } ?: "adb 执行失败"}"
@@ -121,6 +123,8 @@ class PairingProvisionService : Service() {
                             ProvisionMachine.ProvisionError.DPM_ALREADY_SET
                         AdbOutputParser.DpmOutcome.TEST_ONLY_BUILD ->
                             ProvisionMachine.ProvisionError.DPM_TEST_ONLY
+                        AdbOutputParser.DpmOutcome.COLOROS_SIGNATURE_BLOCKED ->
+                            ProvisionMachine.ProvisionError.DPM_COLOROS_SIGNATURE_BLOCKED
                         AdbOutputParser.DpmOutcome.ROM_REJECTED ->
                             ProvisionMachine.ProvisionError.DPM_ROM_REJECTED
                         else -> ProvisionMachine.ProvisionError.DPM_UNKNOWN

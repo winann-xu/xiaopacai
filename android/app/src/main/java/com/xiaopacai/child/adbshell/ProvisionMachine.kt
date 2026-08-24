@@ -23,7 +23,7 @@ object ProvisionMachine {
     enum class ProvisionError {
         SDK_TOO_OLD, ALREADY_ACTIVE, BINARY_MISSING, DISCOVERY_FAILED,
         PAIR_FAILED, CONNECTION_FAILED, DPM_ACCOUNTS_PRESENT, DPM_ALREADY_SET,
-        DPM_TEST_ONLY, DPM_ROM_REJECTED, DPM_UNKNOWN
+        DPM_TEST_ONLY, DPM_COLOROS_SIGNATURE_BLOCKED, DPM_ROM_REJECTED, DPM_UNKNOWN
     }
 
     sealed class Event {
@@ -76,6 +76,8 @@ object ProvisionMachine {
                     AdbOutputParser.DpmOutcome.ACCOUNTS_PRESENT -> ProvisionError.DPM_ACCOUNTS_PRESENT
                     AdbOutputParser.DpmOutcome.ALREADY_DEVICE_OWNER -> ProvisionError.DPM_ALREADY_SET
                     AdbOutputParser.DpmOutcome.TEST_ONLY_BUILD -> ProvisionError.DPM_TEST_ONLY
+                    AdbOutputParser.DpmOutcome.COLOROS_SIGNATURE_BLOCKED ->
+                        ProvisionError.DPM_COLOROS_SIGNATURE_BLOCKED
                     AdbOutputParser.DpmOutcome.ROM_REJECTED -> ProvisionError.DPM_ROM_REJECTED
                     else -> ProvisionError.DPM_UNKNOWN
                 },

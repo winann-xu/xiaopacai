@@ -88,6 +88,15 @@ class ProvisionStateMachineTest {
     }
 
     @Test
+    fun provisionColorOsSignatureBlockedIsTerminal() {
+        val s = machine.next(Step.Provision, Event.ProvisionFailed(DpmOutcome.COLOROS_SIGNATURE_BLOCKED))
+        assertTrue(s is Step.Failed)
+        s as Step.Failed
+        assertEquals(ProvisionError.DPM_COLOROS_SIGNATURE_BLOCKED, s.error)
+        assertEquals(false, s.retryable)
+    }
+
+    @Test
     fun provisionUnknownIsRetryable() {
         val s = machine.next(Step.Provision, Event.ProvisionFailed(DpmOutcome.UNKNOWN_FAILURE))
         assertTrue(s is Step.Failed)

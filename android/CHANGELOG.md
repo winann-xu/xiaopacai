@@ -4,6 +4,27 @@
 
 ---
 
+## [1.3.4] — 2026-08-24（ColorOS 签名白名单定位与 testkey 实验，未发布）
+
+### 修复
+- dpm 错误分类新增 `COLOROS_SIGNATURE_BLOCKED`：识别 ColorOS 私有
+  `Unexpected @ProvisioningPreCondition: 99`（第三方 Device Owner 签名白名单校验），
+  界面明确提示「本机型 ColorOS 禁止第三方应用成为设备所有者（签名校验未通过）」，
+  替代原先原样输出的异常堆栈文本；该状态判为终态、不自动重试。
+
+### 实验（不上架）
+- 新增 `strictTestkey` 构建变体：AOSP testkey 公开证书签名（经 `XPC_TESTKEY` 本地
+  属性注入，不入库、非默认签名），用于绕过 ColorOS 第三方 DO 签名白名单。
+
+### 实测（2026-08-24）
+- Reno8 PGBM10（Android 14 / ColorOS 14.0.0.3001 CN01）：accounts=0、users=1 仍报 99，
+  同机换 testkey 签名后 `dpm set-device-owner` 成功，`DeviceOwner, Affiliated`，
+  防卸载与清数据被拒，激活后无崩溃、App 正常运行。
+- AVD xpc_release_test（Android 14 全新实例）：testkey 包 dpm 成功回归通过。
+- 单测 233 → 235 全绿（新增 99 分类 2 例 + 终态语义 1 例）。
+
+---
+
 ## [1.3.3] — 2026-08-24（[TASK-STRICT-PROVISION-V1] 真机回归修复，交付）
 
 > OPPO PKV110（Android 16/ColorOS）恢复出厂后实操 App 自授权连续失败，逐层定位并

@@ -7,7 +7,7 @@ package com.xiaopacai.child.adbshell
  * 供强管制流程做分类提示；任何未知输出都归 UNKNOWN/FAILED，不猜测成功。
  */
 object AdbOutputParser {
-    enum class DpmOutcome { SUCCESS, ACCOUNTS_PRESENT, ALREADY_DEVICE_OWNER, TEST_ONLY_BUILD, ROM_REJECTED, UNKNOWN_FAILURE }
+    enum class DpmOutcome { SUCCESS, ACCOUNTS_PRESENT, ALREADY_DEVICE_OWNER, TEST_ONLY_BUILD, COLOROS_SIGNATURE_BLOCKED, ROM_REJECTED, UNKNOWN_FAILURE }
     enum class PairOutcome { SUCCESS, FAILED }
     enum class ConnectOutcome { SUCCESS, FAILED }
 
@@ -23,6 +23,10 @@ object AdbOutputParser {
             out.contains("device owner is already set") ||
                 (out.contains("already") && out.contains("device owner")) -> DpmOutcome.ALREADY_DEVICE_OWNER
             out.contains("testonly") -> DpmOutcome.TEST_ONLY_BUILD
+            // ColorOS/realme 私有校验：目标应用签名不在 DO 白名单时抛
+            // "java.lang.IllegalStateException: unexpected @ProvisioningPreCondition 99"。
+            // 与账号问题（上方规则）区分开，本分支仅匹配该私有注解文案。
+            out.contains("provisioningprecondition") -> DpmOutcome.COLOROS_SIGNATURE_BLOCKED
             out.contains("securityexception") ||
                 out.contains("not allowed") ||
                 out.contains("permission denial") -> DpmOutcome.ROM_REJECTED

@@ -340,6 +340,8 @@ private fun FailureCard(
                         "设备已是 Device Owner。$message"
                     ProvisionMachine.ProvisionError.DPM_TEST_ONLY ->
                         "当前为调试包。$message"
+                    ProvisionMachine.ProvisionError.DPM_COLOROS_SIGNATURE_BLOCKED ->
+                        "本机型 ColorOS 禁止第三方应用成为设备所有者（签名校验未通过）。此 ROM 暂不支持强管制模式；如已安装专用 testkey 版仍失败，说明系统仅放行平台级签名。"
                     ProvisionMachine.ProvisionError.DPM_ROM_REJECTED ->
                         "定制 ROM 拒绝预置。$message"
                     ProvisionMachine.ProvisionError.DPM_UNKNOWN ->

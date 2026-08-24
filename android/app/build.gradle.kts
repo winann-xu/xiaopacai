@@ -89,6 +89,17 @@ android {
                 keyPassword = providers.gradleProperty("XPC_KEY_PASS").get()
             }
         }
+        // [TASK-STRICT-COLOROS] ColorOS 强管制实验签名：AOSP testkey（公开测试证书，不入库）
+        // 用于绕过 ColorOS 对第三方 Device Owner 的签名白名单校验（仅实验/专用版，非默认发布签名）。
+        create("colorosTestkey") {
+            val testkeyPath = providers.gradleProperty("XPC_TESTKEY").orNull
+            if (!testkeyPath.isNullOrBlank()) {
+                storeFile = file(testkeyPath)
+                storePassword = "testkey"
+                keyAlias = "testkey"
+                keyPassword = "testkey"
+            }
+        }
     }
 
     buildTypes {
@@ -97,6 +108,17 @@ android {
             isShrinkResources = true
             // [TASK-PRELAUNCH-APK] A1：Release 发布包正式签名（密钥不入库，从环境变量读取）
             signingConfig = signingConfigs.getByName("release")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        // [TASK-STRICT-COLOROS] testkey 签名的强管制专用变体（实验，不上架）
+        create("strictTestkey") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            versionNameSuffix = "-testkey"
+            signingConfig = signingConfigs.getByName("colorosTestkey")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -73,6 +73,22 @@ class AdbOutputParserTest {
     }
 
     @Test
+    fun dpm_colorOsSignatureBlocked_precondition99() {
+        // OPPO Reno8 实测输出：ColorOS 对第三方 DO 的签名白名单校验失败。
+        val out = "Exception occurred while executing 'set-device-owner':\n" +
+            "java.lang.IllegalStateException: unexpected @ProvisioningPreCondition 99 " +
+            "at com.android.server.devicepolicy.DevicePolicyManagerService.enforceCanSetDeviceOwnerLocked"
+        assertEquals(DpmOutcome.COLOROS_SIGNATURE_BLOCKED, AdbOutputParser.classifyDpm(1, out))
+    }
+
+    @Test
+    fun dpm_colorOsSignatureBlocked_anyPreconditionCode() {
+        // 不依赖具体数值，按注解文案识别，避免其他 ColorOS 构建返回不同 code 时漏判。
+        val out = "java.lang.IllegalStateException: Unexpected @ProvisioningPreCondition:1024 at ..."
+        assertEquals(DpmOutcome.COLOROS_SIGNATURE_BLOCKED, AdbOutputParser.classifyDpm(1, out))
+    }
+
+    @Test
     fun dpm_romRejected() {
         val out = "java.lang.SecurityException: Permission Denial: not allowed to set device owner"
         assertEquals(DpmOutcome.ROM_REJECTED, AdbOutputParser.classifyDpm(1, out))

@@ -150,6 +150,25 @@
   ④ JmDNS MulticastLock 补齐（真机 Wi-Fi 必须持锁才能收 mDNS 响应）。
   实测：通知栏输码→回环配对→自动回连→dpm 全链路一次成功，`DeviceOwner, Affiliated`
   确认，App 显示「已激活（强管制）」，激活后无崩溃；单测 233/233 全绿；APK vc 10303。
+- v1.3.4（2026-08-24，ColorOS 签名白名单定位 + testkey 实验，未发布）：OPPO-2
+  （Reno8 PGBM10，Android 14 / ColorOS V14.0.0，PGBM10_14.0.0.3001 CN01，
+  20260602 构建）App 内强管制预置报 `Unexpected @ProvisioningPreCondition: 99`。
+  排查结论：
+  ① **账号/用户已排除**——实测 `dumpsys account` Accounts: 0、`pm list users` 仅 1 用户，
+    仍稳定复现 99；
+  ② **99 为 ColorOS 定制 DPMS 的私有返回值**（原生 AOSP 9/11/12 均无此文案），
+    玩机社区对 ColorOS framework 的反编译证实其来源为
+    `OplusDevicePolicyUtils.checkPackageState` 对目标应用签名证书 MD5 的白名单校验
+    （仅放行 Google 签名 / AOSP testkey / 平台级签名）；
+  ③ **同机对照实验（唯一变量=签名）**：正式签名 dpm → 99 失败；AOSP testkey 签名
+    dpm → 成功，`DeviceOwner, Affiliated`，`pm uninstall` 与 `pm clear` 均被拒绝，
+    激活后无崩溃、App 正常运行。
+  处置：新增 `COLOROS_SIGNATURE_BLOCKED` 错误分类与界面文案；新增 `strictTestkey`
+  构建变体（AOSP testkey 公开证书，经 `XPC_TESTKEY` 本地属性注入，不入库、非默认签名）。
+  安全代价（待产品决策）：testkey 证书公开，任何持有该证书者可伪造同证书更新包顶替
+  App 并接管 DO；对策为 DO 防卸载 + 关闭未知来源安装/USB 调试；凡以 testkey 激活的
+  设备需长期维持 testkey 升级线（与正式签名线并存）。AVD（xpc_release_test 全新实例）
+  testkey 包 dpm 成功回归通过；PKV110/华为维持正式签名线、不受影响。
 - v1.1（2026-08-24）：P1 技术选型改为「内嵌官方 adb 二进制（LADB 模式）」（原 libadb-android
   降为备选）；P2–P5 按专业判断确认；真机测试矩阵新增华为，虚拟终端（AVD）并入；交付物明确为
   可用的强管制 Release 版本。
