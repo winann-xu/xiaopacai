@@ -47,6 +47,7 @@ import com.xiaopacai.child.ui.settings.AppCategoryActivity
 import com.xiaopacai.child.ui.settings.GuardianStatusActivity
 import com.xiaopacai.child.ui.scan.QrScannerActivity
 import com.xiaopacai.child.ui.parent.QrCodeGenerator
+import com.xiaopacai.child.util.BindingStatusChecker
 import com.xiaopacai.child.util.LocalDataWipe
 import org.json.JSONObject
 
@@ -127,10 +128,46 @@ fun GuardianHomeContent(
     // [TASK-MILESTONE-V3] 需求 3：儿童端换绑前旧账号残留确认（本地业务数据/旧绑定信息）
     var pendingRebindAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
+    // [TASK-REBIND-GATE] 换绑前置检查：设备仍处于绑定状态时禁止清空重绑（必须先解绑）
+    var rebindBusy by remember { mutableStateOf(false) }
+    var rebindBlockedMessage by remember { mutableStateOf<String?>(null) }
+
+    /**
+     * [TASK-REBIND-GATE] 换绑前先查服务端绑定状态：
+     * - 已绑定（bound=true）→ 弹「无法重新绑定」拦截，必须先由原家长端解绑；
+     * - 未绑定（bound=false）→ 走旧残留确认，确认后清空并重绑；
+     * - 查询失败/未登录 → 同样拦截，避免绕过归属纪律。
+     */
+    fun checkRebindAllowed(action: () -> Unit) {
+        val deviceId = LocalDataWipe.getLocalDeviceId(context)
+        if (deviceId == null) {
+            LocalDataWipe.resetDeviceIdentitySilently(context)
+            action()
+            return
+        }
+        rebindBusy = true
+        rebindBlockedMessage = null
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val result = BindingStatusChecker.check(context, deviceId)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                rebindBusy = false
+                when (result) {
+                    is BindingStatusChecker.CheckResult.Bound ->
+                        rebindBlockedMessage = "设备当前已绑定家长账号" +
+                            (result.ownerAccount?.let { "（$it）" } ?: "") +
+                            "，请先在原家长端解绑后再重新绑定。"
+                    is BindingStatusChecker.CheckResult.NotBound -> pendingRebindAction = action
+                    is BindingStatusChecker.CheckResult.Failed ->
+                        rebindBlockedMessage = "无法确认设备绑定状态：${result.reason}，请先登录家长账号后重试。"
+                }
+            }
+        }
+    }
+
     /** 配对入口统一把关：有旧残留先弹确认（确认后全清），无残留静默重置设备身份（D2 新身份） */
     fun requestPairing(action: () -> Unit) {
         if (LocalDataWipe.hasChildResidue(context)) {
-            pendingRebindAction = action
+            checkRebindAllowed(action)
         } else {
             LocalDataWipe.resetDeviceIdentitySilently(context)
             action()
@@ -646,7 +683,6 @@ fun GuardianHomeContent(
     // [TASK-MILESTONE-V3] 需求 3：儿童端检测到旧账号数据，确认后才清除并继续绑定新家长
     if (pendingRebindAction != null) {
         var rebindError by remember { mutableStateOf<String?>(null) }
-        var rebindBusy by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { if (!rebindBusy) pendingRebindAction = null },
             title = { Text("检测到旧账号数据") },
@@ -695,6 +731,18 @@ fun GuardianHomeContent(
                 TextButton(onClick = { pendingRebindAction = null }, enabled = !rebindBusy) {
                     Text("取消")
                 }
+            }
+        )
+    }
+
+    // [TASK-REBIND-GATE] 换绑被拦截：设备仍绑定/无法确认绑定状态
+    if (rebindBlockedMessage != null) {
+        AlertDialog(
+            onDismissRequest = { rebindBlockedMessage = null },
+            title = { Text("无法重新绑定") },
+            text = { Text(rebindBlockedMessage!!) },
+            confirmButton = {
+                TextButton(onClick = { rebindBlockedMessage = null }) { Text("知道了") }
             }
         )
     }
