@@ -40,6 +40,10 @@ val devFallbackVersionCode = 1
 // 正式版本号：打 tag 后由 tag 推导；未打 tag 用 dev-短哈希 标识开发包
 val appVersionName: String = gitTag ?: "dev-$gitCommit"
 val appVersionCode: Int = if (gitTag != null) semverToVersionCode(gitTag) else devFallbackVersionCode
+// [TASK-STRICT-PROVISION-V1] 测试用版本号覆盖：允许 dev 包覆盖安装到生产版本之上
+// （如 -PXPC_OVERRIDE_VERSION_CODE=10300）；正式发布仍以 Git tag 为准，不使用该参数。
+val overrideVersionCode: Int? = providers.gradleProperty("XPC_OVERRIDE_VERSION_CODE")
+    .orNull?.toIntOrNull()
 // === 版本号联动结束 ===
 
 android {
@@ -50,7 +54,7 @@ android {
         applicationId = "com.xiaopacai.child"
         minSdk = 26  // Android 8.0，保证前台服务与通知渠道支持
         targetSdk = 34
-        versionCode = appVersionCode
+        versionCode = overrideVersionCode ?: appVersionCode
         versionName = appVersionName  // [TASK-MILESTONE-V3] 版本号联动 Git tag（docs/VERSIONING.md）
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -140,6 +144,12 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
             excludes += "META-INF/versions/9/OSGI-INF/LICENSES/**"
+        }
+        // [TASK-STRICT-PROVISION-V1] 强管制模式：内置 libadb.so 需从 APK 解压到
+        // nativeLibraryDir 才能被 ProcessBuilder 执行（LADB 同款行为）；
+        // 默认 useLegacyPackaging=false 时 native 库留在 APK 内、目录为空。
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 

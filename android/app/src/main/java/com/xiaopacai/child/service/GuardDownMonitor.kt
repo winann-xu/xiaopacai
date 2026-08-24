@@ -225,8 +225,9 @@ object GuardDownMonitor {
                 put("isActive", false)
                 put("provisioningAllowed", false)
             }
-            // 能力边界：本应用不发起 DPO 预置（需 ADB 企业预置条件，OPPO 定制 ROM 受限）
-            put("boundary", "仅检测与展示，不落地 DPC 激活")
+            // [TASK-STRICT-PROVISION-V1] 强管制模式：自授权预置（ADR 0018），无需电脑
+            put("selfProvisionSupported", android.os.Build.VERSION.SDK_INT >= 30)
+            put("boundary", "强管制模式自授权预置（ADR 0018）：无需电脑；需 Android 11+ 与无账号状态；定制 ROM 以实测为准")
         }
     }
 

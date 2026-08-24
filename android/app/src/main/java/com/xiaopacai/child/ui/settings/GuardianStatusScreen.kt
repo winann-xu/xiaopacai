@@ -32,6 +32,7 @@ import com.xiaopacai.child.service.AntiBypassService
 import com.xiaopacai.child.service.DiagnosticsCollector
 import com.xiaopacai.child.service.GuardianDeviceAdminReceiver
 import com.xiaopacai.child.ui.components.SystemGateDialog
+import com.xiaopacai.child.ui.strict.StrictProvisionActivity
 import com.xiaopacai.child.ui.theme.XiaopacaiTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -187,6 +188,58 @@ fun GuardianStatusScreen(onBack: () -> Unit) {
             // 各守护项状态
             items.forEach { item ->
                 GuardianStatusCard(item)
+            }
+
+            // [TASK-STRICT-PROVISION-V1] 强管制模式（ADR 0018）：独立受控入口
+            val doActive = remember {
+                try {
+                    GuardianDeviceAdminReceiver.getDpm(context)
+                        .isDeviceOwnerApp(context.packageName)
+                } catch (e: Exception) {
+                    false
+                }
+            }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (doActive) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surface
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "强管制模式（Device Owner）",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = if (doActive)
+                                "已激活：本应用为设备所有者，防卸载最强。"
+                            else
+                                "未激活：可脱离电脑完成系统级预置（需 Android 11+、无账号/出厂重置状态）。",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            context.startActivity(
+                                Intent(context, StrictProvisionActivity::class.java)
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text(if (doActive) "查看" else "进入", fontSize = 12.sp)
+                    }
+                }
             }
 
             // 诊断上报区（需求5 手动触发 + 家长可关闭）

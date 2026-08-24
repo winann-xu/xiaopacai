@@ -81,12 +81,16 @@
 <activity
     android:name=".ui.settings.AppCategoryActivity"
     android:exported="false" />
-<activity
-    android:name=".ui.settings.GuardianStatusActivity"
-    android:exported="false" />
-<activity
-    android:name=".ui.scan.QrScannerActivity"
-    android:exported="false" />
+        <activity
+            android:name=".ui.settings.GuardianStatusActivity"
+            android:exported="false" />
+        <!-- [TASK-STRICT-PROVISION-V1] 强管制模式入口（ADR 0018） -->
+        <activity
+            android:name=".ui.strict.StrictProvisionActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.scan.QrScannerActivity"
+            android:exported="false" />
 <activity
     android:name=".ui.BlockOverlayActivity"
             android:exported="false"

@@ -212,10 +212,10 @@ private fun GuardianHealthSection(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     if (deviceOwner.optBoolean("isActive", false))
-                        "已激活：设备由企业预置管理，守护能力最强。"
+                        "已激活（强管制）：小趴菜为设备所有者，防卸载最强，系统级管控。"
                     else
-                        "未激活：需 ADB 企业预置条件（OPPO 等定制 ROM 有限制），本应用不自动发起激活，" +
-                        "如需强化防卸载可参考儿童端权限管理页引导。",
+                        "未激活：可在儿童设备「守护状态 → 强管制模式」完成自授权预置（无需电脑；" +
+                        "需 Android 11+ 且无账号/出厂重置状态）。",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

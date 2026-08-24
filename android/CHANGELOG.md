@@ -4,6 +4,32 @@
 
 ---
 
+## [1.3.0] — 2026-08-24（[TASK-STRICT-PROVISION-V1]，交付）
+
+> 强管制模式首版（ADR 0018）：脱离电脑的 Device Owner 自授权预置通道（LADB 模式）。
+> 由 Codex@50.20 独立完成开发-测试-上架闭环；versionCode 10300，versionName 1.3.0。
+> 三端实测：OPPO PKV110（Android 16/ColorOS）+ 华为 FRD-AL10（Android 8/EMUI）+ AVD Android 14。
+
+### 新增
+- **强管制模式（Device Owner 自授权预置，ADR 0018）**
+  - 独立受控入口：守护状态 → 强管制模式（普通界面不出现 ADB/命令提示，延续 D4 决策）
+  - 内嵌官方 adb 二进制（`libadb.so` 三 ABI，LADB 模式，SHA-256 校验入库，来源 rendiix
+    platform-tools 34.0.0）；`useLegacyPackaging=true` 保证解压到 nativeLibraryDir 可执行
+  - 流程：前置检查（Android 11+ / 未激活 DO / 二进制存在）→ 分步引导（开发者选项/无线调试）→
+    二次确认 → 6 位配对码自配对 → 无线调试直连 → `dpm set-device-owner` → 完成/分类失败
+  - 命令白名单（仅 dpm/getprop 等必要命令）+ 本地 adb server 隔离（localabstract，避开 5037）
+  - DO 状态接入：健康度快照与家长端/儿童端状态卡展示「已激活（强管制）」
+  - 能力边界如实说明：安全模式/Recovery/root 无法绝对锁定；Android 8–10 与鸿蒙 NEXT 不支持
+- 单测 178 → 223（adbshell 45 例：命令白名单/输出分类/状态机/前置条件/执行器）
+
+### 实测结论（三端矩阵）
+- OPPO PKV110（Android 16）：前置检查/引导/二次确认/失败分类全部通过；本机自配对
+  `adb pair` 成功（配对码窗口内）；有账号设备 dpm 返回「设备上已有账号」（已正确分类提示）
+- AVD Android 14（无账号）：`dpm set-device-owner` 成功，App 正确显示「已激活（强管制）」
+- 华为 FRD-AL10（Android 8）：低版本拦截正确（提示需 Android 11+），普通模式无回归
+
+---
+
 ## [1.2.0] — 2026-08-23（[TASK-APP-UPDATE-V1]，交付）
 
 > 自动更新闭环首版（ADR 0017）：服务端发布即 P2P 推送，客户端检查/下载/校验/安装全链路；
