@@ -129,7 +129,7 @@ fun StrictProvisionScreen(onBack: () -> Unit) {
             } else if (AdbOutputParser.classifyPair(pairRes.exitCode, pairRes.output)
                 != AdbOutputParser.PairOutcome.SUCCESS
             ) {
-                message = "配对失败：${pairRes.output.ifBlank { "请检查配对码与端口" }}"
+                message = pairFailureMessage(pairRes.output)
                 nextStep = ProvisionMachine.next(nextStep, ProvisionMachine.Event.PairFailed)
             } else {
                 message = "配对成功，正在连接无线调试…"
@@ -300,6 +300,18 @@ fun StrictProvisionScreen(onBack: () -> Unit) {
     }
 }
 
+/** 构造配对失败提示：识别“配对端口过期”这一 OPPO/Android 11+ 高频原因 */
+private fun pairFailureMessage(output: String): String {
+    val raw = output.ifBlank { "请检查配对码与端口" }
+    return if (output.contains("Unable to start pairing client", ignoreCase = true)) {
+        "配对失败：$raw\n" +
+            "提示：配对端口可能已过期——请重新点按「使用配对码配对设备」获取新的端口和配对码" +
+            "（配对码约 2 分钟内有效，弹窗需保持打开；换新后点「自动发现」可自动填充端口）。"
+    } else {
+        "配对失败：$raw"
+    }
+}
+
 @Composable
 private fun GuideCard(
     host: String,
@@ -323,7 +335,8 @@ private fun GuideCard(
             Text(
                 "1. 打开「开发者选项」（本页下方按钮直达）；\n" +
                     "2. 开启「USB 调试」；\n" +
-                    "3. 开启「无线调试」，并点按「使用配对码配对设备」（保持该页面打开）。\n" +
+                    "3. 开启「无线调试」，并点按「使用配对码配对设备」（保持弹窗打开）。\n" +
+                    "注意：配对码与配对端口约 2 分钟内有效，每次弹窗都会变化；若超时请重新点按弹窗，再点「自动发现」刷新。\n" +
                     "OPPO/ColorOS 注意：开发者选项内请关闭「权限监控」。",
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

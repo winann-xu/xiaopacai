@@ -137,6 +137,17 @@
 
 ## 修订记录
 
+- v1.3.1（2026-08-24，真机实操回归修复）：OPPO PKV110（Android 16/ColorOS）恢复出厂后
+  实操 App 自授权连续失败，根因查明并修复两处——
+  ① 自动发现服务名 bug：`AdbPairingDiscovery` 查询老式 `_adb._tcp`，而 Android 11+ 设备
+  广播 `_adb-tls-connect._tcp`（OPPO/新机永不命中），导致端口无法自动填充、只能手打，
+  叠加配对码约 2 分钟有效期形成超时竞态；修复为优先 `_adb-tls-connect._tcp`、兼容回退
+  `_adb._tcp`，并新增纯函数单测（7 例，230/230 全绿）。
+  ② 失败文案增强：识别 "Unable to start pairing client"（配对客户端连不上端口）时提示
+  「配对端口已过期，请重新打开配对码弹窗获取新端口与配对码」，引导页同步写明有效期。
+  实测对照：同一 libadb.so 在 shell 层配对成功、App 内失败，根因确定为码/端口过期竞态
+  而非 App 沙箱拦截；「Disable permission monitoring」（ColorOS 16 英文名，中文版隐藏，
+  需切英文开启）已真机验证开启。
 - v1.1（2026-08-24）：P1 技术选型改为「内嵌官方 adb 二进制（LADB 模式）」（原 libadb-android
   降为备选）；P2–P5 按专业判断确认；真机测试矩阵新增华为，虚拟终端（AVD）并入；交付物明确为
   可用的强管制 Release 版本。

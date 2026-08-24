@@ -4,6 +4,29 @@
 
 ---
 
+## [1.3.1] — 2026-08-24（[TASK-STRICT-PROVISION-V1] 真机实操回归修复）
+
+> OPPO PKV110（Android 16/ColorOS）恢复出厂后实操 App 自授权连续失败，根因查明并修复：
+> 自动发现服务名 bug + 配对码过期竞态；versionCode 10301。
+
+### 修复
+- **自动发现服务名 bug（根治"必须手打端口"）**：`AdbPairingDiscovery` 原查询老式
+  `_adb._tcp`，Android 11+ 设备实际广播 `_adb-tls-connect._tcp`（OPPO/新机永不命中），
+  导致端口无法自动填充；修复为优先新式 TLS 服务、兼容回退老式服务，并拆分服务名解析为
+  纯函数（新增 7 例单测，230/230 全绿）。
+- **配对失败文案与引导**：识别 "Unable to start pairing client"（配对客户端连不上端口，
+  OPPO 实测高频原因=配对端口过期）时明确提示「重新打开配对码弹窗获取新端口与配对码」；
+  引导页写明配对码/端口约 2 分钟内有效、每次弹窗变化、超时后点「自动发现」刷新。
+
+### 真机对照（2026-08-24）
+- 同一 `libadb.so` 在 shell 层配对成功、App 内失败 → 根因确认为码/端口过期竞态，
+  非 App 沙箱被 ColorOS 拦截；
+- ColorOS 16「Disable permission monitoring」（中文版隐藏，需切英文开启）已真机验证；
+- 恢复出厂（无账号）状态下经 PC 会话 `dpm set-device-owner` 成功，DO 已激活且防卸载生效
+  （`DELETE_FAILED_DEVICE_POLICY_MANAGER`），App 端状态卡正确展示。
+
+---
+
 ## [1.3.0] — 2026-08-24（[TASK-STRICT-PROVISION-V1]，交付）
 
 > 强管制模式首版（ADR 0018）：脱离电脑的 Device Owner 自授权预置通道（LADB 模式）。
