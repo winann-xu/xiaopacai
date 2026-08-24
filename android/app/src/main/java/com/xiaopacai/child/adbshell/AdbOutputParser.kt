@@ -39,4 +39,22 @@ object AdbOutputParser {
         val out = output.lowercase()
         return if (exitCode == 0 && out.contains("connected to")) ConnectOutcome.SUCCESS else ConnectOutcome.FAILED
     }
+
+    /**
+     * 解析 `adb devices` 输出中处于 device（已授权连接）状态的第一个设备 serial。
+     * 输出形如：
+     * ```
+     * List of devices attached
+     * adb-XXXX._adb-tls-connect._tcp.	device
+     * ```
+     * 返回 null 表示尚无已授权连接的设备。
+     */
+    fun parseConnectedDeviceSerial(output: String): String? {
+        return output.lineSequence()
+            .mapNotNull { line ->
+                val parts = line.split("\t", " ")
+                if (parts.size >= 2 && parts[1] == "device") parts[0].trim() else null
+            }
+            .firstOrNull { it.isNotBlank() && it != "List" }
+    }
 }

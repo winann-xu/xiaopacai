@@ -9,6 +9,33 @@ import org.junit.Test
 class AdbOutputParserTest {
 
     @Test
+    fun parseDevices_findsAuthorizedDevice() {
+        val out = "List of devices attached\n" +
+            "adb-PBMR5L6995RKCQJN-r8yIbq._adb-tls-connect._tcp.\tdevice\n\n"
+        assertEquals(
+            "adb-PBMR5L6995RKCQJN-r8yIbq._adb-tls-connect._tcp.",
+            AdbOutputParser.parseConnectedDeviceSerial(out)
+        )
+    }
+
+    @Test
+    fun parseDevices_skipsUnauthorizedAndOffline() {
+        val out = "List of devices attached\n" +
+            "some-serial\tunauthorized\n" +
+            "other-serial\toffline\n" +
+            "good-serial\tdevice\n\n"
+        assertEquals("good-serial", AdbOutputParser.parseConnectedDeviceSerial(out))
+    }
+
+    @Test
+    fun parseDevices_nullWhenNoDevice() {
+        assertEquals(
+            null,
+            AdbOutputParser.parseConnectedDeviceSerial("List of devices attached\n\n")
+        )
+    }
+
+    @Test
     fun dpm_success() {
         val out = "Success: Device owner set to package com.xiaopacai.child\n" +
             "Active admin set to component {com.xiaopacai.child/com.xiaopacai.child.service.GuardianDeviceAdminReceiver}"

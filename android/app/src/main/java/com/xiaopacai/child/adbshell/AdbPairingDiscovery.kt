@@ -3,9 +3,7 @@ package com.xiaopacai.child.adbshell
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.util.Log
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.InetAddress
 import javax.jmdns.JmDNS
@@ -21,14 +19,11 @@ import javax.jmdns.ServiceInfo
  * - `_adb._tcp`：Android 10 及以下老式无线调试服务（兼容回退）。
  * v1.3.2：真机实测 JmDNS 在 Wi-Fi 上必须持有 MulticastLock 才能收到 mDNS 响应，
  * 否则发现超时；已补 acquire/release（权限已在清单声明）。
- * 发现失败不阻塞：UI 提供手动填写兜底（LADB 交互）。
+ * v1.3.2 实测结论：设备端 mDNS 无法回环发现 `_adb-tls-connect` 连接服务
+ * （JmDNS 与 adb mdns 均查不到），连接端口改由用户从配对弹窗「IP 地址和端口」抄录，
+ * 本类只负责配对服务（主机 + 配对端口）的发现。
  */
-class AdbPairingDiscovery(
-    private val context: Context,
-    private val scope: CoroutineScope,
-    private val onFound: (DiscoveredAdbServices) -> Unit,
-    private val onError: (String) -> Unit
-) {
+class AdbPairingDiscovery {
     /** 从 JmDNS 原始结果提取的轻量结构（便于本地单测，不依赖 JmDNS 实例） */
     data class DiscoveredService(
         val type: String,
@@ -67,49 +62,27 @@ class AdbPairingDiscovery(
         val adbPort: Int
     )
 
-    /** 发现结果（含缺失分类，便于 UI 给出具体提示） */
-    data class DiscoveryOutcome(
-        val services: DiscoveredAdbServices?,
-        val pairingFound: Boolean,
-        val connectFound: Boolean
+    /** 配对所需的最小信息（主机 + 配对端口） */
+    data class PairingInfo(
+        val host: String,
+        val pairingPort: Int
     )
 
-    private var jmdns: JmDNS? = null
-    private var multicastLock: WifiManager.MulticastLock? = null
+    /**
+     * 发现结果。连接端口由用户从配对弹窗抄录（设备端 mDNS 无法回环发现
+     * `_adb-tls-connect`，真机验证 JmDNS 与 adb mdns 均查不到），
+     * 因此这里只负责配对服务的主机与配对端口。
+     */
+    data class DiscoveryOutcome(
+        val pairing: PairingInfo?,
+        val pairingFound: Boolean
+    )
 
-    fun start() {
-        scope.launch(Dispatchers.IO) {
-            try {
-                val outcome = discoverNow(context)
-                val result = outcome.services
-                when {
-                    result == null && !outcome.pairingFound ->
-                        onError("未发现配对服务：请点按「使用配对码配对设备」并保持弹窗打开")
-                    result == null && !outcome.connectFound ->
-                        onError("未发现无线调试端口：请确认已开启无线调试")
-                    result == null ->
-                        onError("发现无线调试服务但无法解析地址，请手动填写")
-                    else -> onFound(result)
-                }
-            } catch (e: Exception) {
-                Log.w("AdbDiscovery", "mDNS 发现失败: ${e.message}")
-                onError("自动发现失败：${e.message ?: "未知错误"}，请手动填写")
-            }
-        }
-    }
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     private fun ServiceInfo.toDiscovered(): DiscoveredService {
         val host = inet4Addresses.firstOrNull()?.hostAddress
         return DiscoveredService(type = type, port = port, host = host)
-    }
-
-    fun stop() {
-        releaseMulticastLock()
-        try {
-            jmdns?.close()
-        } catch (_: Exception) {
-        }
-        jmdns = null
     }
 
     /**
@@ -121,15 +94,16 @@ class AdbPairingDiscovery(
         try {
             val mdns = JmDNS.create(InetAddress.getLocalHost())
             try {
-                val pairingList = mdns.list(PAIRING_SERVICE, 3000)
-                val connectList = mdns.list(CONNECT_SERVICE_TLS, 2000) +
-                    mdns.list(CONNECT_SERVICE_LEGACY, 2000)
-                val services = (pairingList + connectList).map { it.toDiscovered() }
-                val pairingFound = services.any { it.type == PAIRING_SERVICE }
-                val connectFound = services.any {
-                    it.type == CONNECT_SERVICE_TLS || it.type == CONNECT_SERVICE_LEGACY
+                // 配对服务最先查、给足 4s（配对弹窗生命周期短，最要紧；连接服务不再查询，
+                // 其端口由用户从弹窗「IP 地址和端口」抄录，设备端 mDNS 查不到连接服务）。
+                val pairingList = mdns.list(PAIRING_SERVICE, 4000)
+                val pairingService = pairingList.firstOrNull()?.toDiscovered()
+                val pairingFound = pairingService != null
+                val pairing = pairingService?.let {
+                    val host = it.host
+                    if (host.isNullOrBlank()) null else PairingInfo(host, it.port)
                 }
-                DiscoveryOutcome(resolve(services), pairingFound, connectFound)
+                DiscoveryOutcome(pairing = pairing, pairingFound = pairingFound)
             } finally {
                 try {
                     mdns.close()
@@ -138,7 +112,7 @@ class AdbPairingDiscovery(
             }
         } catch (e: Exception) {
             Log.w("AdbDiscovery", "mDNS 发现失败: ${e.message}")
-            DiscoveryOutcome(null, pairingFound = false, connectFound = false)
+            DiscoveryOutcome(null, pairingFound = false)
         } finally {
             releaseMulticastLock()
         }

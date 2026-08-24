@@ -26,6 +26,8 @@ class AdbRunner(
     fun connect(host: String, port: Int): AdbResult? =
         AdbCommand.connect(host, port)?.let { run(it) }
 
+    fun devices(): AdbResult? = run(AdbCommand.devices())
+
     fun tcpip(serial: String, port: Int): AdbResult? =
         AdbCommand.tcpip(port)?.let { run(listOf("-s", serial) + it) }
 

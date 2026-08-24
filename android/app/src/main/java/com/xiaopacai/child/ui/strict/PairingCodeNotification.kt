@@ -55,23 +55,27 @@ object PairingCodeNotification {
             context,
             1,
             submitIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            // 注意：带 RemoteInput 的动作 PendingIntent 必须 MUTABLE（Android 12+ 硬性要求，
+            // 系统需注入内联输入结果；用 IMMUTABLE 会抛
+            // "PendingIntents attached to actions with remote inputs must be mutable"）
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         )
         val remoteInput = RemoteInput.Builder(EXTRA_CODE)
-            .setLabel("6 位配对码")
+            .setLabel("格式：配对端口:配对码（如 39019:123456）")
             .build()
         val submitAction = NotificationCompat.Action.Builder(
             R.drawable.ic_notification,
-            "输入配对码",
+            "输入配对端口:配对码",
             submitPi
         ).addRemoteInput(remoteInput).build()
 
         val text = "1. 点按系统「使用配对码配对设备」，保持该页面打开\n" +
-            "2. 下拉通知栏，在此输入 6 位配对码"
+            "2. 下拉通知栏，输入「IP 地址和端口」里的配对端口 + 冒号 + 6 位配对码\n" +
+            "   例如：39019:123456"
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("强管制配对进行中")
-            .setContentText("请在下方输入 6 位配对码")
+            .setContentText("请输入「配对端口:配对码」（如 39019:123456）")
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .addAction(submitAction)
             .setOngoing(true)

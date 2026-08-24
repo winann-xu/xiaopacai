@@ -8,21 +8,29 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.xiaopacai.child.R
 import com.xiaopacai.child.adbshell.AdbOutputParser
-import com.xiaopacai.child.adbshell.AdbPairingDiscovery
 import com.xiaopacai.child.adbshell.AdbRunner
 import com.xiaopacai.child.adbshell.ProvisionMachine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * [TASK-STRICT-PROVISION-V1] 强管制后台预置服务（ADR 0018 v1.3.2）
+ * [TASK-STRICT-PROVISION-V1] 强管制后台预置服务（ADR 0018 v1.3.3）
  *
  * 由 PairingCodeReceiver 在收到通知栏配对码后启动；前台服务保证 adb server
  * 启动与配对流程（数秒~数十秒）不被系统回收，进度通过通知实时呈现。
- * 流程：mDNS 发现（持组播锁）→ adb pair → connect → dpm set-device-owner。
+ *
+ * v1.3.3 关键简化（OPPO 真机反复验证后确定）：
+ * - 配对走本机回环 `127.0.0.1:<配对端口>`，无需 mDNS/组播锁/主机发现
+ *   （真机验证：`adb pair 127.0.0.1:<port> <code>` 成功）；
+ * - 配对成功后 adb server 会利用配对握手信息自动回连设备
+ *   （真机验证：`adb devices` 立即出现 `_adb-tls-connect._tcp` 的 device 条目），
+ *   连接端口无需用户输入、也无需 mDNS；
+ * - 最后经该自动回连会话执行 dpm set-device-owner。
+ * 用户只需输入「配对端口:配对码」（两者都在配对弹窗上显示）。
  */
 class PairingProvisionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -33,8 +41,9 @@ class PairingProvisionService : Service() {
         PairingCodeNotification.ensureChannel(this)
         startForeground(PairingCodeNotification.NOTIFICATION_ID, buildForegroundNotification())
         val code = intent?.getStringExtra(PairingCodeNotification.EXTRA_CODE)
-        if (code != null) {
-            runProvision(code)
+        val pairPort = intent?.getIntExtra(EXTRA_PAIR_PORT, 0)
+        if (code != null && pairPort != null && pairPort in 1..65535) {
+            runProvision(code, pairPort)
         }
         return START_NOT_STICKY
     }
@@ -47,57 +56,33 @@ class PairingProvisionService : Service() {
             .setOngoing(true)
             .build()
 
-    private fun runProvision(code: String) {
+    private fun runProvision(code: String, pairPort: Int) {
         scope.launch {
-            val discovery = AdbPairingDiscovery(
-                this@PairingProvisionService,
-                scope,
-                onFound = {},
-                onError = {}
-            )
-            postRunning("正在发现无线调试服务…")
-            val outcome = discovery.discoverNow(this@PairingProvisionService)
-            val svc = outcome.services
-            if (svc == null) {
-                val msg = when {
-                    !outcome.pairingFound ->
-                        "未发现配对服务：请确认「使用配对码配对设备」弹窗已打开且该页面保持在前台"
-                    !outcome.connectFound -> "未发现无线调试端口：请确认已开启无线调试"
-                    else -> "无法解析无线调试地址，请重试"
-                }
-                finishWithFailure(msg, ProvisionMachine.ProvisionError.DISCOVERY_FAILED)
-                return@launch
-            }
-
             postRunning("正在配对…")
             val runner = AdbRunner.create(this@PairingProvisionService)
-            val pairRes = runner.pair(svc.host, svc.pairingPort, code)
+            val pairRes = runner.pair("127.0.0.1", pairPort, code)
             if (pairRes == null ||
                 AdbOutputParser.classifyPair(pairRes.exitCode, pairRes.output)
                 != AdbOutputParser.PairOutcome.SUCCESS
             ) {
                 finishWithFailure(
-                    "配对失败：${pairRes?.output?.ifBlank { "请检查配对码" } ?: "adb 执行失败"}",
+                    "配对失败：${pairRes?.output?.ifBlank { "请检查配对端口与配对码" } ?: "adb 执行失败"}",
                     ProvisionMachine.ProvisionError.PAIR_FAILED
                 )
                 return@launch
             }
 
             postRunning("正在连接无线调试…")
-            val connRes = runner.connect(svc.host, svc.adbPort)
-            if (connRes == null ||
-                AdbOutputParser.classifyConnect(connRes.exitCode, connRes.output)
-                != AdbOutputParser.ConnectOutcome.SUCCESS
-            ) {
+            val serial = awaitConnectedDevice(runner, 15_000)
+            if (serial == null) {
                 finishWithFailure(
-                    "连接失败：${connRes?.output?.ifBlank { "无法连接无线调试端口" } ?: "参数无效"}",
+                    "已配对但未能自动连接：请重新点按「使用配对码配对设备」获取新配对码后重试",
                     ProvisionMachine.ProvisionError.CONNECTION_FAILED
                 )
                 return@launch
             }
 
             postRunning("正在执行系统级预置（dpm）…")
-            val serial = "${svc.host}:${svc.adbPort}"
             val dpmRes = runner.shell(
                 serial,
                 "dpm set-device-owner com.xiaopacai.child/.service.GuardianDeviceAdminReceiver"
@@ -147,6 +132,23 @@ class PairingProvisionService : Service() {
         }
     }
 
+    /**
+     * 轮询 `adb devices`，等待配对握手后 adb server 自动回连的 device 条目。
+     * 返回 serial（如 `adb-XXX._adb-tls-connect._tcp.`），超时返回 null。
+     */
+    private suspend fun awaitConnectedDevice(runner: AdbRunner, timeoutMs: Long): String? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val res = runner.devices()
+            if (res != null && res.exitCode == 0) {
+                val serial = AdbOutputParser.parseConnectedDeviceSerial(res.output)
+                if (serial != null) return serial
+            }
+            delay(500)
+        }
+        return null
+    }
+
     private fun postRunning(stepText: String) {
         PairingStatusStore.post(PairingStatusStore.Status.Running(stepText))
         PairingCodeNotification.update(this, "强管制配对进行中", stepText)
@@ -170,9 +172,12 @@ class PairingProvisionService : Service() {
     }
 
     companion object {
-        fun start(context: Context, code: String) {
+        const val EXTRA_PAIR_PORT = "pair_port"
+
+        fun start(context: Context, code: String, pairPort: Int) {
             val intent = Intent(context, PairingProvisionService::class.java)
                 .putExtra(PairingCodeNotification.EXTRA_CODE, code)
+                .putExtra(EXTRA_PAIR_PORT, pairPort)
             context.startForegroundService(intent)
         }
     }

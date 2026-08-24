@@ -137,29 +137,19 @@
 
 ## 修订记录
 
-- v1.3.2（2026-08-24，真机二次回归修复）：OPPO 恢复出厂后继续实操，发现**结构性根因**——
-  无线调试配对服务仅在「设置页保持前台」时存活（HOME/切换 App 后配对端口立刻消失，
-  已用端口监听 + mDNS 对照验证）。表单流程（去设置开弹窗→回 App 点开始）在该机型上
-  结构性不可行。v1.3.2 改为 **Shizuku 同款通知栏内联配对**：
-  ① 用户保持系统配对弹窗页面前台，下拉通知栏在小趴菜通知中输入 6 位配对码；
-  ② 新增 PairingProvisionService（前台服务）在后台完成 mDNS 发现→配对→连接→dpm，
-     进度经通知呈现，结果经 PairingStatusStore 回传 UI 状态机；
-  ③ AdbPairingDiscovery 补 MulticastLock（Wi-Fi 真机 JmDNS 收不到 mDNS 响应的根因）
-     并抽出 suspend discoverNow 供后台服务复用；
-  ④ Android 13+ 通知权限运行时申请。
-  实测记录：配对端口在设置前台 ≥57s 存活；按 HOME 后 3s 内消失；shell 层配对同窗口成功。
-  单测 230/230 全绿；APK vc 10302。
-- v1.3.1（2026-08-24，真机实操回归修复）：OPPO PKV110（Android 16/ColorOS）恢复出厂后
-  实操 App 自授权连续失败，根因查明并修复两处——
-  ① 自动发现服务名 bug：`AdbPairingDiscovery` 查询老式 `_adb._tcp`，而 Android 11+ 设备
-  广播 `_adb-tls-connect._tcp`（OPPO/新机永不命中），导致端口无法自动填充、只能手打，
-  叠加配对码约 2 分钟有效期形成超时竞态；修复为优先 `_adb-tls-connect._tcp`、兼容回退
-  `_adb._tcp`，并新增纯函数单测（7 例，230/230 全绿）。
-  ② 失败文案增强：识别 "Unable to start pairing client"（配对客户端连不上端口）时提示
-  「配对端口已过期，请重新打开配对码弹窗获取新端口与配对码」，引导页同步写明有效期。
-  实测对照：同一 libadb.so 在 shell 层配对成功、App 内失败，根因确定为码/端口过期竞态
-  而非 App 沙箱拦截；「Disable permission monitoring」（ColorOS 16 英文名，中文版隐藏，
-  需切英文开启）已真机验证开启。
+- v1.3.3（2026-08-24，真机回归修复，交付）：OPPO PKV110（Android 16/ColorOS）恢复出厂
+  后实操 App 自授权连续失败，逐层定位并修复三个问题（1.3.1/1.3.2 为未发布中间迭代，
+  本版合并发布）：
+  ① **配对服务仅在前台存活**：无线调试配对服务只在设置页保持前台时存活（HOME/切换后
+    配对端口 3 秒内消失，端口监听 + mDNS 对照验证）→ 表单流程结构性不可行，改为
+    **Shizuku 同款通知栏内联配对**（用户不离开设置页，前台服务后台执行）；
+  ② **设备端 mDNS 不可靠**：设备无法回环发现 `_adb-tls-connect`（JmDNS 与 adb mdns 均
+    查不到，JmDNS 响应偶发超时）→ 改为 **本机回环配对** `adb pair 127.0.0.1:<配对端口>`
+    （真机验证成功），配对后 adb server 凭握手信息自动回连设备，连接端口无需输入/发现；
+  ③ **RemoteInput PendingIntent 必须 MUTABLE**（Android 12+，此前 IMMUTABLE 点击即崩）；
+  ④ JmDNS MulticastLock 补齐（真机 Wi-Fi 必须持锁才能收 mDNS 响应）。
+  实测：通知栏输码→回环配对→自动回连→dpm 全链路一次成功，`DeviceOwner, Affiliated`
+  确认，App 显示「已激活（强管制）」，激活后无崩溃；单测 233/233 全绿；APK vc 10303。
 - v1.1（2026-08-24）：P1 技术选型改为「内嵌官方 adb 二进制（LADB 模式）」（原 libadb-android
   降为备选）；P2–P5 按专业判断确认；真机测试矩阵新增华为，虚拟终端（AVD）并入；交付物明确为
   可用的强管制 Release 版本。

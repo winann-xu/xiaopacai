@@ -293,7 +293,8 @@ private fun GuideCard(
 
             Text("第二步：通知栏输入配对码", fontWeight = FontWeight.Bold, fontSize = 15.sp)
             Text(
-                "点「开始配对并预置」后，下拉通知栏，在小趴菜配对通知中输入 6 位配对码。\n" +
+                "点「开始配对并预置」后，下拉通知栏，在小趴菜配对通知中输入「配对端口:配对码」。\n" +
+                    "配对端口 = 配对弹窗里「IP 地址和端口」冒号后的数字（如 39019:123456）。\n" +
                     "（保持系统配对弹窗页面打开，无需切换回本应用；配对与预置在后台自动完成）",
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

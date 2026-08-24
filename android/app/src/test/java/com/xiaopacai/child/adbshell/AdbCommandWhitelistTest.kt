@@ -38,6 +38,11 @@ class AdbCommandWhitelistTest {
     }
 
     @Test
+    fun devicesArgs_areFixed() {
+        assertEquals(listOf("devices"), AdbCommand.devices())
+    }
+
+    @Test
     fun tcpipArgs_onlyAllowsPort5555() {
         assertEquals(listOf("tcpip", "5555"), AdbCommand.tcpip(5555))
         assertNull(AdbCommand.tcpip(5037))

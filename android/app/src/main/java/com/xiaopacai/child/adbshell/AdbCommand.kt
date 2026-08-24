@@ -27,6 +27,9 @@ object AdbCommand {
         return listOf("connect", "$host:$port")
     }
 
+    /** 列出已连接设备（配对后 adb server 会自动回连设备，用于获取 serial） */
+    fun devices(): List<String> = listOf("devices")
+
     /** 仅允许切换到固定回环端口 5555 */
     fun tcpip(port: Int): List<String>? {
         if (port != LOOPBACK_PORT) return null

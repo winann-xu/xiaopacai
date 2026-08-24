@@ -4,48 +4,35 @@
 
 ---
 
-## [1.3.2] — 2026-08-24（[TASK-STRICT-PROVISION-V1] 真机二次回归修复）
+## [1.3.3] — 2026-08-24（[TASK-STRICT-PROVISION-V1] 真机回归修复，交付）
 
-> OPPO 恢复出厂后继续实操，定位到**结构性根因**：无线调试配对服务只在设置页
-> 保持前台时存活（HOME/切换后配对端口立刻消失）。表单流程结构性不可行，
-> v1.3.2 改为 Shizuku 同款「通知栏内联配对」；versionCode 10302。
-
-### 修复
-- **通知栏配对（关键架构调整）**：用户保持系统配对弹窗页面前台，下拉通知栏输入
-  6 位配对码（RemoteInput 内联输入），App 后台完成 mDNS 发现→配对→连接→dpm，
-  全程无需离开系统设置页；进度经通知呈现，结果回传界面状态机。
-- **MulticastLock 修复**：JmDNS 在 Wi-Fi 真机上必须持组播锁才能收到 mDNS 响应，
-  此前只有权限没有锁，自动发现在真机永远超时；已补 acquire/release 并抽出
-  `discoverNow()` 供后台服务复用。
-- **Android 13+ 通知权限**：通知栏配对前置运行时授权申请。
-
-### 真机对照（2026-08-24）
-- 配对端口在设置前台 ≥57s 存活；按 HOME 后 3s 内消失（端口监听 + mDNS 双重验证）；
-- shell 层 adb pair（同窗口、同码）成功 → 配对机制本身无问题；
-- 已确认「Disable permission monitoring」（ColorOS 16 英文名）开启路径。
-
----
-
-## [1.3.1] — 2026-08-24（[TASK-STRICT-PROVISION-V1] 真机实操回归修复）
-
-> OPPO PKV110（Android 16/ColorOS）恢复出厂后实操 App 自授权连续失败，根因查明并修复：
-> 自动发现服务名 bug + 配对码过期竞态；versionCode 10301。
+> OPPO PKV110（Android 16/ColorOS）恢复出厂后实操 App 自授权连续失败，逐层定位并
+> 修复三个问题，最终以「通知栏配对 + 本机回环」架构在真机完整走通自授权→Device Owner
+> 全链路（1.3.1/1.3.2 为未发布的中间修复迭代，本版合并发布）；versionCode 10303。
 
 ### 修复
-- **自动发现服务名 bug（根治"必须手打端口"）**：`AdbPairingDiscovery` 原查询老式
-  `_adb._tcp`，Android 11+ 设备实际广播 `_adb-tls-connect._tcp`（OPPO/新机永不命中），
-  导致端口无法自动填充；修复为优先新式 TLS 服务、兼容回退老式服务，并拆分服务名解析为
-  纯函数（新增 7 例单测，230/230 全绿）。
-- **配对失败文案与引导**：识别 "Unable to start pairing client"（配对客户端连不上端口，
-  OPPO 实测高频原因=配对端口过期）时明确提示「重新打开配对码弹窗获取新端口与配对码」；
-  引导页写明配对码/端口约 2 分钟内有效、每次弹窗变化、超时后点「自动发现」刷新。
+- **通知栏配对（Shizuku 同款，关键架构调整）**：真机实测 ColorOS 上无线调试配对服务
+  只在「设置页保持前台」时存活（按 HOME/切换 App 后配对端口 3 秒内消失）——原表单流程
+  结构性不可行。改为用户保持系统配对弹窗页面前台，下拉通知栏在配对通知中内联输入
+  （RemoteInput），App 由前台服务在后台完成配对与预置，全程无需离开设置页。
+- **本机回环配对 + 自动回连（根治 mDNS 不可靠）**：设备端 mDNS 无法回环发现
+  `_adb-tls-connect` 连接服务（JmDNS 与 adb mdns 均验证查不到），且 JmDNS 响应偶发超时。
+  改为 `adb pair 127.0.0.1:<配对端口> <配对码>`（真机验证成功），配对成功后 adb server
+  凭握手信息自动回连设备，连接端口无需用户输入、也无需 mDNS；用户仅需输入
+  「配对端口:配对码」（两者都在配对弹窗显示）。
+- **MulticastLock 补齐**：JmDNS 在 Wi-Fi 真机必须持组播锁才能收到 mDNS 响应（权限已
+  声明但此前未持锁）；补 acquire/release 与 suspend `discoverNow()`。
+- **RemoteInput PendingIntent 必须 MUTABLE**（Android 12+ 硬性要求，此前 IMMUTABLE
+  导致点击确认即崩溃）。
+- **Android 13+ 通知权限**运行时申请；配对失败/输入格式错误分类提示。
 
-### 真机对照（2026-08-24）
-- 同一 `libadb.so` 在 shell 层配对成功、App 内失败 → 根因确认为码/端口过期竞态，
-  非 App 沙箱被 ColorOS 拦截；
-- ColorOS 16「Disable permission monitoring」（中文版隐藏，需切英文开启）已真机验证；
-- 恢复出厂（无账号）状态下经 PC 会话 `dpm set-device-owner` 成功，DO 已激活且防卸载生效
-  （`DELETE_FAILED_DEVICE_POLICY_MANAGER`），App 端状态卡正确展示。
+### 实测结论（2026-08-24 OPPO PKV110）
+- 通知栏输码 → 回环配对 → 自动回连 → `dpm set-device-owner` 全链路一次成功；
+  `dpm list-owners` 确认 `DeviceOwner, Affiliated`，App 显示「已激活（强管制）」，
+  防卸载生效（`DELETE_FAILED_DEVICE_POLICY_MANAGER`），激活后无崩溃。
+- ColorOS 16「Disable permission monitoring」（中文版隐藏，需切英文开启 Disable system
+  optimization）已验证并写入引导。
+- 单测 230 → 233（新增 devices 白名单与 adb devices 输出解析 4 例）全绿。
 
 ---
 
