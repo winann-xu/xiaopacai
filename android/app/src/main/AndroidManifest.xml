@@ -88,6 +88,18 @@
         <activity
             android:name=".ui.strict.StrictProvisionActivity"
             android:exported="false" />
+
+        <!-- [TASK-STRICT-PROVISION-V1] v1.3.2 通知栏配对（ADR 0018）：
+             ColorOS 真机实测配对服务仅在前台存活，配对码改由通知栏内联输入 -->
+        <receiver
+            android:name=".ui.strict.PairingCodeReceiver"
+            android:exported="false" />
+        <service
+            android:name=".ui.strict.PairingProvisionService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false" />
+
         <activity
             android:name=".ui.scan.QrScannerActivity"
             android:exported="false" />
