@@ -137,6 +137,18 @@
 
 ## 修订记录
 
+- v1.3.2（2026-08-24，真机二次回归修复）：OPPO 恢复出厂后继续实操，发现**结构性根因**——
+  无线调试配对服务仅在「设置页保持前台」时存活（HOME/切换 App 后配对端口立刻消失，
+  已用端口监听 + mDNS 对照验证）。表单流程（去设置开弹窗→回 App 点开始）在该机型上
+  结构性不可行。v1.3.2 改为 **Shizuku 同款通知栏内联配对**：
+  ① 用户保持系统配对弹窗页面前台，下拉通知栏在小趴菜通知中输入 6 位配对码；
+  ② 新增 PairingProvisionService（前台服务）在后台完成 mDNS 发现→配对→连接→dpm，
+     进度经通知呈现，结果经 PairingStatusStore 回传 UI 状态机；
+  ③ AdbPairingDiscovery 补 MulticastLock（Wi-Fi 真机 JmDNS 收不到 mDNS 响应的根因）
+     并抽出 suspend discoverNow 供后台服务复用；
+  ④ Android 13+ 通知权限运行时申请。
+  实测记录：配对端口在设置前台 ≥57s 存活；按 HOME 后 3s 内消失；shell 层配对同窗口成功。
+  单测 230/230 全绿；APK vc 10302。
 - v1.3.1（2026-08-24，真机实操回归修复）：OPPO PKV110（Android 16/ColorOS）恢复出厂后
   实操 App 自授权连续失败，根因查明并修复两处——
   ① 自动发现服务名 bug：`AdbPairingDiscovery` 查询老式 `_adb._tcp`，而 Android 11+ 设备
