@@ -106,6 +106,8 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // [TASK-UPDATE-CHANNEL] 正式渠道：正式签名，更新只走 stable 线
+            buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
             // [TASK-PRELAUNCH-APK] A1：Release 发布包正式签名（密钥不入库，从环境变量读取）
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
@@ -118,6 +120,8 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             versionNameSuffix = "-testkey"
+            // [TASK-UPDATE-CHANNEL] 特别版渠道：testkey 签名（ColorOS 等限制机型），更新只走 special 线
+            buildConfigField("String", "UPDATE_CHANNEL", "\"special\"")
             signingConfig = signingConfigs.getByName("colorosTestkey")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -126,6 +130,8 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            // [TASK-UPDATE-CHANNEL] 调试构建归 stable；跨签名安装由签名自检兜底拦截
+            buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
             // 调试模式下保留更多日志
             isDebuggable = true
         }

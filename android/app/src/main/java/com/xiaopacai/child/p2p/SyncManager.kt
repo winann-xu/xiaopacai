@@ -2,6 +2,7 @@ package com.xiaopacai.child.p2p
 
 import android.content.Context
 import android.util.Log
+import com.xiaopacai.child.BuildConfig
 import com.xiaopacai.child.XiaopacaiApp
 import com.xiaopacai.child.data.database.AnnouncementDao
 import com.xiaopacai.child.util.DbPassphraseProvider
@@ -483,6 +484,13 @@ class SyncManager(
      * - 已开启自动下载（C6）时后台静默下载，SHA-256 校验通过后通知点击安装。
      */
     private fun handleUpdateAvailable(message: P2PMessage) {
+        // [TASK-UPDATE-CHANNEL] 渠道隔离：推送携带 channel 时与本机构建渠道比对，
+        // 不一致直接忽略（权威判断仍以 /api/update/check 按本机渠道过滤为准）。
+        val pushChannel = (message.payload["channel"] as? String)?.takeIf { it.isNotBlank() }
+        if (pushChannel != null && !pushChannel.equals(BuildConfig.UPDATE_CHANNEL, ignoreCase = true)) {
+            Log.d(TAG, "忽略其它渠道更新推送: $pushChannel")
+            return
+        }
         scope.launch {
             try {
                 val result = UpdateManager.check(context, manual = false)

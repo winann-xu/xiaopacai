@@ -4,6 +4,25 @@
 
 ---
 
+## [1.3.4] — 2026-08-24（[TASK-UPDATE-CHANNEL]，特别版独立渠道，未发布）
+
+> 与 xiaopacai-web 配套：正式版（stable）与特别版（special，testkey 签名、ColorOS 等
+> 限制机型专用）在检查/下载/推送/升级四环节严格隔离，自动升级与服务器推送绝不跨渠道串线。
+
+### 新增
+- `BuildConfig.UPDATE_CHANNEL`：release/debug=stable，strictTestkey=special；检查请求
+  携带本机渠道（服务端按渠道路由）
+- 安装前签名一致性自检 `isSameSignerAsSelf`：更新包签名证书与本机不一致即拒绝安装
+  （渠道隔离兜底，防跨签名覆盖/顶替）
+- `update_available` 推送携带 channel 时与本机渠道比对，不一致直接忽略
+
+### 实测
+- 单测 235 → 236 全绿（检查请求携带渠道断言）
+- 服务端渠道隔离 API 实测：stable 只见 stable 1.3.3；special 只见 special 1.3.3-testkey；
+  非法渠道 400
+
+---
+
 ## [1.3.4] — 2026-08-24（ColorOS 签名白名单定位与 testkey 实验，未发布）
 
 ### 修复

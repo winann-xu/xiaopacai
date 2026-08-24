@@ -5,6 +5,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.content.pm.PackageManager
+import android.content.pm.Signature
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -94,7 +96,7 @@ object UpdateManager {
     /** 网络检查客户端（可注入替换，便于单元测试） */
     interface UpdateClient {
         /** @return Triple(HTTP 状态码, 响应体, 错误体) */
-        fun check(host: String, port: Int, abi: String, versionCode: Int): Triple<Int, String, String>
+        fun check(host: String, port: Int, abi: String, versionCode: Int, channel: String): Triple<Int, String, String>
 
         /** 流式下载到 destFile，返回文件字节数（进度回调供 UI/通知展示） */
         fun download(host: String, port: Int, path: String, destFile: File, onProgress: ((Long, Long) -> Unit)?): Long
@@ -104,8 +106,8 @@ object UpdateManager {
 
     /** 默认实现：复用 CloudHttp 的 HTTPS 优先通道 */
     private object HttpUpdateClient : UpdateClient {
-        override fun check(host: String, port: Int, abi: String, versionCode: Int): Triple<Int, String, String> {
-            val path = "/api/update/check?platform=android&abi=$abi&versionCode=$versionCode"
+        override fun check(host: String, port: Int, abi: String, versionCode: Int, channel: String): Triple<Int, String, String> {
+            val path = "/api/update/check?platform=android&abi=$abi&versionCode=$versionCode&channel=$channel"
             return httpGetJson(host, port, path, null)
         }
 
@@ -126,7 +128,7 @@ object UpdateManager {
             }
             val port = CloudAccountManager.getServerPort(context)
             try {
-                val (code, resp, err) = client.check(host, port, currentAbi(), BuildConfig.VERSION_CODE)
+                val (code, resp, err) = client.check(host, port, currentAbi(), BuildConfig.VERSION_CODE, BuildConfig.UPDATE_CHANNEL)
                 if (code !in 200..299) {
                     return@withContext CheckResult.Failed(parseError(err) ?: "检查失败（HTTP $code）")
                 }
@@ -275,6 +277,10 @@ object UpdateManager {
      */
     fun installApk(context: Context, file: File): Boolean {
         if (!file.exists()) return false
+        if (!isSameSignerAsSelf(context, file)) {
+            Log.e(TAG, "签名校验失败：更新包与本机渠道签名不一致，拒绝安装（防跨渠道顶替）")
+            return false
+        }
         return try {
             if (installViaSession(context, file)) return true
             installViaActionView(context, file)
@@ -287,6 +293,50 @@ object UpdateManager {
                 false
             }
         }
+    }
+
+    /**
+     * [TASK-UPDATE-CHANNEL] 渠道隔离兜底：更新包签名证书必须与本机安装包完全一致。
+     * 服务端按渠道路由是第一道防线，此处防服务端误配/中间人/伪造同渠道清单导致跨签名安装。
+     * 任何解析异常一律拒绝（安全优先），避免把 stable/special 互相覆盖。
+     */
+    fun isSameSignerAsSelf(context: Context, apk: File): Boolean {
+        return try {
+            val pm = context.packageManager
+            val flags = if (Build.VERSION.SDK_INT >= 28) {
+                PackageManager.GET_SIGNING_CERTIFICATES
+            } else {
+                @Suppress("DEPRECATION")
+                PackageManager.GET_SIGNATURES
+            }
+            val selfInfo = pm.getPackageInfo(context.packageName, flags)
+            val selfSigs = if (Build.VERSION.SDK_INT >= 28) {
+                selfInfo.signingInfo?.apkContentsSigners
+            } else {
+                @Suppress("DEPRECATION")
+                selfInfo.signatures
+            }
+            val selfSet = selfSigs?.mapNotNull { certSha256(it) }?.toSet().orEmpty()
+            if (selfSet.isEmpty()) return false
+
+            val archive = pm.getPackageArchiveInfo(apk.absolutePath, flags) ?: return false
+            val targetSigs = if (Build.VERSION.SDK_INT >= 28) {
+                archive.signingInfo?.apkContentsSigners
+            } else {
+                @Suppress("DEPRECATION")
+                archive.signatures
+            }
+            val targetSet = targetSigs?.mapNotNull { certSha256(it) }?.toSet().orEmpty()
+            targetSet.isNotEmpty() && targetSet == selfSet
+        } catch (e: Exception) {
+            Log.e(TAG, "签名一致性校验异常，拒绝安装: ${e.message}", e)
+            false
+        }
+    }
+
+    private fun certSha256(sig: Signature): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        return md.digest(sig.toByteArray()).joinToString("") { "%02x".format(it) }
     }
 
     /** 未知来源权限是否已允许（targetSdk 26+ 安装前必须检查） */

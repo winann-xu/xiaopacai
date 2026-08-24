@@ -74,3 +74,22 @@
 - 更新通道 stable/beta 下期实现。
 - 服务端「重新配对」引导/审计（145 信可选建议）记入 backlog，排期在 UPDATE-V1 之后。
 - Windows 家长端自动更新（zip 自更新）下期实现。
+
+## 修订记录
+
+- v1.1（2026-08-24，[TASK-UPDATE-CHANNEL] 特别版独立渠道，已实施）：
+  原「stable/beta 下期实现」的渠道预留，因 ColorOS 对第三方 Device Owner 的签名白名单
+  限制（ADR 0018 v1.3.4）提前启用为 **stable / special** 双渠道：
+  ① 语义：special = 特别版（AOSP testkey 签名，ColorOS 等限制机型专用），与 stable
+    正式签名线完全隔离；两个渠道的 APK 签名不同、互不覆盖安装。
+  ② 客户端：构建期内建 `BuildConfig.UPDATE_CHANNEL`（release/debug=stable，
+    strictTestkey=special），`/api/update/check` 携带本机渠道；安装前新增签名一致性
+    自检（更新包证书集合与本机一致才允许安装），作为跨渠道串线的最终兜底；
+    `update_available` 推送携带 channel 时与本机渠道比对，不一致忽略。
+  ③ 服务端：check 按 channel 过滤（缺省 stable，白名单校验），响应返回 channel；
+    admin 创建/发布按渠道，防降级改为**渠道内单调递增**（stable/special 独立版本码空间，
+    如 stable 10303 与 special 10304 可并存）；广播载荷携带 channel。
+  ④ 下载中心：特别版独立卡片，独立查询/下载，并注明「签名不同、切换需卸载、升级不串线」。
+  ⑤ 上线：special v1.3.3-testkey（10304）三 ABI 已发布；服务端 312/312、Android 236/236 全绿。
+  ⑥ 安全权衡（已向产品负责人披露；产品指示以独立渠道正式分发）：testkey 证书公开，
+    防护依赖 DO 防卸载 + 关闭未知来源/USB 调试 + 渠道隔离；特别版设备长期走 special 升级线。

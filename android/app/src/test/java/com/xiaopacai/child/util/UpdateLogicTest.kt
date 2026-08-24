@@ -196,8 +196,14 @@ class UpdateLogicTest {
         var code: Int = 200,
         var downloadBytes: ByteArray = ByteArray(0),
     ) : UpdateManager.UpdateClient {
-        override fun check(host: String, port: Int, abi: String, versionCode: Int): Triple<Int, String, String> =
-            Triple(code, responseJson, "")
+        var lastChannel: String? = null
+        var lastAbi: String? = null
+
+        override fun check(host: String, port: Int, abi: String, versionCode: Int, channel: String): Triple<Int, String, String> {
+            lastAbi = abi
+            lastChannel = channel
+            return Triple(code, responseJson, "")
+        }
 
         override fun download(host: String, port: Int, path: String, destFile: File, onProgress: ((Long, Long) -> Unit)?): Long {
             destFile.writeBytes(downloadBytes)
@@ -215,10 +221,22 @@ class UpdateLogicTest {
     fun check_newerVersion_returnsUpdate() = runBlocking {
         val context = mockContext()
         val newer = BuildConfig.VERSION_CODE + 100
-        UpdateManager.client = FakeClient(checkJson(newer))
+        val fake = FakeClient(checkJson(newer))
+        UpdateManager.client = fake
         val result = UpdateManager.check(context, manual = false)
         assertTrue(result is UpdateManager.CheckResult.Update)
         assertEquals(newer, (result as UpdateManager.CheckResult.Update).info.versionCode)
+    }
+
+    @Test
+    fun check_sendsCurrentBuildChannel() = runBlocking {
+        val context = mockContext()
+        val fake = FakeClient(checkJson(BuildConfig.VERSION_CODE + 100))
+        UpdateManager.client = fake
+        UpdateManager.check(context, manual = false)
+        // [TASK-UPDATE-CHANNEL] 检查请求必须携带本机构建渠道，服务端据此路由，杜绝跨渠道下发
+        assertEquals(BuildConfig.UPDATE_CHANNEL, fake.lastChannel)
+        assertEquals("arm64-v8a", fake.lastAbi) // JVM 单测无 Build.SUPPORTED_ABIS → 兜底 arm64
     }
 
     @Test
