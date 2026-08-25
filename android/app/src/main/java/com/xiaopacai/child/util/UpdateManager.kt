@@ -270,28 +270,77 @@ object UpdateManager {
     // ==================== 安装 ====================
 
     /**
+     * [TASK-UPDATE-DEADLOCK-FIX] 安装结果（显式化，杜绝静默失败死锁）：
+     * - Started：已发起安装（session commit 或系统安装器已弹出）
+     * - NeedPermission：缺少「允许安装未知来源」权限，需引导用户开启
+     * - SignatureMismatch：更新包签名与本机不一致（跨渠道/跨签名顶替防护，安全红线）
+     * - Failed：安装失败（可重试，附原因）
+     */
+    sealed class InstallResult {
+        /** 已发起安装（viaSession=true=PackageInstaller 会话；false=ACTION_VIEW 已弹出） */
+        data class Started(val viaSession: Boolean) : InstallResult()
+
+        /** 缺少「允许安装未知来源」权限，需引导用户开启（普通应用；DO 可豁免） */
+        object NeedPermission : InstallResult()
+
+        /** 更新包签名与本机不一致，拒绝安装（防跨渠道顶替） */
+        object SignatureMismatch : InstallResult()
+
+        /** 安装失败（可重试） */
+        data class Failed(val reason: String) : InstallResult()
+    }
+
+    /**
      * 安装 APK：PackageInstaller session 为主（minSdk 26 全程支持），
      * 异常/不支持时回退 FileProvider + ACTION_VIEW（系统安装器，用户可见确认）。
-     * 平台边界：非系统应用无法静默安装，最终都有一次系统确认（ADR 0017）。
-     * @return true=已发起安装（session commit 或 ACTION_VIEW 已弹出）
+     *
+     * [TASK-UPDATE-DEADLOCK-FIX] 死锁修复（真机 OPPO PGBM10 复现）：
+     * 1. 不再以 canRequestPackageInstalls 前置拦截——Device Owner / Profile Owner 应用
+     *    创建并提交安装会话可豁免「未知来源」权限且系统不弹确认（MDM 静默安装机制）；
+     *    旧逻辑前置拦截会把 DO 设备锁死在强制更新弹窗（系统打断 → 永远装不上）。
+     *    普通应用缺权限时系统在 createSession 抛 SecurityException → 返回
+     *    NeedPermission 引导开启，与旧版 UX 一致。
+     * 2. 安装结果显式化：签名不匹配 / 权限缺失 / 失败均返回对应结果由调用方展示，
+     *    不再静默吞掉（旧逻辑 installApk=false 但弹窗无提示 → 死锁不可见）。
+     *
+     * 平台边界：非系统/非 DO 应用无法静默安装，最终都有一次系统确认（ADR 0017）。
+     *
+     * @return 安装结果（Started / NeedPermission / SignatureMismatch / Failed）
      */
-    fun installApk(context: Context, file: File): Boolean {
-        if (!file.exists()) return false
+    fun installApk(context: Context, file: File): InstallResult {
+        if (!file.exists()) return InstallResult.Failed("更新包文件不存在")
         if (!isSameSignerAsSelf(context, file)) {
             Log.e(TAG, "签名校验失败：更新包与本机渠道签名不一致，拒绝安装（防跨渠道顶替）")
-            return false
+            return InstallResult.SignatureMismatch
         }
-        return try {
-            if (installViaSession(context, file)) return true
-            installViaActionView(context, file)
+        // 1) 首选 PackageInstaller session：DO 可静默；普通应用缺权限时系统抛 SecurityException
+        try {
+            if (installViaSession(context, file)) return InstallResult.Started(viaSession = true)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "session 创建被拒（缺少未知来源权限，非 DO 设备）: ${e.message}")
+            return InstallResult.NeedPermission
         } catch (e: Exception) {
             Log.e(TAG, "session 安装失败，回退 ACTION_VIEW: ${e.message}", e)
-            try {
-                installViaActionView(context, file)
-            } catch (e2: Exception) {
-                Log.e(TAG, "ACTION_VIEW 安装失败: ${e2.message}", e2)
-                false
-            }
+        }
+        // 2) 兜底 FileProvider + ACTION_VIEW（系统安装器，仍需未知来源权限）
+        return try {
+            if (!canRequestPackageInstalls(context)) return InstallResult.NeedPermission
+            installViaActionView(context, file)
+            InstallResult.Started(viaSession = false)
+        } catch (e: Exception) {
+            Log.e(TAG, "ACTION_VIEW 安装失败: ${e.message}", e)
+            InstallResult.Failed(e.message ?: "安装失败")
+        }
+    }
+
+    /** 本应用是否为 Device Owner / Profile Owner（DO 可豁免未知来源权限并静默安装） */
+    fun isDeviceOwnerOrProfileOwner(context: Context): Boolean {
+        return try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE)
+                    as? android.app.admin.DevicePolicyManager ?: return false
+            dpm.isDeviceOwnerApp(context.packageName) || dpm.isProfileOwnerApp(context.packageName)
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -361,7 +410,9 @@ object UpdateManager {
     }
 
     private fun installViaSession(context: Context, file: File): Boolean {
-        if (!canRequestPackageInstalls(context)) return false
+        // [TASK-UPDATE-DEADLOCK-FIX] 移除 canRequestPackageInstalls 前置拦截：
+        // DO/PO 设备豁免该权限（MDM 静默安装机制）；普通应用由系统在 createSession
+        // 抛 SecurityException 统一引导，避免把 DO 设备锁死在更新弹窗。
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
         params.setAppPackageName(context.packageName)
@@ -391,7 +442,7 @@ object UpdateManager {
     }
 
     private fun installViaActionView(context: Context, file: File): Boolean {
-        if (!canRequestPackageInstalls(context)) return false
+        // 权限检查由 installApk 统一处理（NeedPermission），此处不再重复拦截
         val uri = FileProvider.getUriForFile(
             context, "${context.packageName}.updatefileprovider", file)
         val intent = Intent(Intent.ACTION_VIEW).apply {

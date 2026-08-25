@@ -30,6 +30,9 @@ import java.io.File
  * - 可选更新：「立即更新 / 以后再说 / 跳过此版本」（版本+每日一次频控由调用方把关）
  * - 下载：进度条实时展示 + 进度通知；完成自动 SHA-256 校验后发起安装
  * - 未知来源权限未开：按钮变「去开启权限」，开启后回弹窗继续安装
+ * - [TASK-UPDATE-DEADLOCK-FIX] 安装失败原因显式化：签名不匹配/权限缺失/系统失败
+ *   均在弹窗内展示并可重试，杜绝「强制更新弹窗反复出现但永远装不上」的死锁；
+ *   Device Owner 设备走 PackageInstaller 会话静默安装（系统不打断）。
  * - [downloadedFile]：已有校验通过的 APK 时跳过下载直接安装（下载完成通知点击路径）
  */
 @Composable
@@ -46,6 +49,7 @@ fun UpdateDialog(
     var downloading by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf(0) }
     var needPermission by remember { mutableStateOf(false) }
+    var installError by remember { mutableStateOf<String?>(null) }
 
     // 已有校验通过的 APK（下载完成通知点击而来）或权限刚开启 → 重新解析安装入口
     val readyFile: File? = downloadedFile
@@ -54,17 +58,30 @@ fun UpdateDialog(
     fun startInstall() {
         val file = readyFile
         if (file == null || !file.exists()) return
-        if (!UpdateManager.canRequestPackageInstalls(context)) {
-            needPermission = true
-            UpdateManager.openInstallPermissionSettings(context)
-            return
+        when (val result = UpdateManager.installApk(context, file)) {
+            is UpdateManager.InstallResult.Started -> {
+                installError = null
+                onCloseAfterInstall()
+            }
+            UpdateManager.InstallResult.NeedPermission -> {
+                needPermission = true
+                installError = null
+                UpdateManager.openInstallPermissionSettings(context)
+            }
+            UpdateManager.InstallResult.SignatureMismatch -> {
+                installError =
+                    "更新包签名与本机安装版本不一致，已被安全拦截。\n" +
+                    "如持续出现请联系管理员，勿混用正式版/特别版安装包。"
+            }
+            is UpdateManager.InstallResult.Failed -> {
+                installError = "安装失败：${result.reason}"
+            }
         }
-        UpdateManager.installApk(context, file)
-        onCloseAfterInstall()
     }
 
     fun startDownload() {
         if (downloading) return
+        installError = null
         val file = readyFile
         if (file != null && file.exists()) {
             startInstall()
@@ -117,6 +134,10 @@ fun UpdateDialog(
                     Text("正在下载… $progress%", fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                installError?.let { err ->
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(err, fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+                }
             }
         },
         confirmButton = {
@@ -129,6 +150,7 @@ fun UpdateDialog(
             }) {
                 Text(if (downloading) "下载中…"
                 else if (needPermission) "去开启权限"
+                else if (installError != null) "重试更新"
                 else "立即更新")
             }
         },

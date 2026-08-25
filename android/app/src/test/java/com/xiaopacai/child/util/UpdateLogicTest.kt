@@ -2,6 +2,9 @@ package com.xiaopacai.child.util
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
+import android.content.pm.Signature
 import com.xiaopacai.child.BuildConfig
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -275,6 +278,39 @@ class UpdateLogicTest {
     }
 
     // ==================== SHA-256 校验 ====================
+
+    // ==================== 安装结果显式化（TASK-UPDATE-DEADLOCK-FIX） ====================
+
+    @Test
+    fun installApk_signatureMismatch_returnsSignatureMismatch() {
+        // 回归：跨签名更新包必须显式返回 SignatureMismatch（旧逻辑静默 false →
+        // 强制更新弹窗无提示反复出现，真机死锁不可见）
+        val context = mock(Context::class.java)
+        val pm = mock(PackageManager::class.java)
+        `when`(context.packageManager).thenReturn(pm)
+        `when`(context.packageName).thenReturn("com.xiaopacai.child")
+        val self = PackageInfo()
+        self.signatures = arrayOf(Signature(byteArrayOf(1, 2, 3)))
+        `when`(pm.getPackageInfo(anyString(), anyInt())).thenReturn(self)
+        // 目标 APK 无法解析出证书 → 安全拒绝
+        `when`(pm.getPackageArchiveInfo(anyString(), anyInt())).thenReturn(null)
+        val apk = File.createTempFile("upd-mismatch", ".apk")
+        try {
+            apk.writeBytes(byteArrayOf(0x50, 0x4b, 0x03, 0x04))
+            assertTrue(UpdateManager.installApk(context, apk) is UpdateManager.InstallResult.SignatureMismatch)
+        } finally {
+            apk.delete()
+        }
+    }
+
+    @Test
+    fun installApk_missingFile_returnsFailedWithReason() {
+        val context = mock(Context::class.java)
+        val missing = File(tempRoot, "not-exists.apk")
+        val result = UpdateManager.installApk(context, missing)
+        assertTrue(result is UpdateManager.InstallResult.Failed)
+        assertTrue((result as UpdateManager.InstallResult.Failed).reason.isNotBlank())
+    }
 
     @Test
     fun sha256Of_emptyFile_matchesKnownVector() {

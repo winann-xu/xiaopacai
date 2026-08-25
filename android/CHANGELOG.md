@@ -4,6 +4,35 @@
 
 ---
 
+## [1.3.5] — 2026-08-25（[TASK-UPDATE-DEADLOCK-FIX] 强制更新死锁修复，special 渠道发布）
+
+> 真机 OPPO PGBM10（testkey 签名、Device Owner）复现死锁：点击「立即更新」→ 下载完成
+> → 安装被系统打断 → 强制更新弹窗反复出现但永远装不上。根因与修复如下。
+
+### 根因
+1. `installViaSession` 以 `canRequestPackageInstalls` 前置拦截，Device Owner / Profile
+   Owner 本可豁免「未知来源」权限并静默安装（MDM 机制），前置拦截把 DO 设备锁死在
+   更新弹窗；真机实测 `REQUEST_INSTALL_PACKAGES: granted=false`。
+2. 旧构建（渠道隔离前）更新检查不携带 channel，服务端按 stable 下发正式签名包；
+   testkey 设备签名自检拒绝安装，且失败被静默吞掉（installApk 返回 false 无提示），
+   死锁不可见、无重试指引。
+3. 下载中心 special/stable 渠道 versionCode 曾在 10304 撞车，渠道内版本语义不清晰。
+
+### 修复
+- `installApk` 返回显式安装结果 `InstallResult`：Started / NeedPermission /
+  SignatureMismatch / Failed，签名不一致、权限缺失、系统失败均可见可重试。
+- 移除 `installViaSession` 的未知来源权限前置拦截：DO/PO 走系统静默安装；
+  普通应用缺权限由系统抛 SecurityException → 引导开启（行为不变）。
+- 更新弹窗展示失败原因（红色文案 + 「重试更新」按钮），强制更新不再无提示空转。
+- special 渠道发布 1.3.5-testkey（versionCode 10305，min 10305）修复版。
+
+### 实测
+- 单测 247 → 249 全绿（新增签名不匹配显式返回 + 缺失文件 Failed 两例）。
+- 真机 OPPO PGBM10：修复版覆盖安装后，special 渠道强制更新 → PackageInstaller
+  会话静默升级 10304 → 10305 成功，无系统打断。
+
+---
+
 ## [1.3.4] — 2026-08-24（[TASK-UPDATE-CHANNEL]，特别版独立渠道，未发布）
 
 > 与 xiaopacai-web 配套：正式版（stable）与特别版（special，testkey 签名、ColorOS 等
