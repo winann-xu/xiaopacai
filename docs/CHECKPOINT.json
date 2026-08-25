@@ -1,7 +1,7 @@
 {
   "project": "xiaopacai",
   "kickoff": "2026-08-10T11:44:00+08:00",
-  "last_update": "2026-08-11T19:05:00+08:00",
+  "last_update": "2026-08-25T21:35:00+08:00",
   "branch": "main",
   "version": "2.2.0-opt12-relay-e2e",
   "phases": {
@@ -14,7 +14,11 @@
     "OPT-12-P4": {"status": "completed", "note": "Web 3.0 集成 + Claude P4 深化（def956f：relay/register、owner 绑定、parent relay 握手）+ Codex 修复（900b8da：UpdateDailySummary SQLite 翻译）；178/178 测试通过；中继 E2E 全链路通过"},
     "OPT-12-P5": {"status": "completed", "note": "Codex 主测全部完成：partial E2E（4054622）+ 三份报告（f5e3471）+ 中继 E2E 全链路（家长端 UI 注册+P2P relay+儿童端 usage_report 经 Web 投递到家长端）+ 公告直达/心跳/断线重连/诊断 REST 闭环/Web 静态文件；30 分钟长稳 0 崩溃 0 异常；dist 已更新（APK/Windows/Web3）"}
   },
-  "tasks": {
+ "tasks": {
+  "TASK-UPDATE-DEADLOCK-FIX": {
+   "status": "completed",
+   "note": "强制更新死锁修复（android v1.3.5）：DO 安装走 PackageInstaller 静默会话（移除未知来源权限前置拦截）+ 安装结果显式化 + 弹窗 readyFile 旧闭包修复 + BuildConfig 版本覆盖同步；模拟器 xpc_release_test DO E2E 10304→10305 静默自升级通过，真机 OPPO PGBM10 已装最终修复版；special 渠道 10305 强推上线（信 156）"
+  },
     "TASK-OPT-12-P1-ANDROID": {"status": "completed", "note": "app_category V3迁移 + 协议消息扩展 + PolicyConfig restrictMode + ADR"},
     "TASK-OPT-12-P1-WEB": {"status": "completed", "note": "diagnostics表+API + login-ticket/reset-ticket + relay表+API + app-category API + ADR + 既有库补表引导（709fe6a）"}
   },
