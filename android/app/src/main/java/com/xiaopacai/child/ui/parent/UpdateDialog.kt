@@ -33,6 +33,10 @@ import java.io.File
  * - [TASK-UPDATE-DEADLOCK-FIX] 安装失败原因显式化：签名不匹配/权限缺失/系统失败
  *   均在弹窗内展示并可重试，杜绝「强制更新弹窗反复出现但永远装不上」的死锁；
  *   Device Owner 设备走 PackageInstaller 会话静默安装（系统不打断）。
+ * - [TASK-UPDATE-DEADLOCK-FIX] 修复下载完成后安装不触发的旧闭包 bug：
+ *   旧实现 readyFile 在组合期捕获，下载完成的协程回调拿到的是点击瞬间的旧闭包
+ *   （readyFile=null）→ startInstall 直接 return，安装永远不执行，只能反复重下。
+ *   现改为调用时实时解析已校验 APK。
  * - [downloadedFile]：已有校验通过的 APK 时跳过下载直接安装（下载完成通知点击路径）
  */
 @Composable
@@ -51,12 +55,13 @@ fun UpdateDialog(
     var needPermission by remember { mutableStateOf(false) }
     var installError by remember { mutableStateOf<String?>(null) }
 
-    // 已有校验通过的 APK（下载完成通知点击而来）或权限刚开启 → 重新解析安装入口
-    val readyFile: File? = downloadedFile
-        ?: UpdateManager.lastDownloadedApk(context, info.versionCode)
+    // [TASK-UPDATE-DEADLOCK-FIX] 安装入口文件必须在调用时实时解析：
+    // 下载完成回调（协程）触发安装时，组合期捕获的旧值（null）会导致安装永不执行
+    fun currentReadyFile(): File? =
+        downloadedFile ?: UpdateManager.lastDownloadedApk(context, info.versionCode)
 
     fun startInstall() {
-        val file = readyFile
+        val file = currentReadyFile()
         if (file == null || !file.exists()) return
         when (val result = UpdateManager.installApk(context, file)) {
             is UpdateManager.InstallResult.Started -> {
@@ -82,7 +87,7 @@ fun UpdateDialog(
     fun startDownload() {
         if (downloading) return
         installError = null
-        val file = readyFile
+        val file = currentReadyFile()
         if (file != null && file.exists()) {
             startInstall()
             return

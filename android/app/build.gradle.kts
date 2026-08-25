@@ -60,8 +60,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // [TASK-MILESTONE-V3] 版本信息注入 BuildConfig（关于页展示、日志上报带版本）
+        // [TASK-UPDATE-DEADLOCK-FIX] override 时 BuildConfig 必须与 manifest 同步：
+        // 旧实现固定写 appVersionCode，导致 -PXPC_OVERRIDE_VERSION_CODE 只改 manifest，
+        // 更新检查上报的 versionCode 与系统实际版本不一致（误判已是最新/旧版），
+        // 真机 testkey 调试包复现：manifest 10304 + BuildConfig 10305 → 检查误报已最新。
         buildConfigField("String", "VERSION_NAME", "\"$appVersionName\"")
-        buildConfigField("int", "VERSION_CODE", "$appVersionCode")
+        buildConfigField("int", "VERSION_CODE", "${overrideVersionCode ?: appVersionCode}")
         buildConfigField("String", "GIT_COMMIT", "\"$gitCommit\"")
         buildConfigField("String", "BUILD_TIME", "\"${LocalDate.now()}\"")
 

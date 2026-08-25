@@ -17,6 +17,10 @@
    testkey 设备签名自检拒绝安装，且失败被静默吞掉（installApk 返回 false 无提示），
    死锁不可见、无重试指引。
 3. 下载中心 special/stable 渠道 versionCode 曾在 10304 撞车，渠道内版本语义不清晰。
+4. 更新弹窗 `readyFile` 在组合期捕获：下载完成回调（协程）触发安装时拿到的是点击瞬间
+   的旧闭包（readyFile=null）→ 安装永不执行，只能反复重下（模拟器 E2E 复现）。
+5. `-PXPC_OVERRIDE_VERSION_CODE` 只改 manifest versionCode，BuildConfig.VERSION_CODE
+   仍取 git tag 值 → 调试覆盖包更新检查上报错误版本码（10304 包上报 10305 → 误判已最新）。
 
 ### 修复
 - `installApk` 返回显式安装结果 `InstallResult`：Started / NeedPermission /
@@ -24,12 +28,17 @@
 - 移除 `installViaSession` 的未知来源权限前置拦截：DO/PO 走系统静默安装；
   普通应用缺权限由系统抛 SecurityException → 引导开启（行为不变）。
 - 更新弹窗展示失败原因（红色文案 + 「重试更新」按钮），强制更新不再无提示空转。
+- 更新弹窗安装入口文件改为调用时实时解析，修复下载完成后安装不触发的旧闭包 bug。
+- `build.gradle.kts` 版本覆盖时 BuildConfig.VERSION_CODE 与 manifest 同步。
 - special 渠道发布 1.3.5-testkey（versionCode 10305，min 10305）修复版。
 
 ### 实测
 - 单测 247 → 249 全绿（新增签名不匹配显式返回 + 缺失文件 Failed 两例）。
 - 真机 OPPO PGBM10：修复版覆盖安装后，special 渠道强制更新 → PackageInstaller
   会话静默升级 10304 → 10305 成功，无系统打断。
+- 模拟器 xpc_release_test（Android 14，testkey 签名 + Device Owner）：完整复现
+  强制更新弹窗 → 下载 + SHA-256 校验 → DO 静默安装（无系统确认）→ 10304 → 10305
+  自升级成功，DO 状态保留；安装后 APK SHA-256 与下载中心发布包一致。
 
 ---
 
