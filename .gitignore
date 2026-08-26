@@ -12,6 +12,13 @@
 android/.gradle/
 android/local.properties
 android/app/build/
+android/build-v*/
+android/**/build/
+android-v2/**/build/
+android-v2/build-v*/
+android-v2/local.properties
+android-v2/.gradle/
+build_log*.txt
 *.iml
 .idea/
 *.keystore

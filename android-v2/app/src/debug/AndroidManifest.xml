@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [TEST-ONLY] 调试变体专用清单：仅 debug 构建包含，release 不受影响 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- 模拟器 GUI 走查测试入口（仅 debug 可导出，release 无此组件） -->
+        <activity
+            android:name=".debug.DebugTriggerActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Xiaopacai" />
+    </application>
+</manifest>

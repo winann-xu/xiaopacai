@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [TASK-APP-UPDATE-V1] FileProvider 暴露路径白名单：
+     仅应用私有目录 filesDir/app-updates/（更新包下载区），最小暴露面。 -->
+<paths>
+    <files-path name="app_updates" path="app-updates/" />
+</paths>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [TASK-D1-02] 主题定义 -->
+<resources>
+    <!-- 小趴菜基础主题：Material3 + 浅色/深色自适应 -->
+    <style name="Theme.Xiaopacai" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- 状态栏颜色 -->
+        <item name="android:statusBarColor">@color/primary_green</item>
+        <!-- 导航栏颜色 -->
+        <item name="android:navigationBarColor">@color/white</item>
+        <!-- 禁止自动重建 Activity 时闪白屏 -->
+        <item name="android:windowBackground">@color/background_light</item>
+    </style>
+</resources>
