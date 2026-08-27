@@ -37,7 +37,9 @@ fun AccountSecurityScreen(onBack: () -> Unit) {
     var passwordError by remember { mutableStateOf<String?>(null) }
     var passwordBusy by remember { mutableStateOf(false) }
 
-    var boundEmail by remember { mutableStateOf(CloudAccountManager.getBoundEmail(context)) }
+    // [TASK-V2.0.6-UNBIND-SYNC] 订阅绑定版本号：Web 端解绑清除本地状态后页面自动回到「未绑定」
+    val bindingRevision by CloudAccountManager.bindingRevision.collectAsState()
+    var boundEmail by remember(bindingRevision) { mutableStateOf(CloudAccountManager.getBoundEmail(context)) }
     var loginEmail by remember { mutableStateOf("") }
     var loginPassword by remember { mutableStateOf("") }
     var loginBusy by remember { mutableStateOf(false) }

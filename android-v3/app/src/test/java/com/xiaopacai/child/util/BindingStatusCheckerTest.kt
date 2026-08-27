@@ -19,7 +19,8 @@ import org.mockito.Mockito.`when`
  * - 服务端 bound=true → Bound（含/不含 ownerAccount）；
  * - bound=false → NotBound（允许换绑）；
  * - HTTP 非 2xx / 网络异常 / 响应解析失败 → Failed（拦截）；
- * - 未配置服务器地址 / 未登录（无 JWT）→ Failed（禁止静默放行）。
+ * - 未登录（无 JWT）→ Failed（禁止静默放行；V2.0.4 起未配置服务器地址
+ *   会回退默认生产地址，不再有"未配置服务器"分支）。
  */
 class BindingStatusCheckerTest {
 
@@ -129,16 +130,6 @@ class BindingStatusCheckerTest {
     }
 
     // ==================== check：上下文装配（服务器地址/登录态） ====================
-
-    @Test
-    fun check_serverNotConfigured_returnsFailed() {
-        val context = mockContext(mockPrefs())
-
-        val result = BindingStatusChecker.check(context, "dev-1")
-
-        assertTrue(result is BindingStatusChecker.CheckResult.Failed)
-        assertTrue((result as BindingStatusChecker.CheckResult.Failed).reason.contains("服务器地址"))
-    }
 
     @Test
     fun check_notLoggedIn_returnsFailed() {

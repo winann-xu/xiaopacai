@@ -73,7 +73,9 @@ fun LogViewerScreen(onBack: () -> Unit) {
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                items(filtered, key = { it.ts }) { entry ->
+                // [TASK-V2.0.6-LOG-CRASH] 修复真机崩溃：同一毫秒多条日志 ts 相同，
+                // 用 ts 作 key 会抛 "Key xxx was already used"；改用 AppLog 会话内唯一 seq
+                items(filtered, key = { it.seq }) { entry ->
                     val fmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                     val color = when (entry.level) {
                         "E" -> Color(0xFFD32F2F)

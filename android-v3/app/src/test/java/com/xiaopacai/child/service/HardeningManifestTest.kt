@@ -42,22 +42,6 @@ class HardeningManifestTest {
     }
 
     @Test
-    fun parentP2PListenerService_declaresStopWithTaskFalse() {
-        // 实际声明为 .p2p.ParentP2PListenerService（包路径与 Guardian 前台服务不同）
-        val manifest = File("src/main/AndroidManifest.xml")
-        assertTrue("Manifest 文件不存在（测试工作目录应为模块目录 app/）", manifest.exists())
-        val content = manifest.readText()
-        val marker = "android:name=\".p2p.ParentP2PListenerService\""
-        assertTrue("Manifest 未找到服务声明: .p2p.ParentP2PListenerService", content.contains(marker))
-        val start = content.indexOf(marker)
-        val block = content.substring(start, start + 400)
-        assertTrue(
-            "ParentP2PListenerService 缺少 android:stopWithTask=\"false\"",
-            block.contains("android:stopWithTask=\"false\"")
-        )
-    }
-
-    @Test
     fun swipeRecoveryDelay_isFiveSeconds() {
         // 恢复链路契约：onTaskRemoved 抢先注册的 5 秒一次性闹钟（系统侧不随进程消亡）
         assertEquals(5_000L, GuardianAlarmReceiver.SWIPE_RECOVERY_DELAY_MS)

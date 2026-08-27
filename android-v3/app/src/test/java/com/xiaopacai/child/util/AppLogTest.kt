@@ -129,4 +129,26 @@ class AppLogTest {
         AppLog.initWithFile(logFile())
         assertTrue(AppLog.entries().none { it.msg == "to-clear" })
     }
+
+    // ==================== 唯一键（LazyColumn key） ====================
+
+    /**
+     * 回归测试（真机崩溃）：AppLog 允许同一毫秒内产生多条日志（ts 相同），
+     * 若 UI 以 ts 作为 LazyColumn key 会抛
+     * "Key xxx was already used" 崩溃。Entry 必须提供会话内唯一的 seq 作 key。
+     */
+    @Test
+    fun duplicateTimestampEntries_stillHaveUniqueKeys() {
+        AppLog.initWithFile(logFile())
+        // 模拟真实崩溃场景：同一毫秒（t 相同）两条日志落盘
+        logFile().writeText(
+            """{"t":1787838993755,"l":"I","tag":"A","m":"one"}""" + "\n" +
+            """{"t":1787838993755,"l":"I","tag":"A","m":"two"}""" + "\n"
+        )
+        AppLog.resetForTest()
+        AppLog.initWithFile(logFile())
+        val all = AppLog.entries()
+        assertTrue(all.size >= 2)
+        assertEquals(all.size, all.map { it.seq }.distinct().size)
+    }
 }

@@ -201,8 +201,12 @@ class UpdateLogicTest {
     ) : UpdateManager.UpdateClient {
         var lastChannel: String? = null
         var lastAbi: String? = null
+        var lastHost: String? = null
+        var lastPort: Int = -1
 
         override fun check(host: String, port: Int, abi: String, versionCode: Int, channel: String): Triple<Int, String, String> {
+            lastHost = host
+            lastPort = port
             lastAbi = abi
             lastChannel = channel
             return Triple(code, responseJson, "")
@@ -269,12 +273,18 @@ class UpdateLogicTest {
     }
 
     @Test
-    fun check_noServerConfigured_returnsFailed() = runBlocking {
+    fun check_noServerConfig_usesDefaultHost() = runBlocking {
+        // [V2.0.4] 未配置服务器地址时回退默认生产地址 xpc.winann.com:443，
+        // 更新检查直接走默认服务器（不再报"未配置服务器"）
         val prefs = mockPrefs()
         val context = mock(Context::class.java)
         `when`(context.getSharedPreferences(anyString(), anyInt())).thenReturn(prefs)
-        // backing 无 web_host → 未配置服务器
-        assertTrue(UpdateManager.check(context) is UpdateManager.CheckResult.Failed)
+        val fake = FakeClient(checkJson(BuildConfig.VERSION_CODE + 100))
+        UpdateManager.client = fake
+        val result = UpdateManager.check(context)
+        assertTrue(result is UpdateManager.CheckResult.Update)
+        assertEquals("xpc.winann.com", fake.lastHost)
+        assertEquals(443, fake.lastPort)
     }
 
     // ==================== SHA-256 校验 ====================

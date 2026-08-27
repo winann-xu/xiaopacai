@@ -28,7 +28,11 @@ class CloudAccountManagerTest {
     private val fakeClient = object : CloudAccountManager.CloudLoginClient {
         var response: Triple<Int, String, String> = Triple(200, "{\"accessToken\":\"t\"}", "")
         var throwNetwork = false
+        var lastHost: String? = null
+        var lastPort: Int = -1
         override fun postLogin(host: String, port: Int, email: String, password: String): Triple<Int, String, String> {
+            lastHost = host
+            lastPort = port
             if (throwNetwork) throw java.io.IOException("no network")
             return response
         }
@@ -39,6 +43,8 @@ class CloudAccountManagerTest {
         CloudAccountManager.loginClient = fakeClient
         fakeClient.response = Triple(200, "{\"accessToken\":\"t\"}", "")
         fakeClient.throwNetwork = false
+        fakeClient.lastHost = null
+        fakeClient.lastPort = -1
     }
 
     private fun mockPrefs(): SharedPreferences {
@@ -46,7 +52,8 @@ class CloudAccountManagerTest {
         val editor = mock(SharedPreferences.Editor::class.java)
         `when`(prefs.edit()).thenReturn(editor)
         `when`(prefs.getString(anyString(), org.mockito.ArgumentMatchers.isNull())).thenReturn(null)
-        `when`(prefs.getInt(anyString(), anyInt())).thenReturn(5000)
+        // [V2.0.4] 默认端口已改为生产 443（原 5000）
+        `when`(prefs.getInt(anyString(), anyInt())).thenReturn(443)
         `when`(editor.remove(anyString())).thenReturn(editor)
         `when`(editor.clear()).thenReturn(editor)
         `when`(editor.putInt(anyString(), anyInt())).thenReturn(editor)
@@ -68,7 +75,7 @@ class CloudAccountManagerTest {
         val prefs = mockPrefs()
         val context = mockContext(prefs)
         `when`(prefs.getString("web_host", null)).thenReturn("192.168.50.11")
-        `when`(prefs.getInt("web_port", 5000)).thenReturn(8443)
+        `when`(prefs.getInt("web_port", 443)).thenReturn(8443)
 
         CloudAccountManager.saveServerBase(context, "192.168.50.11", 8443)
 
@@ -79,10 +86,10 @@ class CloudAccountManagerTest {
     }
 
     @Test
-    fun getServerPort_defaultsTo5000() {
+    fun getServerPort_defaultsTo443() {
         val prefs = mockPrefs()
         val context = mockContext(prefs)
-        assertEquals(5000, CloudAccountManager.getServerPort(context))
+        assertEquals(443, CloudAccountManager.getServerPort(context))
     }
 
     // ==================== 账号邮箱 ====================
@@ -99,14 +106,44 @@ class CloudAccountManagerTest {
         assertTrue(CloudAccountManager.isBound(context))
     }
 
+    // ==================== 绑定状态变更通知（UI 重读） ====================
+
+    /**
+     * 回归测试：Web 端解绑后 APP 端必须能刷新「已绑定」显示。
+     * clearAccount 必须递增 bindingRevision，驱动 ParentLoginBindCard/AccountSecurityScreen 重新读取。
+     */
+    @Test
+    fun clearAccount_bumpsBindingRevision() {
+        val prefs = mockPrefs()
+        val context = mockContext(prefs)
+        val before = CloudAccountManager.bindingRevision.value
+        CloudAccountManager.clearAccount(context)
+        assertTrue(CloudAccountManager.bindingRevision.value > before)
+    }
+
+    @Test
+    fun recordBoundEmail_bumpsBindingRevision() {
+        val prefs = mockPrefs()
+        val context = mockContext(prefs)
+        val before = CloudAccountManager.bindingRevision.value
+        CloudAccountManager.recordBoundEmail(context, "parent@example.com")
+        assertTrue(CloudAccountManager.bindingRevision.value > before)
+    }
+
     // ==================== 登录失败路径 ====================
 
     @Test
-    fun login_serverNotConfigured_fails() {
+    fun login_unconfigured_usesDefaultServer() {
+        // [V2.0.4] 未配置服务器地址时回退默认生产地址 xpc.winann.com:443，
+        // 登录应直接走默认服务器（不再提示"未配置服务器地址"）
         val context = mockContext(mockPrefs())
+        fakeClient.response = Triple(401, "", "{\"error\":\"invalid_credentials\"}")
+
         val result = CloudAccountManager.login(context, "a@b.com", "pw")
+
         assertTrue(result is CloudAccountManager.LoginResult.Failed)
-        assertTrue((result as CloudAccountManager.LoginResult.Failed).reason.contains("服务器地址"))
+        assertEquals("xpc.winann.com", fakeClient.lastHost)
+        assertEquals(443, fakeClient.lastPort)
     }
 
     @Test

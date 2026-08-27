@@ -7,6 +7,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * [TASK-MILESTONE-V3] 需求 14：本机运行日志环形缓冲（时间/级别/模块/内容）
@@ -20,8 +21,14 @@ import java.util.Locale
  */
 object AppLog {
 
-    /** 一条日志：时间戳（epoch ms）/ 级别 / 模块 tag / 内容 */
-    data class Entry(val ts: Long, val level: String, val tag: String, val msg: String)
+    /** 一条日志：时间戳（epoch ms）/ 级别 / 模块 tag / 内容 / 会话内唯一序号（UI key 用） */
+    data class Entry(
+        val ts: Long,
+        val level: String,
+        val tag: String,
+        val msg: String,
+        val seq: Long = -1L
+    )
 
     const val LEVEL_DEBUG = "D"
     const val LEVEL_INFO = "I"
@@ -41,6 +48,8 @@ object AppLog {
     private val lock = Any()
     /** 内存环形缓冲，旧 → 新 */
     private val buffer = ArrayList<Entry>()
+    /** 会话内单调递增序号：保证 UI 可拿到唯一 key（ts 同毫秒多条时也不会冲突） */
+    private val seqCounter = AtomicLong(0)
     @Volatile
     private var file: File? = null
 
@@ -101,6 +110,7 @@ object AppLog {
         synchronized(lock) {
             buffer.clear()
             file = null
+            seqCounter.set(0)
         }
     }
 
@@ -108,18 +118,20 @@ object AppLog {
         if (!f.exists()) return
         try {
             val lines = f.readLines()
+            var nextSeq = seqCounter.get()
             // 仅保留最近 MAX_ENTRIES 行（文件可能因历史原因超量）
             lines.takeLast(MAX_ENTRIES).forEach { line ->
-                parseLine(line)?.let { buffer.add(it) }
+                parseLine(line, ++nextSeq)?.let { buffer.add(it) }
             }
+            seqCounter.set(nextSeq)
         } catch (_: Exception) {
             // 文件损坏不阻断启动，从空缓冲开始
         }
     }
 
-    private fun parseLine(line: String): Entry? = try {
+    private fun parseLine(line: String, seq: Long): Entry? = try {
         val o = JSONObject(line)
-        Entry(o.optLong("t"), o.optString("l", LEVEL_INFO), o.optString("tag", ""), o.optString("m", ""))
+        Entry(o.optLong("t"), o.optString("l", LEVEL_INFO), o.optString("tag", ""), o.optString("m", ""), seq)
     } catch (_: Exception) {
         null
     }
@@ -139,7 +151,10 @@ object AppLog {
      * 崩溃线程上避免任何异步/重逻辑，保证进程消亡前数据已到文件）。
      */
     fun eCrash(tag: String, msg: String) {
-        val entry = Entry(System.currentTimeMillis(), LEVEL_ERROR, tag.take(64), maskSecrets(msg).take(MAX_MSG_LEN))
+        val entry = Entry(
+            System.currentTimeMillis(), LEVEL_ERROR, tag.take(64),
+            maskSecrets(msg).take(MAX_MSG_LEN), seqCounter.incrementAndGet()
+        )
         synchronized(lock) {
             buffer.add(entry)
             if (buffer.size > MAX_ENTRIES) {
@@ -157,7 +172,7 @@ object AppLog {
         val content = if (tr != null) msg + "\n" + Log.getStackTraceString(tr) else msg
         val entry = Entry(
             System.currentTimeMillis(), level, tag.take(64),
-            maskSecrets(content).take(MAX_MSG_LEN)
+            maskSecrets(content).take(MAX_MSG_LEN), seqCounter.incrementAndGet()
         )
         synchronized(lock) {
             buffer.add(entry)

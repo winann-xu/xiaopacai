@@ -2,6 +2,9 @@ package com.xiaopacai.child.util
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -33,6 +36,15 @@ object CloudAccountManager {
     const val DEFAULT_WEB_PORT = 443
     // [TASK-MILESTONE-V3] 需求 13：账号角色（登录响应 user.role），用于中继设置等 admin 功能门控
     const val KEY_ACCOUNT_ROLE = "account_role"
+
+    /** 绑定状态版本号：登录绑定/扫码绑定/解绑清除时递增，驱动首页卡片重新读取本地绑定 */
+    private val _bindingRevision = MutableStateFlow(0L)
+    val bindingRevision: StateFlow<Long> = _bindingRevision.asStateFlow()
+
+    /** 绑定状态发生变化后调用（写入方负责在持久化完成后通知） */
+    fun notifyBindingChanged() {
+        _bindingRevision.value = _bindingRevision.value + 1
+    }
 
     /** 网络登录客户端（可注入替换，便于单元测试网络失败路径） */
     var loginClient: CloudLoginClient = HttpCloudLoginClient
@@ -100,6 +112,7 @@ object CloudAccountManager {
         prefs(context).edit()
             .putString(KEY_ACCOUNT_EMAIL, email.trim().lowercase())
             .apply()
+        notifyBindingChanged()
     }
 
     fun isBound(context: Context): Boolean = getBoundEmail(context) != null
@@ -130,6 +143,7 @@ object CloudAccountManager {
             .remove(KEY_ACCOUNT_EMAIL)
             .remove(KEY_ACCOUNT_ROLE)
             .apply()
+        notifyBindingChanged()
         Log.i(TAG, "云端账号绑定已清除")
     }
 
@@ -175,6 +189,7 @@ object CloudAccountManager {
                     .putString(KEY_ACCOUNT_EMAIL, normalized)
                     .putString(KEY_ACCOUNT_ROLE, role)
                     .apply()
+                notifyBindingChanged()
                 Log.i(TAG, "云端验证成功: $normalized (role=$role)")
                 AppLog.i("Account", "云端登录成功 $normalized (role=$role)")
                 // [TASK-HARDENING-V1.1.1] Bug3-B：登录/绑定成功后立即上传日志

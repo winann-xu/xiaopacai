@@ -105,15 +105,18 @@ class ParentAccountResetTest {
     }
 
     @Test
-    fun resetAccount_serverNotConfigured_failsWithoutTouchingData() {
+    fun resetAccount_noServerConfig_offlineFailsWithoutTouchingData() {
+        // [V2.0.4] 未配置服务器地址时回退默认生产地址（xpc.winann.com:443），
+        // 不再报"未配置服务器"；离线仍拒绝清除且不触碰数据
         val (webPrefs, _) = mockPrefs()
         val (guardianPrefs, guardianEditor) = mockPrefs()
         val context = mockContext(webPrefs, guardianPrefs)
 
+        fakeClient.failWithNetwork = true
         val result = ParentAccountReset.resetAccount(context, "parent@example.com", "pw")
 
         assertTrue(result is ParentAccountReset.ResetResult.Failed)
-        assertTrue((result as ParentAccountReset.ResetResult.Failed).reason.contains("服务器地址"))
+        assertTrue((result as ParentAccountReset.ResetResult.Failed).reason.contains("网络不可用"))
         verify(webPrefs, never()).edit()
         verify(guardianEditor, never()).remove(anyString())
     }

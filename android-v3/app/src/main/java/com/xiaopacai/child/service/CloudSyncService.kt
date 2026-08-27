@@ -72,6 +72,48 @@ object CloudSyncService {
         return prefs.getBoolean(KEY_REGISTERED, false)
     }
 
+    /**
+     * [TASK-V2.0.6-UNBIND-SYNC] 设备已在 Web 端解绑（服务端硬删除设备行，后续接口返回 404）：
+     * 清除本地账号绑定 + 设备注册/令牌/绑定码，驱动 UI 回到「未绑定」并可重新绑定。
+     * 幂等：重复调用安全。
+     */
+    fun handleDeviceUnbound(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .remove(KEY_DEVICE_TOKEN)
+            .remove(KEY_BIND_CODE)
+            .putBoolean(KEY_REGISTERED, false)
+            .remove(KEY_LAST_HEARTBEAT)
+            .remove(KEY_LAST_POLICY_PULL)
+            .remove(KEY_LAST_USAGE_REPORT)
+            .apply()
+        CloudAccountManager.clearAccount(context)
+        _connectionState.value = CloudSyncState.DISCONNECTED
+        _lastError.value = "设备已在 Web 端解绑，请重新绑定"
+        AppLog.w(TAG, "检测到设备已解绑（服务端 404），本地绑定已清除")
+    }
+
+    /**
+     * [TASK-V2.0.6-UNBIND-SYNC] 首页/轮询统一入口：同步一次绑定状态。
+     * - 已有设备令牌：直接心跳；服务端 404 = Web 端解绑（硬删除设备行）→ 清除本地绑定；
+     * - 无令牌（旧绑定/令牌丢失）：匿名注册探测——服务端设备行已删或未绑定返回 200，
+     *   此时本地"已绑定"是残留，清除并提示重新绑定；行仍存在且已绑定返回 409，保留显示。
+     */
+    fun syncBindingStatus(context: Context) {
+        if (getDeviceToken(context) != null) {
+            sendHeartbeat(context)
+            return
+        }
+        val reg = registerDevice(context, "")
+        if (reg is CloudResult.Success) {
+            // 服务端确认设备未绑定（或不存在）：本地"已绑定"是残留，清除
+            if (CloudAccountManager.isBound(context)) {
+                CloudAccountManager.clearAccount(context)
+                _lastError.value = "设备已在 Web 端解绑，请重新绑定"
+                AppLog.w(TAG, "服务端确认设备未绑定（匿名注册成功），已清除本地残留绑定")
+            }
+        }
+    }
+
     fun getDeviceToken(context: Context): String? {
         val encrypted = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_DEVICE_TOKEN, null)
@@ -142,6 +184,10 @@ object CloudSyncService {
                     CloudResult.Success(JSONObject(resp))
                 }
                 code == 401 -> CloudResult.Failed("认证失败，请重新绑定")
+                code == 404 -> {
+                    handleDeviceUnbound(context)
+                    CloudResult.Failed("设备已在 Web 端解绑，请重新绑定")
+                }
                 else -> CloudResult.Failed("策略拉取失败: HTTP $code")
             }
         } catch (e: Exception) {
@@ -173,6 +219,10 @@ object CloudSyncService {
                         .putLong(KEY_LAST_USAGE_REPORT, System.currentTimeMillis())
                         .apply()
                     CloudResult.Success()
+                }
+                code == 404 -> {
+                    handleDeviceUnbound(context)
+                    CloudResult.Failed("设备已在 Web 端解绑，请重新绑定")
                 }
                 else -> CloudResult.Failed("使用报告失败: HTTP $code")
             }
@@ -206,6 +256,10 @@ object CloudSyncService {
                     _connectionState.value = CloudSyncState.CONNECTED
                     _lastError.value = null
                     CloudResult.Success()
+                }
+                code == 404 -> {
+                    handleDeviceUnbound(context)
+                    CloudResult.Failed("设备已在 Web 端解绑，请重新绑定")
                 }
                 else -> {
                     _connectionState.value = CloudSyncState.ERROR
@@ -297,10 +351,13 @@ object CloudSyncService {
         scope.launch {
             while (isActive) {
                 try {
-                    sendHeartbeat(context)
-                    pullPolicies(context)
-                    reportUsage(context)
-                    pullAnnouncements(context)
+                    // [TASK-V2.0.6-UNBIND-SYNC] 先同步绑定状态（心跳探测解绑 / 注册探测自愈）
+                    syncBindingStatus(context)
+                    if (getDeviceToken(context) != null) {
+                        pullPolicies(context)
+                        reportUsage(context)
+                        pullAnnouncements(context)
+                    }
                 } catch (e: Exception) {
                     AppLog.w(TAG, "同步循环异常: ${e.message}")
                 }
@@ -380,6 +437,10 @@ object CloudSyncService {
                 }
                 code == 403 -> CloudResult.Failed("device_owned_by_other: 该设备已绑定其它账号")
                 code == 401 -> CloudResult.Failed("认证失败，请重新注册设备")
+                code == 404 -> {
+                    handleDeviceUnbound(context)
+                    CloudResult.Failed("设备已解绑，请重新绑定")
+                }
                 else -> CloudResult.Failed("HTTP $code $err")
             }
         } catch (e: Exception) {
@@ -399,6 +460,7 @@ object CloudSyncService {
                 AppLog.i(TAG, "守护事件已上报")
                 true
             } else {
+                if (code == 404) handleDeviceUnbound(context)
                 AppLog.w(TAG, "守护事件上报失败: HTTP $code")
                 false
             }
@@ -446,6 +508,7 @@ object CloudSyncService {
                 AppLog.i(TAG, "公告拉取成功: ${arr.length()} 条")
                 true
             } else {
+                if (code == 404) handleDeviceUnbound(context)
                 AppLog.w(TAG, "公告拉取失败: HTTP $code")
                 false
             }
@@ -470,6 +533,7 @@ object CloudSyncService {
                 AppLog.i(TAG, "公告回执已上报: $announcementId")
                 true
             } else {
+                if (code == 404) handleDeviceUnbound(context)
                 AppLog.w(TAG, "公告回执上报失败: HTTP $code")
                 false
             }

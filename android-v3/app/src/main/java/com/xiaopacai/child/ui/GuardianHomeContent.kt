@@ -31,6 +31,7 @@ import com.xiaopacai.child.service.UsageStatsCollector.Companion.formatHms
 import com.xiaopacai.child.ui.child.EmergencyReleaseDialog
 import com.xiaopacai.child.ui.components.ParentLoginBindCard
 import com.xiaopacai.child.ui.components.ParentAuthDialog
+import com.xiaopacai.child.util.CloudAccountManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,6 +67,19 @@ fun GuardianHomeContent(
     var resetOffsetMinutes by remember { mutableStateOf(collector?.resetOffsetMinutes?.toInt() ?: 0) }
 
     val cloudState by CloudSyncService.connectionState.collectAsState()
+
+    // [TASK-V2.0.6-UNBIND-SYNC] 首页进入立即做一次心跳：Web 端解绑后，
+    // 服务端返回 404 → 清除本地绑定 → 卡片/账号页自动回到「未绑定」，无需等 5 分钟轮询；
+    // 无令牌（旧绑定）时用注册探测服务端状态，同样能清掉残留"已绑定"
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            try {
+                if (CloudAccountManager.isBound(context) || CloudSyncService.isRegistered(context)) {
+                    CloudSyncService.syncBindingStatus(context)
+                }
+            } catch (_: Exception) {}
+        }
+    }
 
     var showEmergencyRelease by remember { mutableStateOf(false) }
     var showParentAuth by remember { mutableStateOf(false) }
