@@ -28,6 +28,7 @@ import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.service.UsageStatsCollector
 import com.xiaopacai.child.service.UsageStatsCollector.Companion.formatHms
 import com.xiaopacai.child.ui.child.EmergencyReleaseDialog
+import com.xiaopacai.child.ui.components.ParentLoginBindCard
 import com.xiaopacai.child.ui.components.ParentAuthDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -182,6 +183,12 @@ fun GuardianHomeContent(
     ) {
         item {
             CloudConnectionBar(cloudState)
+        }
+
+        // [V2.0.3] 首页绑定家长账号入口（未绑定显示登录表单；已绑定显示账号）——
+        // 破除"进守护状态需家长密码、新用户无密码到不了登录框"的死路
+        item {
+            ParentLoginBindCard()
         }
 
         if (!isDeviceAdminActive) {
