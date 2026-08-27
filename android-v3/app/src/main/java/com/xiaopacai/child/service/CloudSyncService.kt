@@ -310,6 +310,51 @@ object CloudSyncService {
         return (100000..999999).random().toString()
     }
 
+    fun generatePairCode(parentJwt: String): CloudResult {
+        val body = JSONObject().apply { put("method", "manual") }
+        return try {
+            val (code, resp, err) = httpPostJson(CLOUD_HOST, CLOUD_PORT,
+                "/api/pairing/generate-code", body.toString(), parentJwt)
+            when {
+                code in 200..299 -> {
+                    AppLog.i(TAG, "配对码生成成功")
+                    CloudResult.Success(JSONObject(resp))
+                }
+                code == 401 -> CloudResult.Failed("认证失败，请重新登录")
+                else -> CloudResult.Failed("HTTP $code")
+            }
+        } catch (e: Exception) {
+            AppLog.w(TAG, "配对码生成网络异常: ${e.message}")
+            CloudResult.Failed("网络异常: ${e.message}")
+        }
+    }
+
+    fun verifyPairCode(parentJwt: String, pairCode: String, deviceId: String,
+                       deviceName: String, platform: String): CloudResult {
+        val body = JSONObject().apply {
+            put("pairCode", pairCode)
+            put("deviceId", deviceId)
+            put("deviceName", deviceName)
+            put("platform", platform)
+        }
+        return try {
+            val (code, resp, err) = httpPostJson(CLOUD_HOST, CLOUD_PORT,
+                "/api/pairing/verify", body.toString(), parentJwt)
+            when {
+                code in 200..299 -> {
+                    AppLog.i(TAG, "设备绑定成功 deviceId=$deviceId")
+                    CloudResult.Success(JSONObject(resp))
+                }
+                code == 403 -> CloudResult.Failed("device_owned_by_other: 该设备已绑定其它账号")
+                code == 401 -> CloudResult.Failed("认证失败，请重新登录")
+                else -> CloudResult.Failed("HTTP $code")
+            }
+        } catch (e: Exception) {
+            AppLog.w(TAG, "设备绑定网络异常: ${e.message}")
+            CloudResult.Failed("网络异常: ${e.message}")
+        }
+    }
+
     fun reportGuardEvent(context: Context, event: JSONObject): Boolean {
         val token = getDeviceToken(context)
         val deviceId = getDeviceId(context)
