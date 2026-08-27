@@ -52,6 +52,16 @@ object EmergencyReleaseService {
         AppLog.i(TAG, "紧急解除已激活，时长 $durationMinutes 分钟")
         val collector = GuardianForegroundService.getCollector()
         collector?.pauseEnforcement(true)
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val result = CloudSyncService.requestEmergencyRelease(context, "家长紧急停用 $durationMinutes 分钟", durationMinutes)
+                if (result is CloudSyncService.CloudResult.Failed) {
+                    AppLog.w(TAG, "云端紧急解除上报失败: ${result.reason}")
+                }
+            } catch (e: Exception) {
+                AppLog.w(TAG, "云端紧急解除上报异常: ${e.message}")
+            }
+        }
         return true
     }
 

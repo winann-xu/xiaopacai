@@ -310,15 +310,28 @@ class AppInterceptor(private val context: Context) {
         return try {
             val db = XiaopacaiApp.instance.database.getReadable(passphrase)
             try {
-                // 查询该分类的限额
-                val cursor = db.rawQuery(
-                    "SELECT policy_data FROM policy_cache WHERE policy_type = ? AND policy_data LIKE ?",
-                    arrayOf("category_limit", "%$category%")
-                )
+                val policyType = when (category) {
+                    "game" -> "category_game"
+                    "social" -> "category_social"
+                    "video" -> "category_video"
+                    "learning" -> "category_learning"
+                    else -> "category_limit"
+                }
+                val cursor = if (policyType != "category_limit") {
+                    db.rawQuery(
+                        "SELECT policy_data FROM policy_cache WHERE policy_type = ?",
+                        arrayOf(policyType)
+                    )
+                } else {
+                    db.rawQuery(
+                        "SELECT policy_data FROM policy_cache WHERE policy_type = ? AND policy_data LIKE ?",
+                        arrayOf("category_limit", "%$category%")
+                    )
+                }
                 val limit: Long = cursor.use {
                     if (it.moveToFirst()) {
                         val json = it.getString(0)
-                        val limitPattern = Regex(""""categoryLimitMinutes"\s*:\s*(\d+)""")
+                        val limitPattern = Regex(""""limitMinutes"\s*:\s*(\d+)""")
                         limitPattern.find(json)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
                     } else 0L
                 }

@@ -1,9 +1,7 @@
 package com.xiaopacai.child.service
 
 import android.content.Context
-import android.util.Log
 import com.xiaopacai.child.util.AppLog
-import com.xiaopacai.child.util.CloudAccountManager
 import com.xiaopacai.child.util.httpGetJson
 import org.json.JSONObject
 
@@ -25,7 +23,7 @@ object UpgradeService {
     )
 
     fun checkForUpdate(context: Context): UpdateInfo? {
-        val token = CloudAccountManager.getToken(context)
+        val token = CloudSyncService.getDeviceToken(context)
         return try {
             val (code, resp, err) = httpGetJson(CloudSyncService.CLOUD_HOST,
                 CloudSyncService.CLOUD_PORT, "/api/v1/device/update-check", token)
@@ -34,16 +32,18 @@ object UpgradeService {
                 .apply()
             if (code in 200..299) {
                 val json = JSONObject(resp)
-                val hasUpdate = json.optBoolean("hasUpdate", false)
-                if (hasUpdate) {
-                    val info = json.optJSONObject("update") ?: return null
+                val version = json.optString("version", "")
+                val downloadUrl = json.optString("downloadUrl", "")
+                val forceUpdate = json.optBoolean("forceUpdate", false)
+                val changelog = json.optString("changelog", "")
+                if (version.isNotBlank() && downloadUrl.isNotBlank()) {
                     UpdateInfo(
-                        versionName = info.optString("versionName", ""),
-                        versionCode = info.optInt("versionCode", 0),
-                        changelog = info.optString("changelog", ""),
-                        downloadUrl = info.optString("downloadUrl", ""),
-                        force = info.optBoolean("force", false),
-                        sizeBytes = info.optLong("sizeBytes", 0)
+                        versionName = version,
+                        versionCode = 0,
+                        changelog = changelog,
+                        downloadUrl = downloadUrl,
+                        force = forceUpdate,
+                        sizeBytes = 0
                     )
                 } else null
             } else null

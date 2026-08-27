@@ -1,19 +1,17 @@
 package com.xiaopacai.child.service
 
 import android.content.Context
-import android.util.Log
 import com.xiaopacai.child.util.AppLog
 import com.xiaopacai.child.util.CloudAccountManager
 import com.xiaopacai.child.util.DbPassphraseProvider
+import com.xiaopacai.child.util.KeyStoreManager
 import com.xiaopacai.child.util.httpGetJson
 import com.xiaopacai.child.util.httpPostJson
 import com.xiaopacai.child.XiaopacaiApp
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 object CloudSyncService {
 
@@ -25,6 +23,7 @@ object CloudSyncService {
     private const val KEY_LAST_POLICY_PULL = "last_policy_pull_ms"
     private const val KEY_LAST_HEARTBEAT = "last_heartbeat_ms"
     private const val KEY_LAST_USAGE_REPORT = "last_usage_report_ms"
+    private const val KEY_DEVICE_TOKEN = "device_token_encrypted"
 
     const val CLOUD_HOST = "xpc.winann.com"
     const val CLOUD_PORT = 443
@@ -40,7 +39,6 @@ object CloudSyncService {
     val lastError: StateFlow<String?> = _lastError
 
     private var syncScope: CoroutineScope? = null
-    private var webSocketJob: Job? = null
 
     enum class CloudSyncState {
         DISCONNECTED,
@@ -74,6 +72,13 @@ object CloudSyncService {
         return prefs.getBoolean(KEY_REGISTERED, false)
     }
 
+    fun getDeviceToken(context: Context): String? {
+        val encrypted = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_DEVICE_TOKEN, null)
+            ?.takeIf { it.isNotBlank() } ?: return null
+        return KeyStoreManager.decryptPrefsValue(encrypted)?.takeIf { it.isNotBlank() }
+    }
+
     fun registerDevice(context: Context, bindCode: String): CloudResult {
         val deviceId = getDeviceId(context)
         val deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim()
@@ -90,11 +95,15 @@ object CloudSyncService {
             val (code, resp, err) = httpPostJson(CLOUD_HOST, CLOUD_PORT, "/api/v1/device/register", body.toString(), null)
             when {
                 code in 200..299 -> {
-                    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                    val token = try { JSONObject(resp).optString("token", "") } catch (_: Exception) { "" }
+                    val editor = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                         .putString(KEY_BIND_CODE, bindCode)
                         .putBoolean(KEY_REGISTERED, true)
-                        .apply()
-                    AppLog.i(TAG, "设备注册成功 deviceId=$deviceId")
+                    if (token.isNotBlank()) {
+                        editor.putString(KEY_DEVICE_TOKEN, KeyStoreManager.encryptPrefsValue(token))
+                    }
+                    editor.apply()
+                    AppLog.i(TAG, "设备注册成功 deviceId=$deviceId tokenSaved=${token.isNotBlank()}")
                     _connectionState.value = CloudSyncState.CONNECTED
                     CloudResult.Success(JSONObject(resp))
                 }
@@ -110,11 +119,10 @@ object CloudSyncService {
     }
 
     fun pullPolicies(context: Context): CloudResult {
-        val deviceId = getDeviceId(context)
-        val token = CloudAccountManager.getToken(context)
+        val token = getDeviceToken(context)
         return try {
             val (code, resp, err) = httpGetJson(CLOUD_HOST, CLOUD_PORT,
-                "/api/v1/device/policies?deviceId=$deviceId", token)
+                "/api/v1/device/policies", token)
             when {
                 code in 200..299 -> {
                     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
@@ -135,7 +143,7 @@ object CloudSyncService {
 
     fun reportUsage(context: Context): CloudResult {
         val deviceId = getDeviceId(context)
-        val token = CloudAccountManager.getToken(context)
+        val token = getDeviceToken(context)
         val collector = GuardianForegroundService.getCollector() ?: return CloudResult.Failed("采集器未运行")
 
         val body = JSONObject().apply {
@@ -166,7 +174,7 @@ object CloudSyncService {
 
     fun sendHeartbeat(context: Context): CloudResult {
         val deviceId = getDeviceId(context)
-        val token = CloudAccountManager.getToken(context)
+        val token = getDeviceToken(context)
         val collector = GuardianForegroundService.getCollector()
 
         val body = JSONObject().apply {
@@ -201,13 +209,13 @@ object CloudSyncService {
         }
     }
 
-    fun requestEmergencyRelease(context: Context, reason: String): CloudResult {
+    fun requestEmergencyRelease(context: Context, reason: String, durationMinutes: Int = 60): CloudResult {
         val deviceId = getDeviceId(context)
         val token = CloudAccountManager.getToken(context)
         val body = JSONObject().apply {
             put("deviceId", deviceId)
             put("reason", reason)
-            put("timestamp", System.currentTimeMillis() / 1000)
+            put("durationMinutes", durationMinutes)
         }
         return try {
             val (code, resp, err) = httpPostJson(CLOUD_HOST, CLOUD_PORT,
@@ -230,20 +238,49 @@ object CloudSyncService {
             db.delete("policy_cache", null, null)
             for (i in 0 until policies.length()) {
                 val p = policies.getJSONObject(i)
-                db.execSQL(
-                    """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
-                       VALUES (?, ?, ?, ?)""",
-                    arrayOf(
-                        p.optString("policyType"),
-                        p.toString(),
-                        p.optInt("version", 1),
-                        (System.currentTimeMillis() / 1000).toString()
-                    )
-                )
+                val version = p.optInt("version", 1)
+                val now = (System.currentTimeMillis() / 1000).toString()
+                insertPolicyRow(db, "daily_limit", JSONObject().apply {
+                    put("limitMinutes", p.optInt("dailyLimitMinutes", 0))
+                    put("restrictMode", when (p.optString("overtimeAction", "full_lock")) {
+                        "partial_lock" -> "partial"
+                        "warn_only" -> "warn"
+                        else -> "full"
+                    })
+                }, version, now)
+                val bedtimeStart = p.optString("bedtimeStart", "")
+                val bedtimeEnd = p.optString("bedtimeEnd", "")
+                if (bedtimeStart.isNotBlank() && bedtimeEnd.isNotBlank()) {
+                    insertPolicyRow(db, "sleep_time", JSONObject().apply {
+                        put("sleepStart", bedtimeStart)
+                        put("sleepEnd", bedtimeEnd)
+                    }, version, now)
+                }
+                for ((key, type) in listOf(
+                    "categoryGameLimit" to "category_game",
+                    "categorySocialLimit" to "category_social",
+                    "categoryVideoLimit" to "category_video",
+                    "categoryLearningLimit" to "category_learning"
+                )) {
+                    val limit = p.optInt(key, -1)
+                    if (limit >= 0) {
+                        insertPolicyRow(db, type, JSONObject().apply {
+                            put("limitMinutes", limit)
+                        }, version, now)
+                    }
+                }
             }
         } catch (e: Exception) {
             AppLog.w(TAG, "策略应用失败: ${e.message}")
         }
+    }
+
+    private fun insertPolicyRow(db: android.database.sqlite.SQLiteDatabase, policyType: String, data: JSONObject, version: Int, appliedAt: String) {
+        db.execSQL(
+            """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
+               VALUES (?, ?, ?, ?)""",
+            arrayOf(policyType, data.toString(), version, appliedAt)
+        )
     }
 
     fun startPolling(context: Context, scope: CoroutineScope) {
@@ -265,8 +302,6 @@ object CloudSyncService {
     fun stopPolling() {
         syncScope?.cancel()
         syncScope = null
-        webSocketJob?.cancel()
-        webSocketJob = null
         _connectionState.value = CloudSyncState.DISCONNECTED
     }
 
@@ -275,7 +310,7 @@ object CloudSyncService {
     }
 
     fun reportGuardEvent(context: Context, event: JSONObject): Boolean {
-        val token = CloudAccountManager.getToken(context)
+        val token = getDeviceToken(context)
         val deviceId = getDeviceId(context)
         event.put("deviceId", deviceId)
         return try {
@@ -295,7 +330,7 @@ object CloudSyncService {
     }
 
     fun reportAnnouncementAck(context: Context, announcementId: String): Boolean {
-        val token = CloudAccountManager.getToken(context)
+        val token = getDeviceToken(context)
         val deviceId = getDeviceId(context)
         val body = JSONObject().apply {
             put("deviceId", deviceId)

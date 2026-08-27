@@ -162,7 +162,7 @@ object DiagnosticsCollector {
             val deviceId = getDeviceId(context)
             reportJson.put("deviceId", deviceId)
             reportJson.put("timestamp", System.currentTimeMillis() / 1000)
-            val token = com.xiaopacai.child.util.CloudAccountManager.getToken(context)
+            val token = CloudSyncService.getDeviceToken(context)
             val (code, _, _) = com.xiaopacai.child.util.httpPostJson(
                 CloudSyncService.CLOUD_HOST, CloudSyncService.CLOUD_PORT,
                 "/api/v1/device/diagnostics-report", reportJson.toString(), token)
