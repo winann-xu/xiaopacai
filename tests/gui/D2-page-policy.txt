@@ -1,0 +1,63 @@
+﻿=== D2-page-policy.txt ===
+[ControlType.Text] 🥬 小趴菜
+[ControlType.Button] 📊 仪表盘
+[ControlType.Text] 📊 仪表盘
+[ControlType.Button] 📱 设备管理
+[ControlType.Text] 📱 设备管理
+[ControlType.Button] 📋 策略配置
+[ControlType.Text] 📋 策略配置
+[ControlType.Button] 📢 公告管理
+[ControlType.Text] 📢 公告管理
+[ControlType.Button] 📈 使用报告
+[ControlType.Text] 📈 使用报告
+[ControlType.Button] ⚙️ 设置
+[ControlType.Text] ⚙️ 设置
+[ControlType.Text] ⚙️ 策略配置
+[ControlType.Text] 为儿童设备设置使用规则，所有策略实时同步到设备端。
+[ControlType.Text] ⏰ 每日使用限额
+[ControlType.Text] 设置孩子每天可以使用的总时长（分钟）
+[ControlType.Text] 120  分钟
+[ControlType.Button] 💾 保存
+[ControlType.Text] 💾 保存
+[ControlType.Text] 🌙 就寝时段
+[ControlType.Text] 就寝期间设备将被锁定，仅允许紧急电话。
+[ControlType.Text] 开始时间
+[ControlType.Text] HH:mm
+[ControlType.Text] 结束时间
+[ControlType.Text] HH:mm
+[ControlType.Button] 💾 保存
+[ControlType.Text] 💾 保存
+[ControlType.Text] 📂 分类限额
+[ControlType.Text] 按应用分类设置时长上限（超出后该分类应用被锁定）
+[ControlType.Text] 🎮 游戏
+[ControlType.Text] 60  分钟
+[ControlType.Button] 💾
+[ControlType.Text] 💾
+[ControlType.Text] 💬 社交
+[ControlType.Text] 90  分钟
+[ControlType.Button] 💾
+[ControlType.Text] 💾
+[ControlType.Text] 🎬 视频
+[ControlType.Text] 90  分钟
+[ControlType.Button] 💾
+[ControlType.Text] 💾
+[ControlType.Text] 📚 学习
+[ControlType.Text] 不限制
+[ControlType.Text] 学习类应用始终可用
+[ControlType.Text] 🚫 应用黑名单
+[ControlType.Text] 黑名单中的应用将被完全禁止启动。每行输入一个应用包名。
+[ControlType.Text] com.example.game
+com.example.social
+[ControlType.Button] 💾 保存黑名单
+[ControlType.Text] 💾 保存黑名单
+[ControlType.Button] 📋 常用模板
+[ControlType.Text] 📋 常用模板
+[ControlType.Text] ✅ 应用白名单
+[ControlType.Text] 超时停用后仍可使用的应用（如学习类、电话、短信）。每行一个应用包名。
+[ControlType.Text] com.android.phone
+com.android.contacts
+com.example.study
+[ControlType.Button] 💾 保存白名单
+[ControlType.Text] 💾 保存白名单
+[ControlType.Button] 📋 学习类模板
+[ControlType.Text] 📋 学习类模板

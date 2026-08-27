@@ -275,7 +275,7 @@ object CloudSyncService {
         }
     }
 
-    private fun insertPolicyRow(db: android.database.sqlite.SQLiteDatabase, policyType: String, data: JSONObject, version: Int, appliedAt: String) {
+    private fun insertPolicyRow(db: net.sqlcipher.database.SQLiteDatabase, policyType: String, data: JSONObject, version: Int, appliedAt: String) {
         db.execSQL(
             """INSERT OR REPLACE INTO policy_cache (policy_type, policy_data, version, applied_at)
                VALUES (?, ?, ?, ?)""",

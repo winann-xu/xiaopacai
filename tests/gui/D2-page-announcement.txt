@@ -1,0 +1,29 @@
+﻿=== D2-page-announcement.txt ===
+[ControlType.Text] 🥬 小趴菜
+[ControlType.Button] 📊 仪表盘
+[ControlType.Text] 📊 仪表盘
+[ControlType.Button] 📱 设备管理
+[ControlType.Text] 📱 设备管理
+[ControlType.Button] 📋 策略配置
+[ControlType.Text] 📋 策略配置
+[ControlType.Button] 📢 公告管理
+[ControlType.Text] 📢 公告管理
+[ControlType.Button] 📈 使用报告
+[ControlType.Text] 📈 使用报告
+[ControlType.Button] ⚙️ 设置
+[ControlType.Text] ⚙️ 设置
+[ControlType.Text] 📢 公告管理
+[ControlType.Text] 向儿童设备发送重要通知、提醒和鼓励信息。
+[ControlType.Text] 暂无公告。点击右侧新建按钮创建第一条公告。
+[ControlType.Text] ✏️ 编辑公告
+[ControlType.Text] 标题
+[ControlType.Text] 输入公告标题...
+[ControlType.Text] 内容
+[ControlType.Text] 输入公告正文...
+[ControlType.Text] 优先级
+[ControlType.Button] 📤 发送公告
+[ControlType.Text] 📤 发送公告
+[ControlType.Button] 🗑️ 删除
+[ControlType.Text] 🗑️ 删除
+[ControlType.Button] 🔄 清空
+[ControlType.Text] 🔄 清空

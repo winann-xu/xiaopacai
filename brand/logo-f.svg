@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 小趴菜主 Logo v2（高清矢量·白菜 F 款）· 依据系统 emoji U+1F96C 造型重构，斜向姿态 + 分层叶片 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <g stroke="#1B5E20" stroke-width="7" stroke-linejoin="round">
+    <!-- 后层叶片（深绿）：左、右、顶 -->
+    <ellipse cx="180" cy="190" rx="86" ry="118" transform="rotate(52 180 190)" fill="#4E9E2F"/>
+    <ellipse cx="330" cy="180" rx="86" ry="118" transform="rotate(-48 330 180)" fill="#4E9E2F"/>
+    <ellipse cx="316" cy="96" rx="40" ry="72" transform="rotate(-38 316 96)" fill="#4E9E2F"/>
+
+    <!-- 菜头主体（斜向椭圆） -->
+    <ellipse cx="232" cy="264" rx="218" ry="148" transform="rotate(-60 232 264)" fill="#7BCB5F"/>
+
+    <!-- 前叶片（浅绿）+ 肋条（沿菜头轴线） -->
+    <ellipse cx="240" cy="262" rx="64" ry="114" transform="rotate(-60 240 262)" fill="#A5D6A7"/>
+    <ellipse cx="240" cy="262" rx="7" ry="100" transform="rotate(-60 240 262)" fill="#E8F5E9"/>
+
+    <ellipse cx="150" cy="232" rx="55" ry="92" transform="rotate(-12 150 232)" fill="#A5D6A7"/>
+    <ellipse cx="150" cy="232" rx="5" ry="80" transform="rotate(-12 150 232)" fill="#E8F5E9"/>
+
+    <ellipse cx="318" cy="226" rx="55" ry="92" transform="rotate(-108 318 226)" fill="#A5D6A7"/>
+    <ellipse cx="318" cy="226" rx="5" ry="80" transform="rotate(-108 318 226)" fill="#E8F5E9"/>
+
+    <!-- 底部阴影（左下，营造立体） -->
+    <path d="M96,300 C120,360 170,392 214,392 C196,368 176,342 164,308 Z" fill="#4E9E2F" opacity="0.5"/>
+  </g>
+</svg>

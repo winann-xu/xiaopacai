@@ -1,0 +1,33 @@
+﻿=== D2-page-settings.txt ===
+[ControlType.Text] 🥬 小趴菜
+[ControlType.Button] 📊 仪表盘
+[ControlType.Text] 📊 仪表盘
+[ControlType.Button] 📱 设备管理
+[ControlType.Text] 📱 设备管理
+[ControlType.Button] 📋 策略配置
+[ControlType.Text] 📋 策略配置
+[ControlType.Button] 📢 公告管理
+[ControlType.Text] 📢 公告管理
+[ControlType.Button] 📈 使用报告
+[ControlType.Text] 📈 使用报告
+[ControlType.Button] ⚙️ 设置
+[ControlType.Text] ⚙️ 设置
+[ControlType.Text] ⚙️ 设置
+[ControlType.Text] 数据存储
+[ControlType.Text] 数据目录
+[ControlType.Text] 儿童使用数据、策略配置、公告历史存于此目录。
+[ControlType.Button] 浏览...
+[ControlType.Text] 浏览...
+[ControlType.Text] 网络
+[ControlType.Text] P2P 监听端口
+[ControlType.Text] 家长端监听儿童端连接的 TCP 端口（默认 9527）。
+[ControlType.Text] TLS 证书
+[ControlType.Text] 用于 P2P 双向认证的自签名证书。首次使用自动生成。
+[ControlType.Button] 🔑 重新生成证书
+[ControlType.Text] 🔑 重新生成证书
+[ControlType.Text] 安全
+[ControlType.CheckBox] 使用 DPAPI 二次加密数据库凭据（推荐）
+[ControlType.Text] 使用 DPAPI 二次加密数据库凭据（推荐）
+[ControlType.Text] DPAPI 使用当前 Windows 用户账户加密密钥，额外提高安全性。
+[ControlType.Button] 💾 保存设置
+[ControlType.Text] 💾 保存设置

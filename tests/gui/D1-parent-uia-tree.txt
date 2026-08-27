@@ -1,0 +1,38 @@
+﻿=== UIA 控件树 ===
+[ControlType.Text] 🥬 小趴菜
+[ControlType.Button] 📊 仪表盘
+[ControlType.Text] 📊 仪表盘
+[ControlType.Button] 📱 设备管理
+[ControlType.Text] 📱 设备管理
+[ControlType.Button] 📋 策略配置
+[ControlType.Text] 📋 策略配置
+[ControlType.Button] 📢 公告管理
+[ControlType.Text] 📢 公告管理
+[ControlType.Button] 📈 使用报告
+[ControlType.Text] 📈 使用报告
+[ControlType.Button] ⚙️ 设置
+[ControlType.Text] ⚙️ 设置
+[ControlType.Text] 📊 仪表盘
+[ControlType.Text] 已连接设备
+[ControlType.Text] --
+[ControlType.Text] 台在线
+[ControlType.Text] 今日使用
+[ControlType.Text] --
+[ControlType.Text] 累计时长
+[ControlType.Text] 超时停用
+[ControlType.Text] --
+[ControlType.Text] 台已停用
+[ControlType.Text] 公告状态
+[ControlType.Text] --
+[ControlType.Text] 条已发布
+[ControlType.Text] 快捷操作
+[ControlType.Button] ⚙️ 超时处理配置
+[ControlType.Text] ⚙️ 超时处理配置
+[ControlType.Button] 📱 添加儿童设备
+[ControlType.Text] 📱 添加儿童设备
+[ControlType.Button] 📢 发布公告
+[ControlType.Text] 📢 发布公告
+[ControlType.Button] 📈 查看报告
+[ControlType.Text] 📈 查看报告
+[ControlType.Text] 最近事件
+[ControlType.Text] 暂无最近事件。设备连接后，超时停用、公告发送等事件将在此显示。

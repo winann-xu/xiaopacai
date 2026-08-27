@@ -1,0 +1,56 @@
+﻿=== D2-page-report.txt ===
+[ControlType.Text] 🥬 小趴菜
+[ControlType.Button] 📊 仪表盘
+[ControlType.Text] 📊 仪表盘
+[ControlType.Button] 📱 设备管理
+[ControlType.Text] 📱 设备管理
+[ControlType.Button] 📋 策略配置
+[ControlType.Text] 📋 策略配置
+[ControlType.Button] 📢 公告管理
+[ControlType.Text] 📢 公告管理
+[ControlType.Button] 📈 使用报告
+[ControlType.Text] 📈 使用报告
+[ControlType.Button] ⚙️ 设置
+[ControlType.Text] ⚙️ 设置
+[ControlType.Text] 📊 使用报告
+[ControlType.Text] 儿童端使用时长统计与分析
+[ControlType.Button] 📅 日报
+[ControlType.Text] 📅 日报
+[ControlType.Button] 📈 周报
+[ControlType.Text] 📈 周报
+[ControlType.Button] 📥 导出报告
+[ControlType.Text] 📥 导出报告
+[ControlType.Text] 总使用时长
+[ControlType.Text] 0.0
+[ControlType.Text]  小时
+[ControlType.Text] 0 分钟
+[ControlType.Text] 日均使用
+[ControlType.Text] 0.0
+[ControlType.Text]  小时/天
+[ControlType.Text] 单日统计
+[ControlType.Text] 超时天数
+[ControlType.Text] —
+[ControlType.Text]  天
+[ControlType.Text] 共 0 天
+[ControlType.Text] 使用趋势
+[ControlType.Text] →
+[ControlType.Text] N/A%
+[ControlType.Text] 环比变化
+[ControlType.Text] 📂 分类分布
+[ControlType.Text] 📈 每日趋势
+[ControlType.Text] 0.0h
+[ControlType.Text] 08-04
+[ControlType.Text] 0.0h
+[ControlType.Text] 08-05
+[ControlType.Text] 0.0h
+[ControlType.Text] 08-06
+[ControlType.Text] 0.0h
+[ControlType.Text] 08-07
+[ControlType.Text] 0.0h
+[ControlType.Text] 08-08
+[ControlType.Text] 0.0h
+[ControlType.Text] 08-09
+[ControlType.Text] 0.0h
+[ControlType.Text] 08-10
+[ControlType.Text] 🏆 应用使用排行
+[ControlType.Text] 暂无应用数据
