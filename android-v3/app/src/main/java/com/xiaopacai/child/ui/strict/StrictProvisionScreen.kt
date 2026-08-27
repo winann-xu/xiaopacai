@@ -281,7 +281,8 @@ private fun GuideCard(
                     "2. 开启「USB 调试」；\n" +
                     "3. 开启「无线调试」，并点按「使用配对码配对设备」，保持该页面打开。\n" +
                     "注意：配对码约 2 分钟内有效、每次弹窗都会变化；超时请重新点按弹窗获取新码。\n" +
-                    "OPPO/ColorOS 注意：开发者选项内请关闭「权限监控」（中文版隐藏时切英文开启 Disable system optimization）。",
+                    "OPPO/ColorOS 注意：开发者选项内请关闭「权限监控」（中文版隐藏时切英文开启 Disable system optimization）。" +
+                        if (com.xiaopacai.child.BuildConfig.UPDATE_CHANNEL == "special") "" else "",
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -341,7 +342,10 @@ private fun FailureCard(
                     ProvisionMachine.ProvisionError.DPM_TEST_ONLY ->
                         "当前为调试包。$message"
                     ProvisionMachine.ProvisionError.DPM_COLOROS_SIGNATURE_BLOCKED ->
-                        "本机型 ColorOS 禁止第三方应用成为设备所有者（签名校验未通过）。此 ROM 暂不支持强管制模式；如已安装专用 testkey 版仍失败，说明系统仅放行平台级签名。"
+                        if (com.xiaopacai.child.BuildConfig.UPDATE_CHANNEL == "special")
+                            "本机型 ColorOS 禁止第三方应用成为设备所有者（签名校验未通过）。此 ROM 暂不支持强管制模式；如已安装专用 testkey 版仍失败，说明系统仅放行平台级签名。"
+                        else
+                            "本机型 ColorOS 禁止第三方应用成为设备所有者（签名校验未通过）。请安装小趴菜特别版（testkey 签名）以通过 ColorOS 签名校验。"
                     ProvisionMachine.ProvisionError.DPM_ROM_REJECTED ->
                         "定制 ROM 拒绝预置。$message"
                     ProvisionMachine.ProvisionError.DPM_UNKNOWN ->

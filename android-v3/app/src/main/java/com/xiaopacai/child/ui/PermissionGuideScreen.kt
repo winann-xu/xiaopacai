@@ -305,7 +305,7 @@ fun PermissionGuideScreen(
         // （自启动/后台冻结/电池白名单/最近任务锁定）。
         // 系统不提供这四项的公开检测接口 → 如实标注「引导项」，状态以引导为准，
         // 家长端健康度与 Web 端同步展示为引导说明，不伪造检测结果。
-        if (isColorOs(context)) {
+        if (isColorOs(context) && com.xiaopacai.child.BuildConfig.UPDATE_CHANNEL == "special") {
             Spacer(modifier = Modifier.height(12.dp))
             ColorOsKeepAliveGuide(context = context, batteryGranted = batteryGranted)
         }

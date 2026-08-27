@@ -1,5 +1,6 @@
 package com.xiaopacai.child.ui.child
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -162,6 +163,7 @@ fun GuardStatusScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clickable { action() }
                             .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {

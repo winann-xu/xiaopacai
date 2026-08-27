@@ -52,6 +52,14 @@ fun GuardianHomeContent(
     var todayUsedMinutes by remember { mutableStateOf(collector?.todayAdjustedMinutes?.toInt() ?: 0) }
     var dailyLimitMinutes by remember { mutableStateOf(collector?.todayLimitMinutes?.toInt() ?: 120) }
     var stopMode by remember { mutableStateOf(collector?.stopMode ?: "none") }
+    var isDeviceAdminActive by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            isDeviceAdminActive = com.xiaopacai.child.service.GuardianDeviceAdminReceiver.isActive(context)
+            kotlinx.coroutines.delay(5000)
+        }
+    }
+
     var isTimeoutActive by remember { mutableStateOf(collector?.isTimeoutActive ?: false) }
     var resetOffsetMinutes by remember { mutableStateOf(collector?.resetOffsetMinutes?.toInt() ?: 0) }
 
@@ -174,6 +182,36 @@ fun GuardianHomeContent(
     ) {
         item {
             CloudConnectionBar(cloudState)
+        }
+
+        if (!isDeviceAdminActive) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.VerifiedUser, null, tint = Color(0xFFE65100),
+                            modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("需要授权设备管理员", fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp, color = Color(0xFFE65100))
+                            Text("点击完成 DO 授权以启用完整守护能力", fontSize = 12.sp,
+                                color = Color(0xFF795548))
+                        }
+                        Button(onClick = { onNavigate(com.xiaopacai.child.ui.Routes.DO_SETUP) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100)),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                            Text("去授权", fontSize = 13.sp, color = Color.White)
+                        }
+                    }
+                }
+            }
         }
 
         item {

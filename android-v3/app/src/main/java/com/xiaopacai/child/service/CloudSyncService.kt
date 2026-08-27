@@ -291,6 +291,7 @@ object CloudSyncService {
                     sendHeartbeat(context)
                     pullPolicies(context)
                     reportUsage(context)
+                    pullAnnouncements(context)
                 } catch (e: Exception) {
                     AppLog.w(TAG, "同步循环异常: ${e.message}")
                 }
@@ -325,6 +326,53 @@ object CloudSyncService {
             }
         } catch (e: Exception) {
             AppLog.w(TAG, "守护事件上报网络异常: ${e.message}")
+            false
+        }
+    }
+
+    fun pullAnnouncements(context: Context): Boolean {
+        val token = getDeviceToken(context) ?: return false
+        if (token.isEmpty()) return false
+        return try {
+            val (code, body, _) = httpGetJson(CLOUD_HOST, CLOUD_PORT,
+                "/api/v1/device/announcements", token)
+            if (code in 200..299 && !body.isNullOrEmpty()) {
+                val root = JSONObject(body)
+                val arr = root.optJSONArray("announcements") ?: return true
+                val passphrase = com.xiaopacai.child.util.DbPassphraseProvider.getPassphrase(context)
+                val db = com.xiaopacai.child.XiaopacaiApp.instance.database.getWritable(passphrase)
+                for (i in 0 until arr.length()) {
+                    val item = arr.getJSONObject(i)
+                    val id = item.optInt("id", 0)
+                    if (id <= 0) continue
+                    val title = item.optString("title", "")
+                    val content = item.optString("content", "")
+                    val priority = item.optString("priority", "normal")
+                    val version = item.optInt("version", 1)
+                    val publishedAt = item.optLong("publishedAt", 0)
+                    val expiresAt = item.optLong("expiresAt", 0)
+                    val acknowledgedAt = item.optLong("acknowledgedAt", 0)
+                    val priorityInt = when (priority) {
+                        "urgent" -> 3; "important" -> 2; else -> 1
+                    }
+                    val isRead = if (acknowledgedAt > 0) 1 else 0
+                    db.execSQL(
+                        """INSERT OR REPLACE INTO announcements
+                           (announcement_id, title, content, priority, version, created_at, expires_at, acknowledged_at, is_read)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        arrayOf(id.toString(), title, content, priorityInt.toString(),
+                            version.toString(), publishedAt.toString(), expiresAt.toString(),
+                            acknowledgedAt.toString(), isRead.toString())
+                    )
+                }
+                AppLog.i(TAG, "公告拉取成功: ${arr.length()} 条")
+                true
+            } else {
+                AppLog.w(TAG, "公告拉取失败: HTTP $code")
+                false
+            }
+        } catch (e: Exception) {
+            AppLog.w(TAG, "公告拉取网络异常: ${e.message}")
             false
         }
     }

@@ -1,5 +1,7 @@
 package com.xiaopacai.child.ui.components
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,6 +32,12 @@ fun ParentAuthDialog(
     var busy by remember { mutableStateOf(false) }
     var useCloud by remember { mutableStateOf(CloudAccountManager.getBoundEmail(context) != null) }
     var email by remember { mutableStateOf(CloudAccountManager.getBoundEmail(context) ?: "") }
+    var showBindGuide by remember { mutableStateOf(false) }
+
+    val boundEmail = CloudAccountManager.getBoundEmail(context)
+    if (boundEmail == null && useCloud) {
+        useCloud = false
+    }
 
     fun close() {
         if (!busy) {
@@ -74,6 +82,20 @@ fun ParentAuthDialog(
                 if (error != null) {
                     Spacer(Modifier.height(8.dp))
                     Text(error!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                }
+                if (!useCloud && CloudAccountManager.getBoundEmail(context) == null) {
+                    Spacer(Modifier.height(8.dp))
+                    Divider()
+                    Spacer(Modifier.height(8.dp))
+                    Text("尚未绑定家长账号？", fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedButton(onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://xpc.winann.com/register")))
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text("前往注册/绑定（浏览器）", fontSize = 13.sp)
+                    }
                 }
             }
         },

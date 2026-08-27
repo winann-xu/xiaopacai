@@ -34,8 +34,7 @@ fun MainScreen() {
     val context = LocalContext.current
     val navController = rememberNavController()
 
-    val hasAllPermissions = remember { checkAllPermissions(context) }
-    val startDestination = if (hasAllPermissions) Routes.GUARDIAN_HOME else Routes.PERMISSION_GUIDE
+    val startDestination = Routes.GUARDIAN_HOME
 
     NavHost(navController = navController, startDestination = startDestination) {
         composable(Routes.PERMISSION_GUIDE) {
