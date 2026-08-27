@@ -28,6 +28,9 @@ object CloudAccountManager {
     const val KEY_ACCOUNT_EMAIL = "account_email"
     const val KEY_WEB_HOST = "web_host"
     const val KEY_WEB_PORT = "web_port"
+    // [V2.0.4] 未配置服务器地址时的默认值：生产服务器（HTTPS 优先，公网强制 HTTPS）
+    const val DEFAULT_WEB_HOST = "xpc.winann.com"
+    const val DEFAULT_WEB_PORT = 443
     // [TASK-MILESTONE-V3] 需求 13：账号角色（登录响应 user.role），用于中继设置等 admin 功能门控
     const val KEY_ACCOUNT_ROLE = "account_role"
 
@@ -77,9 +80,10 @@ object CloudAccountManager {
 
     fun getServerHost(context: Context): String? =
         prefs(context).getString(KEY_WEB_HOST, null)?.takeIf { it.isNotBlank() }
+            ?: DEFAULT_WEB_HOST
 
     fun getServerPort(context: Context): Int =
-        prefs(context).getInt(KEY_WEB_PORT, 5000)
+        prefs(context).getInt(KEY_WEB_PORT, DEFAULT_WEB_PORT)
 
     // [TASK-MILESTONE-V3] 132 信需求 1：已移除「测试期允许 HTTP」开关与 allow_http 持久化
     // （HTTPS 已上线；局域网 HTTP 回退由 CloudHttp.isLanHost 自动处理，无需用户配置）。
