@@ -3,6 +3,7 @@ package com.xiaopacai.child.ui
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -241,19 +242,31 @@ fun GuardianHomeContent(
         if (EmergencyReleaseService.isActive(context)) {
             item {
                 val remaining = EmergencyReleaseService.getRemainingMinutes(context)
+                val ctx = context
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.LockOpen, null, tint = Color(0xFFE53935))
-                        Spacer(Modifier.width(8.dp))
-                        Text("紧急解除中，${remaining} 分钟后自动恢复",
-                            fontSize = 13.sp, color = Color(0xFFE53935), fontWeight = FontWeight.Medium)
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.LockOpen, null, tint = Color(0xFFE53935))
+                            Spacer(Modifier.width(8.dp))
+                            Text("紧急解除中，${remaining} 分钟后自动恢复",
+                                fontSize = 13.sp, color = Color(0xFFE53935), fontWeight = FontWeight.Medium)
+                        }
+                        // [V2.0.5] 紧急解除期间可手动恢复守护
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                EmergencyReleaseService.deactivate(ctx)
+                                Toast.makeText(ctx, "守护已手动恢复", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("立即恢复守护")
+                        }
                     }
                 }
             }

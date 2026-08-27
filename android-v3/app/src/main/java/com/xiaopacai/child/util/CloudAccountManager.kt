@@ -94,6 +94,14 @@ object CloudAccountManager {
     fun getBoundEmail(context: Context): String? =
         prefs(context).getString(KEY_ACCOUNT_EMAIL, null)?.takeIf { it.isNotBlank() }
 
+    // [V2.0.5] 扫码/配对码绑定成功后记录绑定账号邮箱（无 JWT/角色，仅展示用；密码验证仍走云端登录）
+    fun recordBoundEmail(context: Context, email: String) {
+        if (email.isBlank()) return
+        prefs(context).edit()
+            .putString(KEY_ACCOUNT_EMAIL, email.trim().lowercase())
+            .apply()
+    }
+
     fun isBound(context: Context): Boolean = getBoundEmail(context) != null
 
     /**

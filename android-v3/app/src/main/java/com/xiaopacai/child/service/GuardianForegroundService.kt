@@ -148,6 +148,8 @@ class GuardianForegroundService : Service() {
     }
 
     private fun startCloudSync() {
+        // [V2.0.5] 未注册也先注册再同步（绑定账号后必须能连上云端）
+        CloudSyncService.ensureRegistered(this)
         if (CloudSyncService.isRegistered(this)) {
             CloudSyncService.startPolling(this, serviceScope)
         }

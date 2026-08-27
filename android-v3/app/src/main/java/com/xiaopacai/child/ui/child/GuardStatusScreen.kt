@@ -23,6 +23,7 @@ import com.xiaopacai.child.service.GuardianForegroundService
 import com.xiaopacai.child.service.UsageStatsCollector
 import com.xiaopacai.child.service.UsageStatsCollector.Companion.formatHms
 import com.xiaopacai.child.ui.components.ParentAuthDialog
+import com.xiaopacai.child.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,6 +43,7 @@ fun GuardStatusScreen(
     val scrollState = rememberScrollState()
     var showParentAuth by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var showAbout by remember { mutableStateOf(false) }
 
     val collector = GuardianForegroundService.getCollector()
     var todayUsedMinutes by remember { mutableStateOf(collector?.todayAdjustedMinutes?.toInt() ?: 0) }
@@ -73,6 +75,27 @@ fun GuardStatusScreen(
                 showParentAuth = false
                 pendingAction?.invoke()
                 pendingAction = null
+            }
+        )
+    }
+
+    // [V2.0.5] 关于对话框（原「关于」菜单无响应，改为展示应用信息）
+    if (showAbout) {
+        AlertDialog(
+            onDismissRequest = { showAbout = false },
+            title = { Text("关于小趴菜") },
+            text = {
+                Column {
+                    Text("儿童守护 · 家长监控（儿童端）", fontSize = 14.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Text("版本：v${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）", fontSize = 13.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Text("开源免费 · 本地优先 · 数据不上云", fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAbout = false }) { Text("知道了") }
             }
         )
     }
@@ -152,7 +175,7 @@ fun GuardStatusScreen(
                     pendingAction = onOpenAccountSecurity
                     showParentAuth = true
                 },
-                Triple(Icons.Default.Info, "关于") { onOpenAbout() },
+                Triple(Icons.Default.Info, "关于") { showAbout = true },
                 Triple(Icons.Default.VerifiedUser, "DO 授权") { onOpenDoSetup() }
             ).forEach { (icon, label, action) ->
                 Card(

@@ -118,6 +118,15 @@ object CloudSyncService {
         }
     }
 
+    // [V2.0.5] 确保设备已注册（拿到设备令牌）：绑定成功或启动同步前调用，避免云端同步 401 死循环
+    fun ensureRegistered(context: Context) {
+        if (getDeviceToken(context) != null) return
+        val result = registerDevice(context, "")
+        if (result is CloudResult.Failed) {
+            AppLog.w(TAG, "设备注册失败: ${result.reason}")
+        }
+    }
+
     fun pullPolicies(context: Context): CloudResult {
         val token = getDeviceToken(context)
         return try {
@@ -351,6 +360,30 @@ object CloudSyncService {
             }
         } catch (e: Exception) {
             AppLog.w(TAG, "设备绑定网络异常: ${e.message}")
+            CloudResult.Failed("网络异常: ${e.message}")
+        }
+    }
+
+    // [V2.0.5] 儿童端扫码/输入配对码绑定：设备令牌 + 家长在 Web 生成的配对码，绑定到该家长账号
+    fun bindWithCode(context: Context, pairCode: String): CloudResult {
+        val token = getDeviceToken(context)
+        val body = JSONObject().apply {
+            put("pairCode", pairCode.trim())
+        }
+        return try {
+            val (code, resp, err) = httpPostJson(CLOUD_HOST, CLOUD_PORT,
+                "/api/v1/device/bind-with-code", body.toString(), token)
+            when {
+                code in 200..299 -> {
+                    AppLog.i(TAG, "扫码/配对码绑定成功")
+                    CloudResult.Success(JSONObject(resp))
+                }
+                code == 403 -> CloudResult.Failed("device_owned_by_other: 该设备已绑定其它账号")
+                code == 401 -> CloudResult.Failed("认证失败，请重新注册设备")
+                else -> CloudResult.Failed("HTTP $code $err")
+            }
+        } catch (e: Exception) {
+            AppLog.w(TAG, "扫码/配对码绑定网络异常: ${e.message}")
             CloudResult.Failed("网络异常: ${e.message}")
         }
     }

@@ -20,6 +20,9 @@
         tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- [V2.0.5] 恢复儿童端扫码绑定（家长 Web 二维码） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:name=".XiaopacaiApp"
@@ -70,6 +73,11 @@
         <activity
             android:name=".ui.strict.StrictProvisionActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".ui.scan.QrScannerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
 
         <receiver
             android:name=".ui.strict.PairingCodeReceiver"
