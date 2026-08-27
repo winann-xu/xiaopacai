@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [TASK-D3-03] 设备管理器策略声明 -->
+<!-- 声明设备管理器可使用的管理策略 -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 设备管理策略定义 -->
+    <uses-policies>
+        <!-- 阻止卸载（核心功能） -->
+        <force-lock />
+        <!-- 锁定屏幕（超时后强制休息） -->
+        <wipe-data />
+        <!-- 远程擦除数据（紧急情况，如设备丢失） -->
+        <reset-password />
+        <!-- 重置设备密码 -->
+        <limit-password />
+        <!-- 限制密码复杂度 -->
+        <watch-login />
+        <!-- 监控登录尝试 -->
+    </uses-policies>
+</device-admin>

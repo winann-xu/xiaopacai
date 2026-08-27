@@ -18,6 +18,10 @@ android-v2/**/build/
 android-v2/build-v*/
 android-v2/local.properties
 android-v2/.gradle/
+android-v3/**/build/
+android-v3/build-v*/
+android-v3/local.properties
+android-v3/.gradle/
 build_log*.txt
 *.iml
 .idea/
