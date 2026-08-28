@@ -234,18 +234,6 @@ class UsageStatsCollector(
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     private var collectJob: Job? = null
 
-    init {
-        instance = this
-        // 进程重启后，如果紧急解除仍在有效期内，必须立即恢复暂停状态；
-        // 否则采集循环会在下一轮把超时锁定重新置回 true。
-        if (EmergencyReleaseService.isActive(context)) {
-            _enforcementPaused = true
-            _isTimeoutActive = false
-            _stopMode = "none"
-            Log.i(TAG, "检测到紧急解除仍有效，启动即暂停超时拦截")
-        }
-    }
-
     /** 当前数据快照（UI 可观察） */
     private val _currentUsage = mutableMapOf<String, Long>()
     val currentUsage: Map<String, Long> get() = _currentUsage.toMap()
@@ -271,6 +259,18 @@ class UsageStatsCollector(
 
     /** 紧急解除期间暂停超时/就寝拦截：采集继续，但不会重新锁定 */
     private var _enforcementPaused: Boolean = false
+
+    init {
+        instance = this
+        // 进程重启后，如果紧急解除仍在有效期内，必须立即恢复暂停状态；
+        // 否则采集循环会在下一轮把超时锁定重新置回 true。
+        if (EmergencyReleaseService.isActive(context)) {
+            _enforcementPaused = true
+            _isTimeoutActive = false
+            _stopMode = "none"
+            Log.i(TAG, "检测到紧急解除仍有效，启动即暂停超时拦截")
+        }
+    }
 
     /** 今日限额（分钟） */
     private var _todayLimitMinutes: Long = 0
