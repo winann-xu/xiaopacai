@@ -24,13 +24,15 @@ object CloudSyncService {
     private const val KEY_LAST_HEARTBEAT = "last_heartbeat_ms"
     private const val KEY_LAST_USAGE_REPORT = "last_usage_report_ms"
     private const val KEY_DEVICE_TOKEN = "device_token_encrypted"
+    private const val KEY_LAST_POLICY_VERSION = "last_policy_version"
+    private const val KEY_LAST_ANNOUNCEMENT_SIGNATURE = "last_announcement_signature"
 
     const val CLOUD_HOST = "xpc.winann.com"
     const val CLOUD_PORT = 443
 
-    const val POLL_INTERVAL_MS = 5 * 60 * 1000L
-    const val HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000L
-    const val USAGE_REPORT_INTERVAL_MS = 15 * 60 * 1000L
+    // [方案二] 60 秒心跳做版本检查；策略/公告仅在版本变化时全量拉取，用量上报保持独立节奏。
+    const val POLL_INTERVAL_MS = 60 * 1000L
+    const val USAGE_REPORT_INTERVAL_MS = 5 * 60 * 1000L
 
     private val _connectionState = MutableStateFlow(CloudSyncState.DISCONNECTED)
     val connectionState: StateFlow<CloudSyncState> = _connectionState
@@ -85,6 +87,8 @@ object CloudSyncService {
             .remove(KEY_LAST_HEARTBEAT)
             .remove(KEY_LAST_POLICY_PULL)
             .remove(KEY_LAST_USAGE_REPORT)
+            .remove(KEY_LAST_POLICY_VERSION)
+            .remove(KEY_LAST_ANNOUNCEMENT_SIGNATURE)
             .apply()
         CloudAccountManager.clearAccount(context)
         _connectionState.value = CloudSyncState.DISCONNECTED
@@ -256,7 +260,8 @@ object CloudSyncService {
                         .apply()
                     _connectionState.value = CloudSyncState.CONNECTED
                     _lastError.value = null
-                    CloudResult.Success()
+                    val data = try { JSONObject(resp) } catch (_: Exception) { null }
+                    CloudResult.Success(data)
                 }
                 code == 404 -> {
                     handleDeviceUnbound(context)
@@ -352,17 +357,64 @@ object CloudSyncService {
         scope.launch {
             while (isActive) {
                 try {
-                    // [TASK-V2.0.6-UNBIND-SYNC] 先同步绑定状态（心跳探测解绑 / 注册探测自愈）
-                    syncBindingStatus(context)
-                    if (getDeviceToken(context) != null) {
-                        pullPolicies(context)
-                        reportUsage(context)
-                        pullAnnouncements(context)
-                    }
+                    syncTick(context)
                 } catch (e: Exception) {
                     AppLog.w(TAG, "同步循环异常: ${e.message}")
                 }
                 delay(POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    /**
+     * [方案二] 单次同步：
+     * - 无设备令牌：注册/解绑探测；
+     * - 有令牌：60 秒心跳，按服务端返回的策略版本与公告签名决定是否全量拉取；
+     * - 用量上报按独立节奏，避免频繁上报触发限流。
+     */
+    private suspend fun syncTick(context: Context) {
+        if (getDeviceToken(context) == null) {
+            syncBindingStatus(context)
+            return
+        }
+
+        val heartbeat = sendHeartbeat(context)
+        if (heartbeat is CloudResult.Success) {
+            val data = heartbeat.data
+            if (data != null) {
+                applyHeartbeatVersions(context, data)
+            } else {
+                // 兜底：响应解析异常时做一次全量拉取，保证策略/公告仍能同步
+                pullPolicies(context)
+                pullAnnouncements(context)
+            }
+        }
+
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val lastUsage = prefs.getLong(KEY_LAST_USAGE_REPORT, 0)
+        if (System.currentTimeMillis() - lastUsage >= USAGE_REPORT_INTERVAL_MS) {
+            reportUsage(context)
+        }
+    }
+
+    private fun applyHeartbeatVersions(context: Context, data: JSONObject) {
+        val serverPolicyVersion = data.optInt("policyVersion", 0)
+        val serverAnnouncementSignature = data.optString("announcementSignature", "")
+
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val localPolicyVersion = prefs.getInt(KEY_LAST_POLICY_VERSION, 0)
+        val localSignature = prefs.getString(KEY_LAST_ANNOUNCEMENT_SIGNATURE, null) ?: ""
+
+        if (serverPolicyVersion != localPolicyVersion) {
+            val result = pullPolicies(context)
+            if (result is CloudResult.Success) {
+                prefs.edit().putInt(KEY_LAST_POLICY_VERSION, serverPolicyVersion).apply()
+            }
+        }
+
+        if (serverAnnouncementSignature != localSignature) {
+            if (pullAnnouncements(context)) {
+                prefs.edit().putString(KEY_LAST_ANNOUNCEMENT_SIGNATURE, serverAnnouncementSignature).apply()
             }
         }
     }
@@ -482,6 +534,9 @@ object CloudSyncService {
                 val arr = root.optJSONArray("announcements") ?: return true
                 val passphrase = com.xiaopacai.child.util.DbPassphraseProvider.getPassphrase(context)
                 val db = com.xiaopacai.child.XiaopacaiApp.instance.database.getWritable(passphrase)
+                // [方案二] 以服务端可见公告集为准做全量对账：先清空本地缓存再插入，
+                // 这样撤回/删除/过期的公告也能即时从本地消失，而不仅是新增与更新。
+                db.delete("announcements", null, null)
                 for (i in 0 until arr.length()) {
                     val item = arr.getJSONObject(i)
                     val id = item.optInt("id", 0)
@@ -489,7 +544,6 @@ object CloudSyncService {
                     val title = item.optString("title", "")
                     val content = item.optString("content", "")
                     val priority = item.optString("priority", "normal")
-                    val version = item.optInt("version", 1)
                     val publishedAt = item.optLong("publishedAt", 0)
                     val expiresAt = item.optLong("expiresAt", 0)
                     val acknowledgedAt = item.optLong("acknowledgedAt", 0)
@@ -499,10 +553,10 @@ object CloudSyncService {
                     val isRead = if (acknowledgedAt > 0) 1 else 0
                     db.execSQL(
                         """INSERT OR REPLACE INTO announcements
-                           (announcement_id, title, content, priority, version, created_at, expires_at, acknowledged_at, is_read)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                           (announcement_id, title, content, priority, created_at, expires_at, acknowledged_at, is_read)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                         arrayOf(id.toString(), title, content, priorityInt.toString(),
-                            version.toString(), publishedAt.toString(), expiresAt.toString(),
+                            publishedAt.toString(), expiresAt.toString(),
                             acknowledgedAt.toString(), isRead.toString())
                     )
                 }
