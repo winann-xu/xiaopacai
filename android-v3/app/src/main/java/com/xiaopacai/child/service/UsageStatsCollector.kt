@@ -261,6 +261,9 @@ class UsageStatsCollector(
     private var _stopMode: String = "none"
     val stopMode: String get() = _stopMode
 
+    /** 紧急解除期间暂停超时/就寝拦截：采集继续，但不会重新锁定 */
+    private var _enforcementPaused: Boolean = false
+
     /** 今日限额（分钟） */
     private var _todayLimitMinutes: Long = 0
     val todayLimitMinutes: Long get() = _todayLimitMinutes
@@ -351,6 +354,7 @@ class UsageStatsCollector(
      */
     @Synchronized
     fun lockIfCountdownExpired(): Boolean {
+        if (_enforcementPaused) return false
         val snap = countdownSnapshot()
         if (!snap.healthy || snap.limitMillis <= 0) return false
         if (snap.remainingMillis <= 0 && !_isTimeoutActive) {
@@ -478,7 +482,7 @@ class UsageStatsCollector(
 
         // 5.5 [REQ] 就寝时段：进入就寝窗口立即整机停用（优先级高于日常限额的 partial）
         val sleepActive = isInSleepWindow(passphrase)
-        if (sleepActive && (!_isTimeoutActive || _stopMode != "full")) {
+        if (!_enforcementPaused && sleepActive && (!_isTimeoutActive || _stopMode != "full")) {
             _isTimeoutActive = true
             _stopMode = "full"
             Log.i(TAG, "就寝时段生效：整机停用")
@@ -602,6 +606,11 @@ class UsageStatsCollector(
      */
     private fun checkTimeoutStatus(today: String, limitMinutes: Long, passphrase: ByteArray) {
         _todayLimitMinutes = limitMinutes
+        if (_enforcementPaused) {
+            _isTimeoutActive = false
+            _stopMode = "none"
+            return
+        }
         if (limitMinutes <= 0) {
             // 无限额 → 非超时
             _isTimeoutActive = false
@@ -662,11 +671,26 @@ class UsageStatsCollector(
      */
     fun pauseEnforcement(paused: Boolean) {
         if (paused) {
+            _enforcementPaused = true
             _isTimeoutActive = false
             _stopMode = "none"
+            timeoutExecutor.checkAndExecute(
+                isTimeout = false,
+                stopMode = "none",
+                usedMinutes = todayAdjustedMinutes,
+                limitMinutes = _todayLimitMinutes
+            )
             Log.i(TAG, "紧急解除：超时拦截已暂停")
         } else {
+            _enforcementPaused = false
             Log.i(TAG, "紧急解除结束：下次采集将恢复正常超时判定")
+            scope.launch {
+                try {
+                    collectAndPersist()
+                } catch (e: Exception) {
+                    Log.w(TAG, "恢复超时判定失败: ${e.message}")
+                }
+            }
         }
     }
 }
