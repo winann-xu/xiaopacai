@@ -2,6 +2,7 @@ package com.xiaopacai.child.ui
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -380,6 +381,7 @@ fun RemainingTimeCard(
     countdown: UsageStatsCollector.CountdownSnapshot = UsageStatsCollector.CountdownSnapshot.EMPTY
 ) {
     val guardDown = !countdown.healthy
+    val context = LocalContext.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -431,6 +433,28 @@ fun RemainingTimeCard(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("使用情况访问权限可能被关闭或采集服务中断。\n请到守护状态页检查并重新授权。",
                     fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f), textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        try {
+                            context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                        } catch (_: Exception) {
+                            try {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                )
+                            } catch (_: Exception) {
+                                Toast.makeText(context, "请手动前往设置开启“使用情况访问”。", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text("去开启“使用情况访问”", fontSize = 13.sp, color = Color(0xFF37474F))
+                }
             }
             Spacer(modifier = Modifier.height(12.dp))
             LinearProgressIndicator(

@@ -128,6 +128,7 @@ object CloudSyncService {
             put("deviceId", deviceId)
             put("deviceName", deviceName)
             put("bindCode", bindCode)
+            put("platform", "android")
             put("osVersion", "Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
             put("appVersion", try {
                 context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
