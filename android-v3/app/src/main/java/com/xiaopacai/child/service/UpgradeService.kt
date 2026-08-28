@@ -2,8 +2,8 @@ package com.xiaopacai.child.service
 
 import android.content.Context
 import com.xiaopacai.child.util.AppLog
-import com.xiaopacai.child.util.httpGetJson
-import org.json.JSONObject
+import com.xiaopacai.child.util.UpdateManager
+import com.xiaopacai.child.BuildConfig
 
 object UpgradeService {
 
@@ -22,31 +22,37 @@ object UpgradeService {
         val sizeBytes: Long
     )
 
+    /**
+     * [TASK-V208-UNBIND-FIX] 自动升级页检查更新。
+     * 此前调用 /api/v1/device/update-check，既不传渠道也不比对版本号，
+     * 导致 special（testkey）设备把同版本号 stable 包误报为“新版本”。
+     * 现复用渠道感知的 /api/update/check（abi + versionCode + channel），
+     * 并按 versionCode 防降级比对，只有真正更高版本才返回更新信息。
+     */
     fun checkForUpdate(context: Context): UpdateInfo? {
-        val token = CloudSyncService.getDeviceToken(context)
+        val host = com.xiaopacai.child.util.CloudAccountManager.getServerHost(context) ?: return null
+        val port = com.xiaopacai.child.util.CloudAccountManager.getServerPort(context)
         return try {
-            val (code, resp, err) = httpGetJson(CloudSyncService.CLOUD_HOST,
-                CloudSyncService.CLOUD_PORT, "/api/v1/device/update-check", token)
+            val (code, resp, _) = UpdateManager.client.check(
+                host, port,
+                UpdateManager.currentAbi(),
+                BuildConfig.VERSION_CODE,
+                BuildConfig.UPDATE_CHANNEL
+            )
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .putLong(KEY_LAST_CHECK, System.currentTimeMillis())
                 .apply()
-            if (code in 200..299) {
-                val json = JSONObject(resp)
-                val version = json.optString("version", "")
-                val downloadUrl = json.optString("downloadUrl", "")
-                val forceUpdate = json.optBoolean("forceUpdate", false)
-                val changelog = json.optString("changelog", "")
-                if (version.isNotBlank() && downloadUrl.isNotBlank()) {
-                    UpdateInfo(
-                        versionName = version,
-                        versionCode = 0,
-                        changelog = changelog,
-                        downloadUrl = downloadUrl,
-                        force = forceUpdate,
-                        sizeBytes = 0
-                    )
-                } else null
-            } else null
+            if (code !in 200..299) return null
+            val info = UpdateManager.UpdateInfo.fromJson(resp)
+            if (!info.hasUpdate || info.abiMissing || info.versionCode <= BuildConfig.VERSION_CODE) return null
+            UpdateInfo(
+                versionName = info.versionName,
+                versionCode = info.versionCode,
+                changelog = info.changelog,
+                downloadUrl = info.url,
+                force = info.force,
+                sizeBytes = info.sizeBytes
+            )
         } catch (e: Exception) {
             AppLog.w(TAG, "更新检查失败: ${e.message}")
             null

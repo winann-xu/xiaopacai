@@ -56,7 +56,7 @@ fun GuardianHomeContent(
     val collector = GuardianForegroundService.getCollector()
 
     var todayUsedMinutes by remember { mutableStateOf(collector?.todayAdjustedMinutes?.toInt() ?: 0) }
-    var dailyLimitMinutes by remember { mutableStateOf(collector?.todayLimitMinutes?.toInt() ?: 120) }
+    var dailyLimitMinutes by remember { mutableStateOf(collector?.todayLimitMinutes?.toInt() ?: 0) }
     var stopMode by remember { mutableStateOf(collector?.stopMode ?: "none") }
     var isDeviceAdminActive by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -99,7 +99,8 @@ fun GuardianHomeContent(
                 countdown = c.countdownSnapshot()
                 c.lockIfCountdownExpired()
                 todayUsedMinutes = c.todayAdjustedMinutes.toInt()
-                dailyLimitMinutes = c.todayLimitMinutes.toInt().coerceAtLeast(1)
+                // [TASK-V208-UNBIND-FIX] 未设置限额时如实展示 0（此前 coerceAtLeast(1) 误显示“限额 1 分钟”）
+                dailyLimitMinutes = c.todayLimitMinutes.toInt()
                 stopMode = c.stopMode
                 isTimeoutActive = c.isTimeoutActive
                 resetOffsetMinutes = c.resetOffsetMinutes.toInt()
@@ -499,8 +500,12 @@ fun RemainingTimeCard(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                if (guardDown) "采集恢复后自动继续计时"
-                else "今日限额 $limitMinutes 分钟 · 已用 $usedMinutes 分钟",
+                when {
+                    guardDown -> "采集恢复后自动继续计时"
+                    // [TASK-V208-UNBIND-FIX] 未设置限额（解绑后）时如实展示，不再显示“限额 1 分钟”
+                    limitMinutes <= 0 -> "今日已用 $usedMinutes 分钟"
+                    else -> "今日限额 $limitMinutes 分钟 · 已用 $usedMinutes 分钟"
+                },
                 fontSize = 12.sp,
                 color = if (brightBg) Color.White.copy(alpha = 0.7f)
                     else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)

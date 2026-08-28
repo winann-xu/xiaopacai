@@ -27,10 +27,13 @@ fun EmergencyReleaseDialog(
 ) {
     val context = LocalContext.current
     var password by remember { mutableStateOf("") }
+    // [TASK-V208-UNBIND-FIX] 解绑后无归属邮箱：显示邮箱输入框供家长完成云端验证
+    var email by remember { mutableStateOf(CloudAccountManager.getBoundEmail(context) ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var step by remember { mutableStateOf(1) }
     var remainingMinutes by remember { mutableStateOf(0) }
+    val boundEmail = CloudAccountManager.getBoundEmail(context)
 
     val isActive = EmergencyReleaseService.isActive(context)
     if (isActive) {
@@ -70,6 +73,17 @@ fun EmergencyReleaseDialog(
                         lineHeight = 19.sp
                     )
                     Spacer(Modifier.height(12.dp))
+                    if (boundEmail == null) {
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = { email = it; error = null },
+                            label = { Text("账号邮箱") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            isError = error != null
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it; error = null },
@@ -91,10 +105,16 @@ fun EmergencyReleaseDialog(
                 TextButton(
                     enabled = !busy && password.isNotEmpty(),
                     onClick = {
+                        if (boundEmail == null && email.isBlank()) {
+                            error = "请输入账号邮箱"
+                            return@TextButton
+                        }
                         busy = true
                         error = null
                         GlobalScope.launch(Dispatchers.IO) {
-                            val result = EmergencyReleaseService.verifyPassword(context, password)
+                            val result = EmergencyReleaseService.verifyPassword(
+                                context, password, email
+                            )
                             withContext(Dispatchers.Main) {
                                 busy = false
                                 when (result) {

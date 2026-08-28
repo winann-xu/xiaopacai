@@ -149,6 +149,12 @@ class GuardianForegroundService : Service() {
 
     private fun startCloudSync() {
         // [V2.0.5] 未注册也先注册再同步（绑定账号后必须能连上云端）
+        // [TASK-V208-UNBIND-FIX] 解绑后等待重绑期间禁止自动注册：
+        // 否则匿名重注册会重建服务端设备行并再次下发默认策略（解绑后策略仍生效的根因）。
+        if (CloudSyncService.shouldWaitRebind(this)) {
+            Log.i(TAG, "设备等待重新绑定，跳过云端同步注册")
+            return
+        }
         CloudSyncService.ensureRegistered(this)
         if (CloudSyncService.isRegistered(this)) {
             CloudSyncService.startPolling(this, serviceScope)

@@ -32,6 +32,9 @@ object CloudSyncService {
     private const val KEY_DEVICE_TOKEN = "device_token_encrypted"
     private const val KEY_LAST_POLICY_VERSION = "last_policy_version"
     private const val KEY_LAST_ANNOUNCEMENT_SIGNATURE = "last_announcement_signature"
+    // [TASK-V208-UNBIND-FIX] 解绑后等待重新绑定标记：置位期间禁止后台匿名重注册，
+    // 避免服务端重建设备行并“自动下发”默认策略（解绑后策略仍生效的根因之一）。
+    private const val KEY_WAIT_REBIND = "wait_rebind"
 
     const val CLOUD_HOST = "xpc.winann.com"
     const val CLOUD_PORT = 443
@@ -80,6 +83,12 @@ object CloudSyncService {
         return prefs.getBoolean(KEY_REGISTERED, false)
     }
 
+    /** [TASK-V208-UNBIND-FIX] 是否处于「等待重新绑定」状态（解绑后置位，绑定成功后清除） */
+    fun shouldWaitRebind(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_WAIT_REBIND, false)
+    }
+
     /**
      * [TASK-V2.0.6-UNBIND-SYNC] 设备已在 Web 端解绑（服务端硬删除设备行，后续接口返回 404）：
      * 清除本地账号绑定 + 设备注册/令牌/绑定码，驱动 UI 回到「未绑定」并可重新绑定。
@@ -90,16 +99,49 @@ object CloudSyncService {
             .remove(KEY_DEVICE_TOKEN)
             .remove(KEY_BIND_CODE)
             .putBoolean(KEY_REGISTERED, false)
+            // [TASK-V208-UNBIND-FIX] 置位等待重绑，禁止后台匿名重注册
+            .putBoolean(KEY_WAIT_REBIND, true)
             .remove(KEY_LAST_HEARTBEAT)
             .remove(KEY_LAST_POLICY_PULL)
             .remove(KEY_LAST_USAGE_REPORT)
             .remove(KEY_LAST_POLICY_VERSION)
             .remove(KEY_LAST_ANNOUNCEMENT_SIGNATURE)
             .apply()
+        // [TASK-V208-UNBIND-FIX] 清除本地策略缓存 + 旧归属公告 + 限额重置偏移：
+        // 解绑后旧策略不得继续在本地生效（此前只清账号不清策略，设备继续被管控）。
+        clearLocalPolicyAndAnnouncements(context)
+        context.getSharedPreferences(UsageStatsCollector.PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .remove(UsageStatsCollector.KEY_RESET_OFFSET_MINUTES)
+            .remove(UsageStatsCollector.KEY_RESET_OFFSET_DATE)
+            .apply()
         CloudAccountManager.clearAccount(context)
         _connectionState.value = CloudSyncState.DISCONNECTED
         _lastError.value = "设备已在 Web 端解绑，请重新绑定"
         AppLog.w(TAG, "检测到设备已解绑（服务端 404），本地绑定已清除")
+        // 立即按“无策略”重算一次管控状态，避免等下一个采集周期才解锁
+        try {
+            val collector = GuardianForegroundService.getCollector()
+            if (collector != null) {
+                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    runCatching { collector.pauseEnforcement(false) }
+                    runCatching { collector.collectAndPersist() }
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    /** [TASK-V208-UNBIND-FIX] 清空本地策略缓存与公告（解绑后旧归属数据不再展示/生效） */
+    private fun clearLocalPolicyAndAnnouncements(context: Context) {
+        try {
+            val passphrase = DbPassphraseProvider.getPassphrase(context)
+            val db = XiaopacaiApp.instance.database.getWritable(passphrase)
+            db.delete("policy_cache", null, null)
+            db.delete("announcements", null, null)
+            AppLog.i(TAG, "解绑：本地策略缓存与公告已清空")
+        } catch (e: Exception) {
+            AppLog.w(TAG, "解绑：清理本地策略/公告失败: ${e.message}")
+        }
     }
 
     /**
@@ -109,6 +151,8 @@ object CloudSyncService {
      *   此时本地"已绑定"是残留，清除并提示重新绑定；行仍存在且已绑定返回 409，保留显示。
      */
     fun syncBindingStatus(context: Context) {
+        // [TASK-V208-UNBIND-FIX] 解绑后等待重绑：不再匿名重注册（避免服务端重建行 + 默认策略）
+        if (shouldWaitRebind(context)) return
         if (getDeviceToken(context) != null) {
             sendHeartbeat(context)
             return
@@ -152,10 +196,12 @@ object CloudSyncService {
                     val editor = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                         .putString(KEY_BIND_CODE, bindCode)
                         .putBoolean(KEY_REGISTERED, true)
-                    if (token.isNotBlank()) {
-                        editor.putString(KEY_DEVICE_TOKEN, KeyStoreManager.encryptPrefsValue(token))
-                    }
-                    editor.apply()
+                if (token.isNotBlank()) {
+                    editor.putString(KEY_DEVICE_TOKEN, KeyStoreManager.encryptPrefsValue(token))
+                }
+                // [TASK-V208-UNBIND-FIX] 注册成功即视为重新进入绑定流程，清除等待重绑标记
+                editor.putBoolean(KEY_WAIT_REBIND, false)
+                editor.apply()
                     AppLog.i(TAG, "设备注册成功 deviceId=$deviceId tokenSaved=${token.isNotBlank()}")
                     _connectionState.value = CloudSyncState.CONNECTED
                     CloudResult.Success(JSONObject(resp))
@@ -383,6 +429,8 @@ object CloudSyncService {
      */
     private suspend fun syncTick(context: Context) {
         if (getDeviceToken(context) == null) {
+            // [TASK-V208-UNBIND-FIX] 解绑后等待重绑：保持未注册静默，禁止后台匿名重注册
+            if (shouldWaitRebind(context)) return
             syncBindingStatus(context)
             return
         }

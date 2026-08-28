@@ -54,9 +54,15 @@ object EmergencyReleaseService {
         collector?.pauseEnforcement(true)
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val result = CloudSyncService.requestEmergencyRelease(context, "家长紧急停用 $durationMinutes 分钟", durationMinutes)
-                if (result is CloudSyncService.CloudResult.Failed) {
-                    AppLog.w(TAG, "云端紧急解除上报失败: ${result.reason}")
+                // [TASK-V208-UNBIND-FIX] 解绑后无归属账号/令牌，云端上报必然 403：
+                // 本地紧急解除照常生效，云端记录跳过（避免误导性报错）。
+                if (CloudAccountManager.getBoundEmail(context) != null && CloudAccountManager.getToken(context) != null) {
+                    val result = CloudSyncService.requestEmergencyRelease(context, "家长紧急停用 $durationMinutes 分钟", durationMinutes)
+                    if (result is CloudSyncService.CloudResult.Failed) {
+                        AppLog.w(TAG, "云端紧急解除上报失败: ${result.reason}")
+                    }
+                } else {
+                    AppLog.i(TAG, "设备未绑定家长账号，紧急解除仅本地生效（不上报云端）")
                 }
             } catch (e: Exception) {
                 AppLog.w(TAG, "云端紧急解除上报异常: ${e.message}")
@@ -76,7 +82,14 @@ object EmergencyReleaseService {
         collector?.pauseEnforcement(false)
     }
 
-    fun verifyPassword(context: Context, password: String): PasswordResult {
+    /**
+     * 家长密码验证。
+     * - 已设置本地紧急密码 → 本地 SHA-256 校验；
+     * - 已绑定账号 → 云端邮箱+密码验证；
+     * - 未绑定（解绑后）→ 使用调用方提供的邮箱（email 参数）云端验证，
+     *   不修改本地绑定状态；两者皆无时给出明确提示，不再用空邮箱请求导致“邮箱或密码错误”。
+     */
+    fun verifyPassword(context: Context, password: String, email: String? = null): PasswordResult {
         if (isLockedOut(context)) {
             val remaining = (getLockoutUntil(context) - System.currentTimeMillis()) / 1000
             return PasswordResult.LockedOut("尝试次数过多，请等待 ${remaining / 60 + 1} 分钟")
@@ -84,8 +97,19 @@ object EmergencyReleaseService {
 
         val storedHash = getStoredPasswordHash(context)
         if (storedHash == null) {
-            val result = CloudAccountManager.login(context,
-                CloudAccountManager.getBoundEmail(context) ?: "", password)
+            val boundEmail = CloudAccountManager.getBoundEmail(context)
+            val verifyEmail = email?.trim()?.takeIf { it.isNotBlank() }
+                ?: boundEmail?.trim()?.takeIf { it.isNotBlank() }
+            if (verifyEmail == null) {
+                return PasswordResult.Incorrect("设备未绑定家长账号，请先输入账号邮箱进行验证")
+            }
+            // [TASK-V208-UNBIND-FIX] 解绑后使用界面输入的邮箱做无状态验证：
+            // 不把邮箱/JWT 写入本地绑定（避免首页误显示“已绑定”）。
+            val result = if (boundEmail != null) {
+                CloudAccountManager.login(context, boundEmail, password)
+            } else {
+                CloudAccountManager.verifyCredentials(context, verifyEmail, password)
+            }
             when (result) {
                 is CloudAccountManager.LoginResult.Success -> {
                     resetFailedAttempts(context)

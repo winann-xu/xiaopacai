@@ -58,7 +58,7 @@ fun GuardStatusScreen(
             if (c != null) {
                 countdown = c.countdownSnapshot()
                 todayUsedMinutes = c.todayAdjustedMinutes.toInt()
-                dailyLimitMinutes = c.todayLimitMinutes.toInt().coerceAtLeast(1)
+                dailyLimitMinutes = c.todayLimitMinutes.toInt()
                 stopMode = c.stopMode
                 isTimeoutActive = c.isTimeoutActive
             }
@@ -160,7 +160,10 @@ fun GuardStatusScreen(
                         color = Color.White
                     )
                     Text(
-                        text = "今日限额 $dailyLimitMinutes 分钟 · 已用 $todayUsedMinutes 分钟",
+                        text = if (dailyLimitMinutes > 0)
+                            "今日限额 $dailyLimitMinutes 分钟 · 已用 $todayUsedMinutes 分钟"
+                        else
+                            "今日已用 $todayUsedMinutes 分钟",
                         fontSize = 12.sp,
                         color = Color.White.copy(alpha = 0.7f)
                     )

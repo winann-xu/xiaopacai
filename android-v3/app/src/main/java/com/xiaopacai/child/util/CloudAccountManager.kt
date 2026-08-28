@@ -103,8 +103,16 @@ object CloudAccountManager {
     /**
      * 已绑定账号邮箱（仅保存邮箱，密码永不落盘）
      */
-    fun getBoundEmail(context: Context): String? =
-        prefs(context).getString(KEY_ACCOUNT_EMAIL, null)?.takeIf { it.isNotBlank() }
+    fun getBoundEmail(context: Context): String? {
+        val email = prefs(context).getString(KEY_ACCOUNT_EMAIL, null)?.takeIf { it.isNotBlank() }
+            ?: return null
+        // [TASK-V208-UNBIND-FIX] 解绑后等待重绑期间一律视为未绑定：
+        // 兼容旧版本家长验证误写入的残留邮箱（ParentAuthDialog 曾用 login() 持久化），
+        // 避免首页/紧急解除/账号页在设备实际未绑定时误显示“已绑定”。
+        val syncPrefs = context.getSharedPreferences("cloud_sync_prefs", Context.MODE_PRIVATE)
+        if (syncPrefs?.getBoolean("wait_rebind", false) == true) return null
+        return email
+    }
 
     // [V2.0.5] 扫码/配对码绑定成功后记录绑定账号邮箱（无 JWT/角色，仅展示用；密码验证仍走云端登录）
     fun recordBoundEmail(context: Context, email: String) {
@@ -211,6 +219,30 @@ object CloudAccountManager {
                 AppLog.w("Account", "云端登录失败: HTTP $code")
                 LoginResult.Failed("登录失败: HTTP $code ${errBody.take(80)}")
             }
+        }
+    }
+
+    /**
+     * [TASK-V208-UNBIND-FIX] 无状态家长凭据验证（不写本地绑定/JWT）：
+     * 用于解绑后家长紧急解除等场景——设备无归属账号，但家长可用任意有效
+     * 小趴菜账号密码完成“成人身份验证”，验证结果不持久化，避免首页误显示“已绑定”。
+     */
+    fun verifyCredentials(context: Context, email: String, password: String): LoginResult {
+        val host = getServerHost(context)
+        if (host == null) {
+            return LoginResult.Failed("尚未配置家长端服务器地址")
+        }
+        val port = getServerPort(context)
+        val (code, respBody, errBody) = try {
+            loginClient.postLogin(host, port, email.trim(), password)
+        } catch (e: Exception) {
+            Log.w(TAG, "云端凭据验证网络异常: ${e.message}")
+            return LoginResult.Failed(loginNetworkErrorMessage(context, e))
+        }
+        return when {
+            code in 200..299 -> LoginResult.Success(email.trim().lowercase())
+            code == 401 -> LoginResult.Failed("邮箱或密码错误")
+            else -> LoginResult.Failed("登录失败: HTTP $code ${errBody.take(80)}")
         }
     }
 

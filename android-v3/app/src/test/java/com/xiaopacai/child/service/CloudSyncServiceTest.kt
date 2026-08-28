@@ -30,6 +30,7 @@ class CloudSyncServiceTest {
 
     private lateinit var webPrefs: SharedPreferences
     private lateinit var syncPrefs: SharedPreferences
+    private lateinit var guardianPrefs: SharedPreferences
     private lateinit var context: Context
 
     private fun mockPrefs(): SharedPreferences {
@@ -50,11 +51,14 @@ class CloudSyncServiceTest {
     fun setUp() {
         webPrefs = mockPrefs()
         syncPrefs = mockPrefs()
+        guardianPrefs = mockPrefs()
         context = mock(Context::class.java)
         `when`(context.getSharedPreferences(CloudAccountManager.PREFS_WEB, Context.MODE_PRIVATE))
             .thenReturn(webPrefs)
         `when`(context.getSharedPreferences("cloud_sync_prefs", Context.MODE_PRIVATE))
             .thenReturn(syncPrefs)
+        `when`(context.getSharedPreferences("guardian_prefs", Context.MODE_PRIVATE))
+            .thenReturn(guardianPrefs)
     }
 
     @Test
@@ -75,6 +79,8 @@ class CloudSyncServiceTest {
         verify(syncPrefs.edit()).remove("bind_code")
         verify(syncPrefs.edit()).remove("device_token_encrypted")
         verify(syncPrefs.edit()).putBoolean("registered", false)
+        // [TASK-V208-UNBIND-FIX] 解绑后置位“等待重绑”，禁止后台匿名重注册（防策略重新下发）
+        verify(syncPrefs.edit()).putBoolean("wait_rebind", true)
         // 云端连接状态回到未连接
         assertEquals(CloudSyncService.CloudSyncState.DISCONNECTED, CloudSyncService.connectionState.value)
     }
@@ -84,6 +90,13 @@ class CloudSyncServiceTest {
         CloudSyncService.handleDeviceUnbound(context)
         CloudSyncService.handleDeviceUnbound(context)
         assertEquals(CloudSyncService.CloudSyncState.DISCONNECTED, CloudSyncService.connectionState.value)
+    }
+
+    @Test
+    fun shouldWaitRebind_reflectsFlag() {
+        assertFalse(CloudSyncService.shouldWaitRebind(context))
+        `when`(syncPrefs.getBoolean("wait_rebind", false)).thenReturn(true)
+        assertTrue(CloudSyncService.shouldWaitRebind(context))
     }
 
     @Test

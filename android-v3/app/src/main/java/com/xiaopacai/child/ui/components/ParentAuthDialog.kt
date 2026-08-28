@@ -30,14 +30,11 @@ fun ParentAuthDialog(
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var useCloud by remember { mutableStateOf(CloudAccountManager.getBoundEmail(context) != null) }
+    // [TASK-V208-UNBIND-FIX] 未绑定时也允许邮箱+密码云端验证：
+    // 解绑后家长仍可进入守护设置/应用分类等受保护菜单（此前只能走浏览器注册引导）。
+    var useCloud by remember { mutableStateOf(true) }
     var email by remember { mutableStateOf(CloudAccountManager.getBoundEmail(context) ?: "") }
     var showBindGuide by remember { mutableStateOf(false) }
-
-    val boundEmail = CloudAccountManager.getBoundEmail(context)
-    if (boundEmail == null && useCloud) {
-        useCloud = false
-    }
 
     fun close() {
         if (!busy) {
@@ -109,7 +106,13 @@ fun ParentAuthDialog(
                     error = null
                     GlobalScope.launch(Dispatchers.IO) {
                         val result = if (useCloud) {
-                            val loginResult = CloudAccountManager.login(context, email, password)
+                            // [TASK-V208-UNBIND-FIX] 未绑定（解绑后）时做无状态验证：
+                            // 仅验证家长身份，不把邮箱/JWT 写入本地，避免首页误显示“已绑定”。
+                            val loginResult = if (CloudAccountManager.getBoundEmail(context) != null) {
+                                CloudAccountManager.login(context, email, password)
+                            } else {
+                                CloudAccountManager.verifyCredentials(context, email, password)
+                            }
                             when (loginResult) {
                                 is CloudAccountManager.LoginResult.Success ->
                                     EmergencyReleaseService.PasswordResult.Success
