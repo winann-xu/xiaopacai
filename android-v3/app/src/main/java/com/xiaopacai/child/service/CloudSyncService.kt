@@ -7,6 +7,7 @@ import com.xiaopacai.child.util.DbPassphraseProvider
 import com.xiaopacai.child.util.KeyStoreManager
 import com.xiaopacai.child.util.httpGetJson
 import com.xiaopacai.child.util.httpPostJson
+import com.xiaopacai.child.util.UsageStatsHelper
 import com.xiaopacai.child.XiaopacaiApp
 import com.xiaopacai.child.data.database.AnnouncementDao
 import com.xiaopacai.child.ui.overlay.AnnouncementOverlayActivity
@@ -14,6 +15,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 object CloudSyncService {
 
@@ -263,6 +267,9 @@ object CloudSyncService {
                     _connectionState.value = CloudSyncState.CONNECTED
                     _lastError.value = null
                     val data = try { JSONObject(resp) } catch (_: Exception) { null }
+                    if (data != null) {
+                        handleHeartbeatCommands(context, data)
+                    }
                     CloudResult.Success(data)
                 }
                 code == 404 -> {
@@ -417,6 +424,31 @@ object CloudSyncService {
         if (serverAnnouncementSignature != localSignature) {
             if (pullAnnouncements(context)) {
                 prefs.edit().putString(KEY_LAST_ANNOUNCEMENT_SIGNATURE, serverAnnouncementSignature).apply()
+            }
+        }
+    }
+
+    /**
+     * [TASK-V2-RESET-FIX] 处理 heartbeat 响应中的下行指令。
+     *
+     * V2 儿童端已移除 P2P 长连接，Web 端点击「重置当日限额」后服务器无法直接推送；
+     * 服务端把待处理重置挂在 devices.pending_reset_at，并在下一次 HTTP heartbeat 的
+     * commands 中下发 reset_daily_usage。这里必须消费该指令，否则重置链路在 V2 上断裂。
+     */
+    private fun handleHeartbeatCommands(context: Context, data: JSONObject) {
+        val commands = data.optJSONArray("commands") ?: return
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        for (i in 0 until commands.length()) {
+            val command = commands.optJSONObject(i) ?: continue
+            when (command.optString("type", "")) {
+                "reset_daily_usage" -> {
+                    val offset = UsageStatsHelper.getTodayTotalMinutes(context)
+                    UsageStatsCollector.applyLimitReset(offset, today)
+                    AppLog.i(TAG, "处理每日限额重置指令: offset=${offset}分钟, date=$today")
+                }
+                else -> {
+                    AppLog.d(TAG, "未处理的心跳指令: ${command.optString("type", "")}")
+                }
             }
         }
     }
