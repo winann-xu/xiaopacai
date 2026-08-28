@@ -4,6 +4,13 @@
 
 ---
 
+## [2.0.8] - 2026-08-28（[TASK-V2-RESET-FIX]）
+
+### 修复
+- `CloudSyncService` 消费 HTTP 心跳响应中的 `reset_daily_usage` 下行指令，修复 V2 儿童端“重置当日限额”不生效的问题。
+
+---
+
 ## [1.3.5] — 2026-08-25（[TASK-UPDATE-DEADLOCK-FIX] 强制更新死锁修复，special 渠道发布）
 
 > 真机 OPPO PGBM10（testkey 签名、Device Owner）复现死锁：点击「立即更新」→ 下载完成
