@@ -236,6 +236,14 @@ class UsageStatsCollector(
 
     init {
         instance = this
+        // 进程重启后，如果紧急解除仍在有效期内，必须立即恢复暂停状态；
+        // 否则采集循环会在下一轮把超时锁定重新置回 true。
+        if (EmergencyReleaseService.isActive(context)) {
+            _enforcementPaused = true
+            _isTimeoutActive = false
+            _stopMode = "none"
+            Log.i(TAG, "检测到紧急解除仍有效，启动即暂停超时拦截")
+        }
     }
 
     /** 当前数据快照（UI 可观察） */
