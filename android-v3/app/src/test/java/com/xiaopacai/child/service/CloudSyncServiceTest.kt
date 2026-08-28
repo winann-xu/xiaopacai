@@ -85,4 +85,13 @@ class CloudSyncServiceTest {
         CloudSyncService.handleDeviceUnbound(context)
         assertEquals(CloudSyncService.CloudSyncState.DISCONNECTED, CloudSyncService.connectionState.value)
     }
+
+    @Test
+    fun mapAnnouncementPriority_mapsThreeLevelsToInt() {
+        assertEquals(2, CloudSyncService.mapAnnouncementPriority("urgent"))
+        assertEquals(1, CloudSyncService.mapAnnouncementPriority("important"))
+        assertEquals(0, CloudSyncService.mapAnnouncementPriority("normal"))
+        assertEquals(0, CloudSyncService.mapAnnouncementPriority(""))
+        assertEquals(0, CloudSyncService.mapAnnouncementPriority("unknown"))
+    }
 }

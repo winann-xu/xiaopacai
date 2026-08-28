@@ -32,6 +32,7 @@ import com.xiaopacai.child.service.UsageStatsCollector.Companion.formatHms
 import com.xiaopacai.child.ui.child.EmergencyReleaseDialog
 import com.xiaopacai.child.ui.components.ParentLoginBindCard
 import com.xiaopacai.child.ui.components.ParentAuthDialog
+import com.xiaopacai.child.ui.overlay.AnnouncementOverlayActivity
 import com.xiaopacai.child.util.CloudAccountManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -147,10 +148,20 @@ fun GuardianHomeContent(
                 }
                 announcements = list
                 if (announcementToShow == null) {
-                    val candidate = list.firstOrNull { it.priority < 2 && it.id !in shownAnnouncementIds }
-                    if (candidate != null) {
-                        announcementToShow = candidate
-                        shownAnnouncementIds = shownAnnouncementIds + candidate.id
+                    val unshown = list.filter { it.id !in shownAnnouncementIds }
+                    val urgent = unshown.firstOrNull { it.priority >= 2 && !it.acknowledged }
+                    if (urgent != null) {
+                        // 紧急：全屏置顶，需点击确认
+                        shownAnnouncementIds = shownAnnouncementIds + urgent.id
+                        AnnouncementOverlayActivity.launch(context, urgent.id, urgent.title, urgent.content)
+                    } else {
+                        // 重要优先，其次普通：应用内对话框
+                        val candidate = unshown.firstOrNull { it.priority == 1 }
+                            ?: unshown.firstOrNull { it.priority == 0 }
+                        if (candidate != null) {
+                            announcementToShow = candidate
+                            shownAnnouncementIds = shownAnnouncementIds + candidate.id
+                        }
                     }
                 }
             } catch (_: Exception) {}
@@ -158,18 +169,28 @@ fun GuardianHomeContent(
     }
 
     announcementToShow?.let { announcement ->
+        val isImportant = announcement.priority == 1
         AlertDialog(
             onDismissRequest = {
                 markAnnouncementRead(context, announcement.id)
                 announcementToShow = null
             },
-            title = { Text(announcement.title, fontWeight = FontWeight.Bold) },
+            title = {
+                Column {
+                    if (isImportant) {
+                        Text("重要公告", color = Color(0xFFFF9800),
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(2.dp))
+                    }
+                    Text(announcement.title, fontWeight = FontWeight.Bold)
+                }
+            },
             text = { Text(announcement.content, fontSize = 14.sp, lineHeight = 20.sp) },
             confirmButton = {
                 TextButton(onClick = {
                     markAnnouncementRead(context, announcement.id)
                     announcementToShow = null
-                }) { Text("知道了") }
+                }) { Text(if (isImportant) "我知道了" else "知道了") }
             }
         )
     }
@@ -529,11 +550,17 @@ fun AnnouncementCard(announcement: Announcement) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(priorityColor))
                 Spacer(Modifier.width(8.dp))
-                if (announcement.priority >= 2) {
-                    Surface(color = Color(0xFFE53935), shape = RoundedCornerShape(4.dp)) {
+                when (announcement.priority) {
+                    2 -> Surface(color = Color(0xFFE53935), shape = RoundedCornerShape(4.dp)) {
                         Text("紧急", fontSize = 11.sp, color = Color.White,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
                     }
+                    1 -> Surface(color = Color(0xFFFF9800), shape = RoundedCornerShape(4.dp)) {
+                        Text("重要", fontSize = 11.sp, color = Color.White,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
+                    }
+                }
+                if (announcement.priority == 2 || announcement.priority == 1) {
                     Spacer(Modifier.width(6.dp))
                 }
                 Text(announcement.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,

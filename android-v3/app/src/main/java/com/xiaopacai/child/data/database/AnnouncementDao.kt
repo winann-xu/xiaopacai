@@ -109,6 +109,8 @@ class AnnouncementDao(private val dbHelper: AppDatabase) {
             // 去重命中：内容未变，仅更新有效期与送达次数，保留全部状态
             val values = ContentValues().apply {
                 put("last_push_hash", hash)     // 旧库行补记哈希
+                put("priority", priority)       // 服务端优先级始终权威（修复旧库 priority 错位）
+                put("requires_ack", if (requiresAck) 1 else 0)
                 put("delivered_count", existingCount(db, announcementId) + 1)
                 put("expires_at", expiresAt)
             }

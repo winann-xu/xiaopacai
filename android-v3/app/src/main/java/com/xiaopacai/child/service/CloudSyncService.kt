@@ -8,6 +8,8 @@ import com.xiaopacai.child.util.KeyStoreManager
 import com.xiaopacai.child.util.httpGetJson
 import com.xiaopacai.child.util.httpPostJson
 import com.xiaopacai.child.XiaopacaiApp
+import com.xiaopacai.child.data.database.AnnouncementDao
+import com.xiaopacai.child.ui.overlay.AnnouncementOverlayActivity
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -523,6 +525,16 @@ object CloudSyncService {
         }
     }
 
+    /**
+     * 公告三档优先级统一映射：normal=0 / important=1 / urgent=2。
+     * 与儿童端 announcements 表、AnnouncementCard 及紧急全屏判定口径保持一致。
+     */
+    internal fun mapAnnouncementPriority(priority: String): Int = when (priority) {
+        "urgent" -> 2
+        "important" -> 1
+        else -> 0
+    }
+
     fun pullAnnouncements(context: Context): Boolean {
         val token = getDeviceToken(context) ?: return false
         if (token.isEmpty()) return false
@@ -533,10 +545,8 @@ object CloudSyncService {
                 val root = JSONObject(body)
                 val arr = root.optJSONArray("announcements") ?: return true
                 val passphrase = com.xiaopacai.child.util.DbPassphraseProvider.getPassphrase(context)
-                val db = com.xiaopacai.child.XiaopacaiApp.instance.database.getWritable(passphrase)
-                // [方案二] 以服务端可见公告集为准做全量对账：先清空本地缓存再插入，
-                // 这样撤回/删除/过期的公告也能即时从本地消失，而不仅是新增与更新。
-                db.delete("announcements", null, null)
+                val dao = AnnouncementDao(XiaopacaiApp.instance.database)
+                val fetchedIds = mutableSetOf<String>()
                 for (i in 0 until arr.length()) {
                     val item = arr.getJSONObject(i)
                     val id = item.optInt("id", 0)
@@ -544,22 +554,52 @@ object CloudSyncService {
                     val title = item.optString("title", "")
                     val content = item.optString("content", "")
                     val priority = item.optString("priority", "normal")
-                    val publishedAt = item.optLong("publishedAt", 0)
                     val expiresAt = item.optLong("expiresAt", 0)
-                    val acknowledgedAt = item.optLong("acknowledgedAt", 0)
-                    val priorityInt = when (priority) {
-                        "urgent" -> 3; "important" -> 2; else -> 1
-                    }
-                    val isRead = if (acknowledgedAt > 0) 1 else 0
-                    db.execSQL(
-                        """INSERT OR REPLACE INTO announcements
-                           (announcement_id, title, content, priority, created_at, expires_at, acknowledged_at, is_read)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                        arrayOf(id.toString(), title, content, priorityInt.toString(),
-                            publishedAt.toString(), expiresAt.toString(),
-                            acknowledgedAt.toString(), isRead.toString())
+                    val priorityInt = mapAnnouncementPriority(priority)
+                    val idStr = id.toString()
+                    fetchedIds += idStr
+                    dao.upsert(
+                        announcementId = idStr,
+                        title = title,
+                        content = content,
+                        priority = priorityInt,
+                        expiresAt = expiresAt,
+                        requiresAck = priorityInt >= 2,
+                        contentHash = "",
+                        passphrase = passphrase
                     )
                 }
+
+                // 对账：服务端可见集合里没有的本地公告视为已撤回/删除，置过期
+                val db = XiaopacaiApp.instance.database.getReadable(passphrase)
+                val localIds = mutableListOf<String>()
+                db.rawQuery("SELECT announcement_id FROM announcements", null).use { c ->
+                    while (c.moveToNext()) localIds.add(c.getString(0))
+                }
+                for (localId in localIds) {
+                    if (localId !in fetchedIds) {
+                        dao.revokeLocally(localId, passphrase)
+                    }
+                }
+
+                // 紧急公告拉取后立即尝试全屏置顶（不依赖孩子打开首页）
+                dao.getFirstUnacknowledgedUrgent(passphrase)?.let { urgent ->
+                    val urgentId = urgent["id"] ?: ""
+                    val urgentTitle = urgent["title"] ?: ""
+                    val urgentContent = urgent["content"] ?: ""
+                    if (urgentId.isNotEmpty()) {
+                        if (!GuardianAccessibilityService.showAnnouncementOverlay(
+                                urgentId, urgentTitle, urgentContent
+                            )
+                        ) {
+                            // 无障碍未启用时兜底直接启动（前台场景可用；后台受限时静默失败）
+                            AnnouncementOverlayActivity.launch(
+                                context, urgentId, urgentTitle, urgentContent
+                            )
+                        }
+                    }
+                }
+
                 AppLog.i(TAG, "公告拉取成功: ${arr.length()} 条")
                 true
             } else {
