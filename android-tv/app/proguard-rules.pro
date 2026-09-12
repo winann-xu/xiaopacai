@@ -32,7 +32,6 @@
 }
 
 # JSON
--dontorg json.**
 -dontwarn org.json.**
 
 # Security Crypto

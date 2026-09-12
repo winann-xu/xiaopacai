@@ -249,7 +249,10 @@ dependencies {
 
     // === OkHttp + JSON（HTTP 通信，对接 CloudSyncService 协议） ===
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("org.json:json:20231013")
+    // [TASK-TV-RELEASE] org.json 由 Android 平台提供（API 1+），显式 implementation 依赖会触发
+    // lint DuplicatePlatformClasses（release 构建直接失败）并可能引发运行期类冲突；
+    // 仅 JVM 单测需要它，故降级为 testImplementation
+    testImplementation("org.json:json:20231013")
 
     // === BouncyCastle（P2P mTLS 客户端身份证书：EC P-256 自签名生成 + PKCS12 往返） ===
     // 版本取 1.77：与手机版 core 的 API 一致，且本机 Gradle 缓存已具备（可离线构建）

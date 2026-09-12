@@ -86,3 +86,4 @@ dist/
 android-tv/.gradle/
 android-tv/local.properties
 android-tv/tools/snapshots/
+android-tv/**/build/

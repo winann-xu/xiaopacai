@@ -1,7 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- [android-tv] 数据提取规则 — 不允许备份 -->
+<!-- [android-tv] 数据提取规则 — 不允许备份。
+     注意：manifest 已声明 android:allowBackup="false"，此处再显式排除全部域做双保险。
+     不能用 <disable/>（不是 data-extraction-rules 的合法元素，lint FullBackupContent 会直接拦停 release 构建）。 -->
 <data-extraction-rules>
     <cloud-backup>
-        <disable />
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
     </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+    </device-transfer>
 </data-extraction-rules>
