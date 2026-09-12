@@ -1,0 +1,252 @@
+{
+  "schema": "xiaopacai-tvos-checkpoint/v1",
+  "project": "小趴菜 TVOS 版（小米电视）· 儿童端",
+  "task_folder": "android-tv/",
+  "updated_at": "2026-09-10T18:22:00+08:00",
+  "updated_by": "DSH (AGENTS.md §七 中断续接协议)",
+  "protocol": {
+    "reference": "《小趴菜_TVOS版_小米_主开发派发版》§七 中断续接协议",
+    "session_start": [
+      "读 android-tv/PROGRESS.md",
+      "读 android-tv/docs/CHECKPOINT.json（本文件）",
+      "记录起始 Token"
+    ],
+    "rules": [
+      "只执行 status=pending 且 depends_on 全部为 done 的任务",
+      "status=blocked 必须先给出恢复方案（修复/降级/绕过 + ADR）再继续",
+      "status=done 不重复执行",
+      "每完成一个任务：更新本文件 status/evidence → git commit（消息含 [TASK-TV-xx]）→ 继续下一个"
+    ],
+    "status_enum": [
+      "pending",
+      "in_progress",
+      "blocked",
+      "done"
+    ],
+    "hard_constraints": [
+      "【写入上限】单次 write ≤ 400 行且 ≤ 12000 字符（详见 AGENTS.md §2.1）。违反会导致输出截断→重试→空转数十分钟，此为历史事故 DEV-02 的根因。",
+      "【禁止重写大文件】不得用 write 重写已存在的文件；修改一律用 edit 逐段进行。",
+      "【禁止越界】不得在 xiaopacai/ 下创建或修改任何文件（只读参照区，见 DEV-01）。产物只能落在 android-tv/。",
+      "【禁止空转】不得用相同参数重试失败调用；同一动作连续失败 2 次即停止，写入 PROGRESS.md 的 Failed 段并报告。",
+      "【禁止盲目探索】连续只读探索不得超过 2 次而不推进任务（见 DEV-04 困惑循环教训）。"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "TASK-TV-01",
+      "title": "构建通过",
+      "criterion": "TASK.md §Success criteria 1",
+      "verify": "cd android-tv && ./gradlew assembleDebug",
+      "status": "done",
+      "evidence": "app/build/outputs/apk/debug/app-debug.apk 26MB（2026-09-09 19:21）",
+      "depends_on": []
+    },
+    {
+      "id": "TASK-TV-02",
+      "title": "APK 为 LEANBACK 形态（TV 入口 + banner + 无需触屏）",
+      "criterion": "TASK.md §Success criteria 2",
+      "verify": "Manifest 含 LEANBACK_LAUNCHER + android:banner + touchscreen required=false",
+      "status": "done",
+      "evidence": "AndroidManifest.xml 三项均已存在（banner=@drawable/tv_banner，LEANBACK_LAUNCHER category，touchscreen required=false）",
+      "depends_on": [
+        "TASK-TV-01"
+      ]
+    },
+    {
+      "id": "TASK-TV-03",
+      "title": "单测全绿 + 核心模块覆盖率 >=80%",
+      "criterion": "TASK.md §Success criteria 3",
+      "verify": "cd android-tv && ./gradlew test && ./gradlew jacocoTestReport",
+      "status": "pending",
+      "evidence": "116/145 通过（80%）；jacocoTestReport BUILD SUCCESSFUL；评分模块覆盖率：EncryptionHelper 100% / TimeoutStateMachine ~92% / AppUsage 100% / DeviceConfig ~96%",
+      "depends_on": [
+        "TASK-TV-01"
+      ],
+      "previous_blocked_reason": "Robolectric 在 ARM Mac 缺原生库，29/145 测试无法运行（DeviceInfo 7 / AntiBypassServiceTV 6 / CloudSyncServiceTV 5 / TamperAlertService 6 / UsageStatsHelperTV 5），属环境限制非代码缺陷",
+      "note": "环境补齐后需重测：`cd android-tv && ./gradlew test` 观察 Robolectric ARM 问题是否仍存在"
+    },
+    {
+      "id": "TASK-TV-04",
+      "title": "心跳接入家长端闭环（policy_update 下发 + usage_report 上报返 sync_ack）",
+      "criterion": "TASK.md §Success criteria 4",
+      "verify": "xiaopacai-web `dotnet run` + docs/e2e/heartbeat_test.py 断言通过",
+      "status": "pending",
+      "evidence": null,
+      "depends_on": [
+        "TASK-TV-01"
+      ],
+      "previous_blocked_reason": "验证需 dotnet 运行 xiaopacai-web，本机未安装 dotnet；heartbeat_test.py 亦不存在",
+      "note": "dotnet 8.0.425 已就绪：`xiaopacai-web` 需补 `docs/e2e/heartbeat_test.py` 后跑 `dotnet run`"
+    },
+    {
+      "id": "TASK-TV-05",
+      "title": "超时锁屏（核心）：悬浮窗锁屏覆盖全屏 + 倒计时/白名单/家长豁免 + HOME 键不可绕过",
+      "criterion": "TASK.md §Success criteria 5",
+      "verify": "tests/gui/ E2E（adb 截图：锁屏出现/倒计时/豁免解除/次日重置；实体遥控器按 HOME 锁屏不消失）",
+      "status": "pending",
+      "evidence": "实现侧已就绪（LockOverlayService.kt 356 行，TYPE_APPLICATION_OVERLAY + 纯 View + reassert() 5s；TimeoutExecutorTV.lockScreen/unlock 已接线）；E2E 验证未执行",
+      "depends_on": [
+        "TASK-TV-01"
+      ],
+      "previous_blocked_reason": "实现侧已就绪，但验收所需的 adb 截图 E2E 无法在未安装 emulator 的本机执行（详见 environment_facts.known_limits）",
+      "note": "emulator + Android TV 镜像 + AVD 已运行：可执行 adb 截图 E2E"
+    },
+    {
+      "id": "TASK-TV-06",
+      "title": "D-pad 焦点全走查：所有页面方向键可达、焦点可见、无死区",
+      "criterion": "TASK.md §Success criteria 6",
+      "verify": "tests/gui/ 逐页截图 + adb shell input keyevent KEYCODE_DPAD_* 记录焦点轨迹",
+      "status": "pending",
+      "evidence": null,
+      "depends_on": [
+        "TASK-TV-05"
+      ],
+      "previous_blocked_reason": "依赖 TASK-TV-05（E2E 环境缺失）",
+      "note": "随 TV-05 解锁（D-pad 焦点走查需设备）"
+    },
+    {
+      "id": "TASK-TV-07",
+      "title": "白名单/就寝/公告/豁免请求/篡改告警 五项各有一条真实用例为证",
+      "criterion": "TASK.md §Success criteria 7",
+      "verify": "对应 E2E 脚本编号逐一通过",
+      "status": "pending",
+      "evidence": null,
+      "depends_on": [
+        "TASK-TV-05"
+      ],
+      "previous_blocked_reason": "依赖 TASK-TV-05（E2E 环境缺失）",
+      "note": "随 TV-05 解锁（五项用例需设备）"
+    },
+    {
+      "id": "TASK-TV-08",
+      "title": "清理误写产物（只读目录越界）",
+      "criterion": "TASK.md §Scope（禁止改 android/）",
+      "verify": "确认 xiaopacai/android/app-tv/ 下无误写文件残留",
+      "status": "done",
+      "evidence": "已移入废纸篓 /Users/winann/.Trash/xiaopacai-app-tv-misplaced-20260910_130925（可恢复）；xiaopacai/android/ 已恢复至原有结构",
+      "depends_on": []
+    },
+    {
+      "id": "TASK-TV-09",
+      "title": "文档交付物归位到 docs/（符合 TASK.md §Deliverables）",
+      "criterion": "TASK.md §Deliverables：android-tv/docs/adr/*.md、docs/USER_MANUAL_TV.md、docs/COMPAT_MATRIX.md",
+      "verify": "ls android-tv/docs/adr/*.md && test -f android-tv/docs/USER_MANUAL_TV.md && test -f android-tv/docs/COMPAT_MATRIX.md",
+      "status": "done",
+      "evidence": "已归位并通过验收：docs/adr/0001-lock-overlay-service.md（137行/3892字符，规范命名）、docs/USER_MANUAL_TV.md（129行/3906字符）、docs/COMPAT_MATRIX.md（79行/3006字符）；验收命令通过。全部符合 §2.1 写入上限。注：模型最后一次 write(2924c) 虽在冲突中反复重试，最终仍成功落地。",
+      "depends_on": [],
+      "note": "本任务不依赖 emulator/dotnet，可立即执行。要求：用 edit/较小 write 搬运与补写，单次 write ≤400 行/12000 字符（AGENTS.md §2.1）"
+    }
+  ],
+  "deviations": [
+    {
+      "id": "DEV-01",
+      "severity": "high",
+      "found_at": "2026-09-10",
+      "issue": "主开发 agent 越界写入只读目录：在 xiaopacai/android/ 下新建 app-tv/ 并写入文件，违反 TASK.md §Scope（禁止改 android/）与 §File map（输出应仅限 android-tv/）",
+      "artifacts": [
+        "xiaopacai/android/app-tv/src/main/java/com/xiaopacai/tv/MainActivity.kt（21 行）",
+        "xiaopacai/android/app-tv/src/main/java/com/xiaopacai/tv/ui/screens/MainMenuScreen.kt（2891 行 / 84084 字符）",
+        "xiaopacai/android/app-tv/src/main/java/com/xiaopacai/tv/navigation/"
+      ],
+      "impact": "xiaopacai/ 已在 .gitignore（第 30 行）中，不影响版本库；但产物位置错误，无法参与 android-tv/ 构建",
+      "status": "resolved",
+      "action": "已清理：误写目录整体移入废纸篓（保留可恢复性）。后续须严格按 TASK.md §File map 输出到 android-tv/app/src/main/java/com/xiaopacai/tvos/"
+    },
+    {
+      "id": "DEV-02",
+      "severity": "high",
+      "found_at": "2026-09-10",
+      "issue": "单次 write 超长 → 输出截断 → 原样重试 → 空转：MainMenuScreen.kt 单文件 84084 字符（2891 行）；模型又试图用 write 重写整个文件清理冗余 import，触发 122684 字符写入被截断，单轮空转约 19 分钟（生成 32717 tokens @28 tok/s）",
+      "evidence": "会话记录：usage.outputTokens=32768，finish.kind=max-tokens；write 参数 86976 / 122684 字符",
+      "status": "mitigated",
+      "action": "已建 AGENTS.md §2.1 硬约束（单次 write ≤400 行且 ≤12000 字符；禁止 write 重写大文件）；PROGRESS.md §Failed 已记录禁令"
+    },
+    {
+      "id": "DEV-03",
+      "severity": "medium",
+      "found_at": "2026-09-10",
+      "issue": "AGENTS.md（派发件 §二 规定的 L1 系统提示词载体）此前从未创建，导致『每轮一个原子动作』『禁止相同参数重试』两条防线缺失",
+      "status": "fixed",
+      "action": "已在 android-tv/ 与项目根创建 AGENTS.md（L1 提示词逐字节副本 + 分批分阶段硬约束），DSH 已确认加载"
+    },
+    {
+      "id": "DEV-04",
+      "severity": "high",
+      "found_at": "2026-09-10T13:20:00+08:00",
+      "issue": "清理 DEV-01 误写目录后，主开发 agent 因不知情而陷入『困惑循环』：连续 10+ 次 find/ls/glob 搜索已移除的 xiaopacai/android/app-tv/ 与 MainActivity.kt，未推进任务，持续消耗 GPU 算力（约 5 分钟）",
+      "evidence": "会话 reasoning：'There is NO app-tv in this list!' / 'This is insane... where is the code?'；连续只读探索 10+ 次",
+      "root_cause": "清理动作未同步告知运行中的会话；且模型基于 compacted summary 工作，早期上下文细节已丢失",
+      "status": "resolved",
+      "action": "① 在原搜索路径放置路标 xiaopacai/android/app-tv/README.md；② PROGRESS.md 顶部加『目录变更通知』；③ android-tv/000_START_HERE_读我.md 明确入口是 TvHomeActivity.kt 而非 MainActivity.kt、要求先读 AGENTS.md/TASK.md/CHECKPOINT；④ 建立每分钟合规监控（~/bin/xiaopacai_monitor.py, job bash-18） ⑤【决定性】在模型正在搜索的确切路径放置纯注释路标 android-tv/app/src/main/java/com/xiaopacai/tvos/MainActivity.kt（命中搜索目标）。",
+      "lesson": "对陷入『寻找特定文件』循环的模型，最有效的干预是【在它搜索的确切路径放置命中目标】，而不是在其他位置留言——前 4 处路标均未被读取，第 5 处（同名文件）一举奏效。另：清理模型正在使用的文件前，必须先确认无活跃会话依赖。",
+      "resolution": "2026-09-10T13:31 模型已读到该路标并自我纠正：reasoning 明确 'The module is android-tv, NOT xiaopacai/android'，随后开始读 android-tv/TASK.md。上下文从 23099 tokens 降至 4096。"
+    },
+    {
+      "id": "DEV-05",
+      "severity": "medium",
+      "found_at": "2026-09-10T13:46:00+08:00",
+      "issue": "文档完美主义循环：主开发 agent 连续约 7 分钟、9 次 edit 反复打磨 PROGRESS.md，文件净规模无变化（86 行 / 5259 字符），零实质任务进展；期间还计划用 write 重写整个文件。",
+      "evidence": "监控日志 13:38–13:45 记录 edit×9（419c/763c/763c/1092c/322c/229c/2141c/242c/883c），PROGRESS.md 行数与字符数在期间未变化",
+      "status": "resolved",
+      "action": "在 PROGRESS.md 顶部插入【🛑 强制指令】：冻结该文件（完成下一实质交付前禁止再编辑）、进度更新改为追加 3-5 行、明确当前唯一任务为 TASK-TV-09 并列出 4 步原子动作与验收命令。",
+      "lesson": "进度文件本身不应成为工作对象；对其反复润色是典型的『以文档代替交付』退化——应在监控中把『同一文件连续 >4 次写操作且净规模不变』设为偏离信号。",
+      "resolution": "2026-09-10T13:49 强制指令生效：模型立即停止打磨，完成 TASK-TV-09 全部 3 项文档归位，验收命令通过。此后仅 1 次 PROGRESS.md 编辑（用于记录进度，属 §3.4 正常行为）。"
+    },
+    {
+      "id": "DEV-06",
+      "severity": "medium",
+      "found_at": "2026-09-10T13:53:00+08:00",
+      "issue": "监控方干预方式不当引发读写冲突：为下发强制指令，多次直接修改主开发 agent 正在编辑的 PROGRESS.md，导致其 edit 持续收到 'file changed since it was read' 错误，模型误判为『后台 watcher/索引在改动文件』，反复重读-重试。",
+      "evidence": "模型 reasoning：'The \"file changed\" error is extremely persistent here. It might be that when I use ls, find, or even glob, some background process (like a watcher or indexing) is touching files'",
+      "root_cause": "并发写同一文件：监控方与执行方同时编辑 PROGRESS.md，无锁、无版本协调",
+      "status": "resolved",
+      "action": "监控方停止再修改 PROGRESS.md；改用独立指令文件（如 NEXT_ACTION.md）下发要求，避免与执行方争用同一文件。",
+      "lesson": "下发指令应使用执行方只读的独立文件，不要写入它正在编辑的文件——否则指令本身会变成新的故障源。",
+      "resolution": "2026-09-10T13:53 模型最后一次写入成功落地；监控方停止一切项目文件写入并改用只读的 NEXT_ACTION.md 下发指令；模型随后停止工具调用、转为文本报告，冲突链彻底终止。"
+    }
+  ],
+  "next_action": {
+    "task_id": "TASK-TV-03",
+    "atomic_action": "环境已补齐，按依赖顺序推进：先跑 `cd android-tv && ./gradlew test` 确认基线（验证 Robolectric ARM 问题是否随 JDK 就位消失），再依次执行 TV-05（锁屏 E2E）→ TV-06/07。",
+    "alternative": "TV-04 独立：先在 xiaopacai-web 补 docs/e2e/heartbeat_test.py，再 dotnet run 验证心跳闭环",
+    "note": "AVD XiaopacaiTV 已在运行（emulator-5554），可直接跑 E2E；单次 write 仍限 ≤400 行/12000 字符"
+  },
+  "environment_facts": {
+    "os": "macOS Apple Silicon (M1 Max, 64GB RAM)",
+    "workspace": "/Users/winann/01-project/05-codex_project/projects/003-xiaopacai",
+    "task_folder": "android-tv/",
+    "git_branch": "master",
+    "git_note": "android-tv/ 当前为 untracked；项目规范要求 GitHub Flow（禁止直提 main），提交前需确认分支策略",
+    "local_model": "gemma-4-26b-a4b @ 127.0.0.1:18080（ctx 131072，output cap 65536，thinking 模型）",
+    "known_limits": [
+      "环境已于 2026-09-10 18:20 补齐：JDK 17 + Gradle 8.9 + emulator 37.1.11 + Android TV 镜像 + dotnet 8.0.425。",
+      "仍需实测确认：Robolectric 在 Apple Silicon 的原生库问题是否随 JDK 就位而消失（TV-03）。",
+      "AVD 以 -no-window -gpu swiftshader_indirect 无头模式运行；E2E 截图请用 adb exec-out screencap。",
+      "本地模型输出上限 65536 tokens；长上下文生成 28–60 tok/s。"
+    ],
+    "available": {
+      "jdk": "✅ Temurin 17.0.20.1 → /Users/winann/jdk/jdk-17.0.20.1+1/Contents/Home",
+      "gradlew": "✅ Gradle 8.9 可用（Launcher JVM 17.0.20.1 已验证）",
+      "android_sdk_platform": "✅ android-31 / android-35",
+      "emulator": "✅ 已安装 37.1.11.0（~/Library/Android/sdk/emulator/emulator）",
+      "system_image": "✅ system-images;android-31;android-tv;arm64-v8a（4.1G）",
+      "avd": "✅ XiaopacaiTV 已启动并连接（adb: emulator-5554 device, sdk=31, sdk_google_atv64_arm64）",
+      "adb": "✅ ~/Library/Android/sdk/platform-tools/adb",
+      "dotnet": "✅ .NET SDK 8.0.425 → /Users/winann/.dotnet/dotnet"
+    },
+    "env_vars": "已写入 ~/.zshrc：JAVA_HOME/ANDROID_HOME/ANDROID_SDK_ROOT/DOTNET_ROOT，PATH 含 $JAVA_HOME/bin、$DOTNET_ROOT、platform-tools、emulator"
+  },
+  "session_state": {
+    "as_of": "2026-09-10T13:57:00+08:00",
+    "model_activity": "已停止（最后写入 13:53:26，此后 0 新事件）",
+    "health": "llama-server 127.0.0.1:18080 ok",
+    "awaiting": "用户决策环境方向（A 补装 emulator+dotnet / B 降级验收 / C 换机器）",
+    "artifacts": [
+      "app-debug.apk 26MB",
+      "docs/adr/0001-lock-overlay-service.md",
+      "docs/USER_MANUAL_TV.md",
+      "docs/COMPAT_MATRIX.md",
+      "tests/gui/LockOverlayE2ETest.py"
+    ]
+  }
+}

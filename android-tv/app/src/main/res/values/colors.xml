@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [android-tv] 颜色资源 — 小趴菜 TVOS 版 -->
+<resources>
+    <!-- 主色 -->
+    <color name="xiaopacai_green">#4CAF50</color>
+    <color name="xiaopacai_green_dark">#388E3C</color>
+    <color name="xiaopacai_green_light">#81C784</color>
+    <!-- 警告色 -->
+    <color name="xiaopacai_red">#F44336</color>
+    <color name="xiaopacai_red_dark">#D32F2F</color>
+    <!-- 提示色 -->
+    <color name="xiaopacai_orange">#FF9800</color>
+    <color name="xiaopacai_yellow">#FFEB3B</color>
+    <!-- 背景色 -->
+    <color name="bg_dark">#121212</color>
+    <color name="bg_surface">#1E1E1E</color>
+    <color name="bg_card">#2C2C2C</color>
+    <color name="bg_overlay">#CC000000</color>
+    <!-- 文字色 -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#B0B0B0</color>
+    <color name="text_hint">#666666</color>
+    <!-- 锁定画面背景渐变 -->
+    <color name="lock_bg_start">#1a237e</color>
+    <color name="lock_bg_end">#b71c1c</color>
+    <!-- 聚焦/选择态 -->
+    <color name="focus_color">#FFFFFF</color>
+</resources>

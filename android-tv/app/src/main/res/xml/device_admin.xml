@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [android-tv] 设备管理员策略（项2 防卸载）
+     仅用于「禁止卸载本应用」，不申请任何其他设备管理能力 -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+    </uses-policies>
+</device-admin>

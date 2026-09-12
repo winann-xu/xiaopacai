@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [android-tv] 小趴菜 TVOS 版 AndroidManifest — LEANBACK_LAUNCHER 入口 -->
+<!-- 适配小米电视（MIUI TV / HyperOS），纯遥控器 D-pad 交互 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- === 核心权限 === -->
+    <!-- 应用使用时长统计（受限权限，需用户授予） -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- 前台服务 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 通知 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 网络（云端同步 + 版本检查） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- 开机自启 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 忽略电池优化 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 系统窗口（锁屏覆盖） -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 【B10】应用内升级：系统安装器回退路径（设备所有者时走静默安装，不需要它） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- TV 硬件特性声明 -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
+    <application
+        android:name=".XiaopacaiTVApp"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:banner="@drawable/tv_banner"
+        android:theme="@style/Theme.XiaopacaiTV"
+        android:usesCleartextTraffic="true"
+        tools:ignore="UsesCleartextTraffic">
+
+        <!-- ==================== TV 主 Activity ==================== -->
+        <activity
+            android:name=".ui.TvHomeActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.XiaopacaiTV"
+            android:screenOrientation="landscape"
+            android:resizeableActivity="true"
+            android:autoRemoveFromRecents="false">
+
+            <!-- LEANBACK_LAUNCHER：Android TV 原生桌面入口
+                 LAUNCHER：国内电视常见第三方桌面（当贝桌面等）只列这一类目 ——
+                 真机实测（小米电视 .21）：只有 LEANBACK_LAUNCHER 时桌面完全看不到图标。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- ==================== 锁屏覆盖 Activity（超时后全屏锁屏） ==================== -->
+        <activity
+            android:name=".ui.lock.BlockOverlayActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV.LockOverlay" />
+
+        <!-- ==================== 家长登录 Activity（账号 + 密码） ==================== -->
+        <activity
+            android:name=".ui.login.ParentLoginActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV.ParentLogin" />
+
+        <!-- ==================== 设置 Activity（家长配置） ==================== -->
+        <activity
+            android:name=".ui.settings.SettingsActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV" />
+
+        <!-- ==================== 【A4/A8】守护状态与权限引导 ==================== -->
+        <activity
+            android:name=".ui.guard.GuardStatusActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV" />
+
+        <!-- ==================== 【A12】今日使用明细 ==================== -->
+        <activity
+            android:name=".ui.usage.UsageDetailActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV" />
+
+        <!-- ==================== 【B10】应用内升级 ==================== -->
+        <activity
+            android:name=".ui.upgrade.UpgradeActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV" />
+
+        <!-- ==================== 【B13】关于 ==================== -->
+        <activity
+            android:name=".ui.about.AboutActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV" />
+
+        <!-- ==================== 账号安全 Activity（解绑本机 / 解除设备所有者 安全阀） ==================== -->
+        <activity
+            android:name=".ui.security.AccountSecurityActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV" />
+
+        <!-- ==================== 白名单管理 Activity ==================== -->
+        <activity
+            android:name=".ui.whitelist.WhitelistActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV" />
+
+        <!-- ==================== 豁免请求 Activity ==================== -->
+        <activity
+            android:name=".ui.exemption.ExemptionRequestActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV" />
+
+        <!-- ==================== 公告管理 Activity（家长侧） ==================== -->
+        <activity
+            android:name=".ui.announcement.AnnouncementActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV" />
+
+        <!-- ==================== 公告弹窗 Activity ==================== -->
+        <activity
+            android:name=".ui.announcement.AnnouncementOverlayActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV.Announcement" />
+
+        <!-- ==================== 就寝时段设置 Activity ==================== -->
+        <activity
+            android:name=".ui.bedtime.BedtimeActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.XiaopacaiTV" />
+
+        <!-- ==================== 前台服务（心跳 + 时长统计） ==================== -->
+        <service
+            android:name=".service.TVGuardianForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false" />
+
+        <!-- ==================== 锁屏覆盖服务（前台 + WindowManager overlay） ==================== -->
+        <service
+            android:name=".service.LockOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false" />
+
+        <!-- ==================== 云端同步服务（心跳 + 策略 + 使用上报） ==================== -->
+        <!-- [BUGFIX] 此前漏声明：ActivityManager 报 "Unable to start service ... not found"，
+             导致 /api/v1/device/* 心跳/策略/上报从未真正运行 -->
+        <service
+            android:name=".service.CloudSyncServiceTV"
+            android:exported="false"
+            android:stopWithTask="false" />
+
+        <!-- ==================== P2P 实时通道服务（TCP + mTLS 长连接，方案 B） ==================== -->
+        <!-- 补齐电视端 P2P 会话：Web 端「下发策略」走 P2pListenerService.SendToDevice，
+             没有它则恒判「设备离线」（与设备列表的「在线」自相矛盾） -->
+        <service
+            android:name=".service.TvP2pService"
+            android:exported="false"
+            android:stopWithTask="false" />
+
+        <!-- ==================== 防绕过服务 ==================== -->
+        <service
+            android:name=".service.AntiBypassServiceTV"
+            android:exported="false"
+            android:stopWithTask="false" />
+
+        <!-- ==================== 篡改告警服务 ==================== -->
+        <service
+            android:name=".service.TamperAlertService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false" />
+
+        <!-- ==================== 【项2】防绕过三件套 ==================== -->
+
+        <!-- 看门狗闹钟接收器：进程被杀后由系统闹钟把守护服务拉回来（每分钟自检） -->
+        <receiver
+            android:name=".service.GuardianWatchdogReceiver"
+            android:exported="false" />
+
+        <!-- 无障碍守护：超时状态下发现切到其他应用 → 立刻盖回锁屏（需家长在系统设置里手动开启） -->
+        <service
+            android:name=".service.TVAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/tv_accessibility_service" />
+        </service>
+
+        <!-- 设备管理员：激活后禁止卸载本应用（需家长在系统设置里手动激活） -->
+        <receiver
+            android:name=".service.GuardianDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ==================== 开机广播接收器 ==================== -->
+        <receiver
+            android:name=".service.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ==================== 事件广播接收器（应用更新检测） ==================== -->
+        <receiver
+            android:name=".service.TVEventReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ==================== 文件提供者（APK 更新安装） ==================== -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updatefileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- ==================== 【B10】静默安装结果回调 ==================== -->
+        <receiver
+            android:name=".service.UpgradeInstallReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.xiaopacai.tvos.UPGRADE_INSTALL_RESULT" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ==================== 【B10】升级包 URI 共享（回退系统安装器时用） ==================== -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+    </application>
+
+</manifest>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [android-tv] 主题 — 小趴菜 TVOS 版 -->
+<!-- 使用 AppCompat 作为 XML 主题基础，Compose 层使用 TV Material -->
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ===== 应用主主题（深色、电视优化） ===== -->
+    <style name="Theme.XiaopacaiTV" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">@color/xiaopacai_green</item>
+        <item name="colorPrimaryDark">@color/xiaopacai_green_dark</item>
+        <item name="colorAccent">@color/xiaopacai_orange</item>
+        <item name="colorError">@color/xiaopacai_red</item>
+        <item name="android:colorBackground">@color/bg_dark</item>
+        <item name="android:windowBackground">@color/bg_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowContentTransitions">true</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+
+    <!-- ===== 锁屏覆盖主题（全屏、锁屏态） ===== -->
+    <style name="Theme.XiaopacaiTV.LockOverlay" parent="Theme.XiaopacaiTV">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+        <item name="android:colorBackground">@color/bg_dark</item>
+        <item name="android:colorPrimaryDark">@color/xiaopacai_red_dark</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
+
+    <!-- ===== 家长登录主题 ===== -->
+    <style name="Theme.XiaopacaiTV.ParentLogin" parent="Theme.AppCompat.Dialog">
+        <item name="colorPrimary">@color/xiaopacai_green</item>
+        <item name="android:windowBackground">@color/bg_surface</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">false</item>
+        <item name="android:windowIsFloating">false</item>
+    </style>
+
+    <!-- ===== 公告弹窗主题 ===== -->
+    <style name="Theme.XiaopacaiTV.Announcement" parent="Theme.XiaopacaiTV">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:colorBackground">@color/bg_dark</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- ===== 按钮样式 ===== -->
+    <style name="Widget.XiaopacaiTV.Button" parent="Widget.AppCompat.Button.Borderless.Colored">
+        <item name="android:minHeight">72dp</item>
+        <item name="android:paddingStart">32dp</item>
+        <item name="android:paddingEnd">32dp</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:letterSpacing">0.05</item>
+    </style>
+
+    <!-- ===== 图标按钮（电视遥控器导航用） ===== -->
+    <style name="Widget.XiaopacaiTV.IconButton" parent="Widget.AppCompat.Button.Borderless">
+        <item name="android:minWidth">72dp</item>
+        <item name="android:minHeight">72dp</item>
+    </style>
+
+</resources>

@@ -81,3 +81,8 @@ dist/
 
 # === PyInstaller 解包目录（误提交排除） ===
 *_extracted/
+
+# === Android TV（TV 线，分支 tvos） ===
+android-tv/.gradle/
+android-tv/local.properties
+android-tv/tools/snapshots/

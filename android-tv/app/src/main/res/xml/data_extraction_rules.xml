@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [android-tv] 数据提取规则 — 不允许备份 -->
+<data-extraction-rules>
+    <cloud-backup>
+        <disable />
+    </cloud-backup>
+</data-extraction-rules>

@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [android-tv] 字符串资源 — 小趴菜 TVOS 版 -->
+<resources>
+    <!-- 应用名称 -->
+    <string name="app_name">小趴菜 TV</string>
+    <string name="app_name_short">小趴菜</string>
+
+    <!-- 【项2】无障碍守护（防「换台逃逸」）—— 显示在系统「设置 → 无障碍」列表里 -->
+    <string name="accessibility_service_label">小趴菜电视守护</string>
+    <string name="accessibility_service_summary">超时后防止孩子切到其他应用</string>
+    <string name="accessibility_service_description">小趴菜电视守护：每日时长用完后，防止孩子通过遥控器 HOME 键或切换应用绕过限制。仅识别前台应用名称，不读取屏幕内容。</string>
+
+    <!-- 主界面 -->
+    <string name="home_title">小趴菜 · 电视守护</string>
+    <string name="home_status_running">守护中</string>
+    <string name="home_status_paused">已暂停</string>
+    <string name="home_status_locked">已锁定</string>
+    <string name="home_today_usage">今日已用</string>
+    <string name="home_daily_limit">每日限额</string>
+    <string name="home_settings">⚙ 家长设置</string>
+    <string name="home_whitelist">📺 白名单</string>
+    <string name="home_pause">⏸ 暂停计时</string>
+    <string name="home_resume">▶ 恢复计时</string>
+    <string name="home_about">ℹ 关于</string>
+
+    <!-- 锁屏 -->
+    <string name="lock_title">⏰ 看电视时间到啦！</string>
+    <string name="lock_message">今日电视时间已用完\n明天再来吧～</string>
+    <string name="lock_countdown">%1$d 分钟后可以重新开始</string>
+    <string name="lock_parent_override">🔑 家长紧急停用</string>
+    <string name="lock_go_home">🏠 返回首页</string>
+    <string name="lock_whitelist_apps">白名单应用不受限制</string>
+
+    <!-- 家长登录 -->
+    <string name="login_title">家长登录</string>
+    <string name="login_account">账号（邮箱）</string>
+    <string name="login_password">密码</string>
+    <string name="login_submit">登录</string>
+    <string name="login_wrong">账号或密码错误，请重试</string>
+    <string name="login_cancel">取消</string>
+
+    <!-- 设置 -->
+    <string name="settings_title">家长设置</string>
+    <string name="settings_daily_limit">每日限额（分钟）</string>
+    <string name="settings_whitelist_time">白名单时段</string>
+    <string name="settings_whitelist_start">开始时间</string>
+    <string name="settings_whitelist_end">结束时间</string>
+    <string name="settings_parent_account">家长账号</string>
+    <string name="settings_cloud_sync">云端同步</string>
+    <string name="settings_cloud_host">服务器地址</string>
+    <string name="settings_cloud_port">服务器端口</string>
+    <string name="settings_device_name">设备名称</string>
+    <string name="settings_save">保存</string>
+    <string name="settings_reset">恢复默认</string>
+
+    <!-- 白名单 -->
+    <string name="whitelist_title">白名单应用</string>
+    <string name="whitelist_empty">暂无白名单应用</string>
+    <string name="whitelist_add">添加应用</string>
+    <string name="whitelist_remove">移除</string>
+    <string name="whitelist_desc">白名单应用不受每日时长限制</string>
+
+    <!-- 关于 -->
+    <string name="about_title">关于小趴菜 TV</string>
+    <string name="about_version">版本 %1$s</string>
+    <string name="about_commit">提交 %1$s</string>
+    <string name="about_build">构建时间 %1$s</string>
+    <string name="about_open_source">开源免费 · 本地优先 · 自托管</string>
+    <string name="about_github">GitHub: github.com/xiaopacai</string>
+
+    <!-- 状态 -->
+    <string name="status_connected">已连接云端</string>
+    <string name="status_disconnected">未连接云端</string>
+    <string name="status_error">连接错误</string>
+    <string name="status_syncing">同步中…</string>
+
+    <!-- 设备管理 -->
+    <string name="device_admin_description">小趴菜 TV — 设备管理员权限用于防止应用被卸载</string>
+
+    <!-- 紧急 -->
+    <string name="emergency_call">📞 紧急电话</string>
+    <string name="emergency_call_hint">紧急情况请拨打 110 或联系家长</string>
+
+    <!-- 品牌 -->
+    <string name="brand_footer">🥬 小趴菜 · 守护孩子的健康使用习惯\n紧急情况请拨打电话联系家长或警方</string>
+</resources>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [android-tv] FileProvider 路径：升级包（B10 回退系统安装器时用） -->
+<paths>
+    <files-path name="upgrade" path="upgrade/" />
+</paths>
