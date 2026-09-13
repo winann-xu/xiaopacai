@@ -190,14 +190,29 @@ fun AccountSecurityScreen(context: Context, onBack: () -> Unit) {
                     enabled = !busy,
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
                     modifier = Modifier.fillMaxWidth().onPreviewKeyEvent { e ->
-                        if (e.type == KeyEventType.KeyDown &&
-                            (e.key == Key.DirectionDown || e.key == Key.DirectionRight)
-                        ) {
-                            passwordFocus.requestFocus()
-                            true
-                        } else false
+                        // [FIX-2026-09-13-FIELD-EDIT] 与登录页同因：旧实现把右键也拿去跳框，
+                        // 遥控器改不了预填的账号。现在只把「下」当跳框，左右留给光标移动。
+                        if (e.type != KeyEventType.KeyDown) false
+                        else when (e.key) {
+                            Key.DirectionDown -> {
+                                passwordFocus.requestFocus()
+                                true
+                            }
+                            else -> false
+                        }
                     }
                 )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    OutlinedButton(
+                        onClick = { accountInput = "" },
+                        enabled = !busy,
+                        modifier = Modifier.height(40.dp)
+                    ) { Text("清除账号", fontSize = 13.sp) }
+                }
                 Spacer(modifier = Modifier.height(6.dp))
                 OutlinedTextField(
                     value = password,

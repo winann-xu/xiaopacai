@@ -26,10 +26,12 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -146,7 +148,10 @@ fun ParentLoginScreen(
     onSuccess: (accessToken: String) -> Unit,
     onCancel: () -> Unit
 ) {
-    var account by remember { mutableStateOf("") }
+    // [FIX-2026-09-13-FIELD-EDIT] 账号改用 TextFieldValue：需要**读光标位置**才能判断
+    // 「方向键是移动光标、还是该跳出输入框」。旧实现把右键无条件吞掉去跳密码框，
+    // 导致遥控器右键永远进不了文本编辑 —— 预填的旧账号既移不了光标也删不掉（真机 .22 反馈）。
+    var account by remember { mutableStateOf(TextFieldValue("")) }
     var password by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
@@ -156,10 +161,12 @@ fun ParentLoginScreen(
     val accountFocus = remember { FocusRequester() }
     val passwordFocus = remember { FocusRequester() }
     val loginFocus = remember { FocusRequester() }
+    val clearAccountFocus = remember { FocusRequester() }
 
-    // 预填已记忆账号（密码永不预填）
+    // 预填已记忆账号（密码永不预填）；光标放到末尾，配合「清除」按钮即可改账号
     LaunchedEffect(Unit) {
-        account = SharedPreferenceHelperTV.getParentAccount(context).first()
+        val saved = SharedPreferenceHelperTV.getParentAccount(context).first()
+        account = TextFieldValue(saved, selection = TextRange(saved.length))
         accountFocus.requestFocus()
     }
 
@@ -169,18 +176,18 @@ fun ParentLoginScreen(
         when {
             isLoading -> Unit
             password.isBlank() -> errorMsg = "请输入密码"
-            needAccount && account.isBlank() -> errorMsg = "请输入账号和密码"
+            needAccount && account.text.isBlank() -> errorMsg = "请输入账号和密码"
             else -> {
                 isLoading = true
                 errorMsg = null
                 scope.launch {
                     if (emergencyMode) {
                         when (val result =
-                            EmergencyReleaseServiceTV.verifyPassword(context, password, account)) {
+                            EmergencyReleaseServiceTV.verifyPassword(context, password, account.text)) {
                             is EmergencyReleaseServiceTV.Result.Success -> {
-                                if (account.isNotBlank()) {
+                                if (account.text.isNotBlank()) {
                                     SharedPreferenceHelperTV.saveParentAccount(
-                                        context, account.trim().lowercase()
+                                        context, account.text.trim().lowercase()
                                     )
                                 }
                                 onSuccess("")
@@ -194,7 +201,7 @@ fun ParentLoginScreen(
                         val port = SharedPreferenceHelperTV.getCloudPort(context).first()
                         val url = NetworkHelper.buildBaseUrl(host, port) + "/api/auth/login"
                         val payload = JSONObject().apply {
-                            put("Username", account.trim())
+                            put("Username", account.text.trim())
                             put("Password", password)
                         }.toString()
 
@@ -204,7 +211,7 @@ fun ParentLoginScreen(
                             code in 200..299 -> {
                                 // 只记账号，不记密码
                                 SharedPreferenceHelperTV.saveParentAccount(
-                                    context, account.trim().lowercase()
+                                    context, account.text.trim().lowercase()
                                 )
                                 val token = runCatching {
                                     JSONObject(body).optString("accessToken", "")
@@ -263,28 +270,81 @@ fun ParentLoginScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            OutlinedTextField(
-                value = account,
-                onValueChange = { account = it },
-                label = { Text("账号（邮箱）") },
-                singleLine = true,
-                enabled = !isLoading,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(accountFocus)
-                    .onPreviewKeyEvent { e ->
-                        // 遥控器方向键必须在输入框消费之前截获，否则焦点出不了输入框
-                        if (e.type == KeyEventType.KeyDown &&
-                            (e.key == Key.DirectionDown || e.key == Key.DirectionRight)
-                        ) {
-                            passwordFocus.requestFocus()
-                            true
-                        } else false
-                    },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Email,
-                    imeAction = ImeAction.Next
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = account,
+                    onValueChange = { account = it },
+                    label = { Text("账号（邮箱）") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(accountFocus)
+                        .onPreviewKeyEvent { e ->
+                            if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (e.key) {
+                                // [FIX-2026-09-13-FIELD-EDIT] 旧实现在这里无条件吞掉右键去跳密码框，
+                                // 遥控器根本进不了文本编辑。现在：光标不在末尾 → 交给输入框自己移动光标；
+                                // 已在末尾/已空 → 才跳出（先去「清除」按钮，再往下才是密码框）。
+                                Key.DirectionDown -> {
+                                    passwordFocus.requestFocus()
+                                    true
+                                }
+                                Key.DirectionRight -> {
+                                    if (account.text.isEmpty()) {
+                                        clearAccountFocus.requestFocus(); true
+                                    } else {
+                                        false // 让输入框把光标右移
+                                    }
+                                }
+                                Key.DirectionLeft -> {
+                                    // 光标已在最左：吞掉，避免焦点乱跑到取消按钮
+                                    account.selection.start == 0 && account.selection.end == 0
+                                }
+                                else -> false
+                            }
+                        },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Email,
+                        imeAction = ImeAction.Next
+                    )
                 )
+                OutlinedButton(
+                    onClick = {
+                        account = TextFieldValue("")
+                        accountFocus.requestFocus()
+                    },
+                    enabled = !isLoading,
+                    modifier = Modifier
+                        .height(64.dp)
+                        .focusRequester(clearAccountFocus)
+                        .onPreviewKeyEvent { e ->
+                            if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (e.key) {
+                                Key.DirectionDown -> {
+                                    passwordFocus.requestFocus(); true
+                                }
+                                Key.DirectionLeft -> {
+                                    accountFocus.requestFocus(); true
+                                }
+                                else -> false
+                            }
+                        }
+                ) {
+                    Text("清除", fontSize = 20.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "遥控器：← → 移动光标，↓ 切到密码框；换账号点右边「清除」",
+                fontSize = 14.sp,
+                color = Color(0xFF888888),
+                textAlign = TextAlign.Center
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -302,11 +362,13 @@ fun ParentLoginScreen(
                     .onPreviewKeyEvent { e ->
                         if (e.type != KeyEventType.KeyDown) false
                         else when (e.key) {
-                            Key.DirectionUp, Key.DirectionLeft -> {
+                            // [FIX-2026-09-13-FIELD-EDIT] 上下才是跳框；左右留给密码框内部编辑
+                            // （旧实现左右也拿去跳框 → 已输入的密码改不了、删不掉）
+                            Key.DirectionUp -> {
                                 accountFocus.requestFocus()
                                 true
                             }
-                            Key.DirectionDown, Key.DirectionRight -> {
+                            Key.DirectionDown -> {
                                 loginFocus.requestFocus()
                                 true
                             }
