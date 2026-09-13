@@ -56,6 +56,33 @@ class CloudSyncServiceTV : Service() {
         private const val API_HEARTBEAT = "/api/v1/device/heartbeat"
         private const val API_POLICIES = "/api/v1/device/policies"
         private const val API_USAGE_REPORT = "/api/v1/device/usage-report"
+
+        /**
+         * [FIX-2026-09-13-TOKEN-RENEW] 设备令牌有效期 24h，本地令牌剩余寿命低于此值即提前续签。
+         *
+         * 历史事故（2026-09-13 真机）：设备令牌过期后，ensureToken 见本地有令牌就直接返回、
+         * 永不重新注册 → 心跳/公告/更新检查全部 401，界面「○ 未连接服务器 · 最后心跳 <过期时刻>」，
+         * 且家长重新绑定也救不回（绑定当时不下发令牌），只能到现场重装应用。
+         * 现在三重保险：① 到期前 12h 主动续签；② 任何鉴权接口 401 → 强制续签并重试；
+         * ③ 服务端 /register 对过期令牌也放行续签（只验签名/主体/权限）。
+         */
+        private const val RENEW_BEFORE_MS = 12 * 60 * 60 * 1000L
+
+        /** 解析 JWT 的 exp（毫秒时间戳）；解析失败返回 0（视作「无法判断」，不强行续签） */
+        private fun tokenExpiryMillis(token: String): Long {
+            return runCatching {
+                val payload = token.split(".").getOrNull(1) ?: return 0L
+                val json = String(
+                    android.util.Base64.decode(
+                        payload,
+                        android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING
+                    ),
+                    Charsets.UTF_8
+                )
+                JSONObject(json).optLong("exp", 0L) * 1000L
+            }.getOrDefault(0L)
+        }
+
         /** 【A1】设备侧公告通道（家长在 web/手机发布 → 电视拉取 + 回执） */
         private const val API_ANNOUNCEMENTS = "/api/v1/device/announcements"
         private const val API_ANNOUNCEMENT_ACK = "/api/v1/device/announcement-ack"
@@ -275,7 +302,18 @@ class CloudSyncServiceTV : Service() {
 
         HeartbeatStatus.markAttempt()
 
-        val (code, body) = request("POST", baseUrl() + API_HEARTBEAT, payload, token)
+        var (code, body) = request("POST", baseUrl() + API_HEARTBEAT, payload, token)
+        if (code == 401) {
+            // [FIX-2026-09-13-TOKEN-RENEW] 令牌失效（过期/被轮换）→ 强制续签一次再重试，
+            // 避免「本地有令牌就永不续签」导致的永久 401 死状态（真机曾因此整夜失联）。
+            val fresh = renewToken(deviceId, token)
+            if (fresh.isNotBlank()) {
+                val retry = request("POST", baseUrl() + API_HEARTBEAT, payload, fresh)
+                code = retry.first
+                body = retry.second
+                if (code in 200..299) AppLogTV.i("CloudSync", "令牌续签后心跳已恢复")
+            }
+        }
         if (code !in 200..299) {
             Log.w(TAG, "心跳失败 HTTP $code")
             AppLogTV.w("CloudSync", "心跳失败 HTTP $code")
@@ -545,8 +583,24 @@ class CloudSyncServiceTV : Service() {
 
     private suspend fun ensureToken(deviceId: String): String {
         val existing = SharedPreferenceHelperTV.getDeviceToken(this).first()
-        if (existing.isNotBlank()) return existing
+        if (existing.isNotBlank()) {
+            // [FIX-2026-09-13-TOKEN-RENEW] 到期前主动续签；续签失败仍用旧令牌撑到 401 兜底那一跳
+            if (!needsRenew(existing)) return existing
+            val renewed = renewToken(deviceId, existing)
+            return renewed.ifBlank { existing }
+        }
+        return registerFresh(deviceId)
+    }
 
+    /** 令牌剩余寿命不足阈值（含已过期）→ 需要续签 */
+    private fun needsRenew(token: String): Boolean {
+        val exp = tokenExpiryMillis(token)
+        if (exp <= 0L) return false
+        return exp - System.currentTimeMillis() < RENEW_BEFORE_MS
+    }
+
+    /** 匿名注册（首次装机 / 服务端已删行时使用） */
+    private suspend fun registerFresh(deviceId: String): String {
         val payload = JSONObject().apply {
             put("DeviceId", deviceId)
             put("Platform", PLATFORM)
@@ -562,6 +616,39 @@ class CloudSyncServiceTV : Service() {
         if (token.isNotBlank()) {
             SharedPreferenceHelperTV.saveDeviceToken(this, token)
             Log.i(TAG, "设备注册成功，令牌已保存 deviceId=$deviceId")
+        }
+        return token
+    }
+
+    /**
+     * 带既有令牌续签 —— 服务端对「已过期」的令牌同样放行（只验签名/主体/权限），
+     * 这样电视关机/断网超过 24h 也能自愈。返回新令牌并落盘；失败返回空串。
+     * 服务端明确回 409/404（无此设备行）时退回匿名注册，避免卡死。
+     */
+    private suspend fun renewToken(deviceId: String, existingToken: String): String {
+        if (existingToken.isBlank()) return ""
+        val payload = JSONObject().apply {
+            put("DeviceId", deviceId)
+            put("Platform", PLATFORM)
+            put("ExistingToken", existingToken)
+        }.toString()
+
+        val (code, body) = request("POST", baseUrl() + API_REGISTER, payload, null)
+        if (code == 409 || code == 404) {
+            Log.w(TAG, "续签被拒（HTTP $code：服务端无此设备行）→ 退回匿名注册")
+            return registerFresh(deviceId)
+        }
+        if (code !in 200..299) {
+            Log.w(TAG, "令牌续签失败 HTTP $code")
+            AppLogTV.w("CloudSync", "令牌续签失败 HTTP $code")
+            return ""
+        }
+        val token = runCatching { JSONObject(body).optString("token", "") }.getOrDefault("")
+        if (token.isNotBlank()) {
+            SharedPreferenceHelperTV.saveDeviceToken(this, token)
+            val remainMin = (tokenExpiryMillis(token) - System.currentTimeMillis()) / 60000
+            Log.i(TAG, "设备令牌已续签，新令牌剩余 $remainMin 分钟")
+            AppLogTV.i("CloudSync", "设备令牌已续签（剩余 $remainMin 分钟）")
         }
         return token
     }
