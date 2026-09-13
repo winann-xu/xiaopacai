@@ -43,6 +43,13 @@ object CloudSyncService {
     const val POLL_INTERVAL_MS = 60 * 1000L
     const val USAGE_REPORT_INTERVAL_MS = 5 * 60 * 1000L
 
+    /**
+     * [FIX-2026-09-13-TOKEN-RENEW] 设备令牌有效期 24h，剩余寿命低于此值即主动续签。
+     * 历史隐患：令牌过期后本机所有设备接口 401，且本地「有令牌就永不重注册」导致永久失联
+     * （电视端 2026-09-13 真机事故即此；手机端同源代码同样有此隐患，一并修复）。
+     */
+    private const val TOKEN_RENEW_BEFORE_MS = 12 * 60 * 60 * 1000L
+
     private val _connectionState = MutableStateFlow(CloudSyncState.DISCONNECTED)
     val connectionState: StateFlow<CloudSyncState> = _connectionState
 
@@ -175,13 +182,16 @@ object CloudSyncService {
         return KeyStoreManager.decryptPrefsValue(encrypted)?.takeIf { it.isNotBlank() }
     }
 
-    fun registerDevice(context: Context, bindCode: String): CloudResult {
+    fun registerDevice(context: Context, bindCode: String, existingToken: String? = null): CloudResult {
         val deviceId = getDeviceId(context)
         val deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim()
         val body = JSONObject().apply {
             put("deviceId", deviceId)
             put("deviceName", deviceName)
             put("bindCode", bindCode)
+            // [FIX-2026-09-13-TOKEN-RENEW] 续签场景必须带上既有令牌：
+            // 服务端据此校验「确实是这台设备」（签名 + sub==deviceId + scope），并放行已过期令牌换新。
+            if (!existingToken.isNullOrBlank()) put("existingToken", existingToken)
             put("platform", "android")
             put("osVersion", "Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
             put("appVersion", try {
@@ -193,16 +203,20 @@ object CloudSyncService {
             when {
                 code in 200..299 -> {
                     val token = try { JSONObject(resp).optString("token", "") } catch (_: Exception) { "" }
+                    val renewed = try { JSONObject(resp).optBoolean("renewed", false) } catch (_: Exception) { false }
                     val editor = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-                        .putString(KEY_BIND_CODE, bindCode)
                         .putBoolean(KEY_REGISTERED, true)
+                // [FIX-2026-09-13-TOKEN-RENEW] 续签时不覆盖既有绑定码（bindCode 为空）
+                if (bindCode.isNotBlank()) {
+                    editor.putString(KEY_BIND_CODE, bindCode)
+                }
                 if (token.isNotBlank()) {
                     editor.putString(KEY_DEVICE_TOKEN, KeyStoreManager.encryptPrefsValue(token))
                 }
                 // [TASK-V208-UNBIND-FIX] 注册成功即视为重新进入绑定流程，清除等待重绑标记
                 editor.putBoolean(KEY_WAIT_REBIND, false)
                 editor.apply()
-                    AppLog.i(TAG, "设备注册成功 deviceId=$deviceId tokenSaved=${token.isNotBlank()}")
+                    AppLog.i(TAG, "设备注册/续签成功 deviceId=$deviceId renewed=$renewed tokenSaved=${token.isNotBlank()}")
                     _connectionState.value = CloudSyncState.CONNECTED
                     CloudResult.Success(JSONObject(resp))
                 }
@@ -219,18 +233,79 @@ object CloudSyncService {
 
     // [V2.0.5] 确保设备已注册（拿到设备令牌）：绑定成功或启动同步前调用，避免云端同步 401 死循环
     fun ensureRegistered(context: Context) {
-        if (getDeviceToken(context) != null) return
+        val existing = getDeviceToken(context)
+        if (existing != null) {
+            // [FIX-2026-09-13-TOKEN-RENEW] 令牌 24h 有效：剩余寿命不足 12h（含已过期）就主动续签。
+            // 旧实现「有令牌就直接 return」会让设备在令牌过期后永久 401（只能重装应用）。
+            if (needsRenew(existing)) renewDeviceToken(context)
+            return
+        }
         val result = registerDevice(context, "")
         if (result is CloudResult.Failed) {
             AppLog.w(TAG, "设备注册失败: ${result.reason}")
         }
     }
 
+    /** 令牌剩余寿命不足阈值（含已过期）→ 需要续签 */
+    private fun needsRenew(token: String): Boolean {
+        val exp = tokenExpiryMillis(token)
+        if (exp <= 0L) return false
+        return exp - System.currentTimeMillis() < TOKEN_RENEW_BEFORE_MS
+    }
+
+    /** 解析 JWT 的 exp（毫秒）；解析失败返回 0（无法判断时不强行续签） */
+    private fun tokenExpiryMillis(token: String): Long = try {
+        val payload = token.split(".").getOrNull(1) ?: ""
+        val json = String(
+            android.util.Base64.decode(
+                payload,
+                android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING
+            ),
+            Charsets.UTF_8
+        )
+        JSONObject(json).optLong("exp", 0L) * 1000L
+    } catch (_: Exception) {
+        0L
+    }
+
+    /**
+     * [FIX-2026-09-13-TOKEN-RENEW] 设备令牌续签：带既有令牌调 /api/v1/device/register。
+     *
+     * 服务端对「已过期」的令牌同样放行（只验签名/主体/scope），因此手机长期离线/关机
+     * 超过 24h 后也能自动恢复，而不再提示「认证失败，请重新绑定」并卡死。
+     * @return true 表示换到了新令牌
+     */
+    fun renewDeviceToken(context: Context): Boolean {
+        val old = getDeviceToken(context) ?: return false
+        val result = registerDevice(context, "", old)
+        val fresh = getDeviceToken(context)
+        val ok = result is CloudResult.Success && !fresh.isNullOrBlank() && fresh != old
+        if (ok) {
+            val remainMin = (tokenExpiryMillis(fresh!!) - System.currentTimeMillis()) / 60000
+            AppLog.i(TAG, "设备令牌已续签（剩余 $remainMin 分钟）")
+        } else {
+            AppLog.w(TAG, "设备令牌续签失败: ${(result as? CloudResult.Failed)?.reason ?: "未知"}")
+        }
+        return ok
+    }
+
     fun pullPolicies(context: Context): CloudResult {
         val token = getDeviceToken(context)
         return try {
-            val (code, resp, err) = httpGetJson(CLOUD_HOST, CLOUD_PORT,
+            var (code, resp, err) = httpGetJson(CLOUD_HOST, CLOUD_PORT,
                 "/api/v1/device/policies", token)
+            if (code == 401 && token != null) {
+                // [FIX-2026-09-13-TOKEN-RENEW] 同上：续签一次再重试，避免「请重新绑定」死提示
+                if (renewDeviceToken(context)) {
+                    val fresh = getDeviceToken(context)
+                    if (fresh != null) {
+                        val retry = httpGetJson(CLOUD_HOST, CLOUD_PORT, "/api/v1/device/policies", fresh)
+                        code = retry.first
+                        resp = retry.second
+                        err = retry.third
+                    }
+                }
+            }
             when {
                 code in 200..299 -> {
                     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
@@ -303,8 +378,22 @@ object CloudSyncService {
         }
 
         return try {
-            val (code, resp, err) = httpPostJson(CLOUD_HOST, CLOUD_PORT,
+            var (code, resp, err) = httpPostJson(CLOUD_HOST, CLOUD_PORT,
                 "/api/v1/device/heartbeat", body.toString(), token)
+            if (code == 401 && token != null) {
+                // [FIX-2026-09-13-TOKEN-RENEW] 令牌失效（过期/轮换）→ 续签一次后重试同一请求
+                if (renewDeviceToken(context)) {
+                    val fresh = getDeviceToken(context)
+                    if (fresh != null) {
+                        val retry = httpPostJson(CLOUD_HOST, CLOUD_PORT,
+                            "/api/v1/device/heartbeat", body.toString(), fresh)
+                        code = retry.first
+                        resp = retry.second
+                        err = retry.third
+                        if (code in 200..299) AppLog.i(TAG, "令牌续签后心跳已恢复")
+                    }
+                }
+            }
             when {
                 code in 200..299 -> {
                     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
